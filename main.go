@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	go_ora "github.com/sijms/go-ora/v2"
@@ -20,11 +21,13 @@ func main() {
 	tablesFlag := flag.String("tables", "", "Comma-separated list of tables to migrate")
 	outFile := flag.String("out", "migration.sql", "Output SQL file name")
 	batchSize := flag.Int("batch", 1000, "Number of rows per bulk insert")
+	perTable := flag.Bool("per-table", false, "Output to separate files per table (e.g., <tablename>.sql)")
+	parallel := flag.Bool("parallel", false, "Process tables concurrently")
 
 	flag.Parse()
 
 	if *dbURL == "" || *user == "" || *password == "" || *tablesFlag == "" {
-		fmt.Println("Usage: dbmigrator -url <dburl> -user <username> -password <password> -tables <table1,table2> [-out <outfile>] [-batch <size>]")
+		fmt.Println("Usage: dbmigrator -url <dburl> -user <username> -password <password> -tables <table1,table2> [-out <outfile>] [-batch <size>] [-per-table] [-parallel]")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -38,13 +41,20 @@ func main() {
 	log.Printf("Tables to migrate: %v", tables)
 	log.Printf("Output file: %s", *outFile)
 	log.Printf("Batch size: %d", *batchSize)
+	log.Printf("Per-table output: %v", *perTable)
+	log.Printf("Parallel processing: %v", *parallel)
 
-	// Create Output File
-	out, err := os.Create(*outFile)
-	if err != nil {
-		log.Fatalf("Error creating output file: %v\n", err)
+	var mainOut *os.File
+	var err error
+
+	// Create Single Output File if not perTable
+	if !*perTable {
+		mainOut, err = os.Create(*outFile)
+		if err != nil {
+			log.Fatalf("Error creating output file: %v\n", err)
+		}
+		defer mainOut.Close()
 	}
-	defer out.Close()
 
 	// Parse Oracle DSN
 	// e.g., oracle://user:password@host:port/service_name
@@ -82,17 +92,49 @@ func main() {
 	}
 	log.Println("Connected to Oracle Database successfully!")
 
-	for _, table := range tables {
-		err = migrateTable(db, table, out, *batchSize)
-		if err != nil {
-			log.Printf("Error migrating table %s: %v\n", table, err)
+	// Mutex for synchronizing writes to a single file when running in parallel
+	var outMutex sync.Mutex
+
+	if *parallel {
+		var wg sync.WaitGroup
+		for _, table := range tables {
+			wg.Add(1)
+			go func(t string) {
+				defer wg.Done()
+				err := migrateTable(db, t, mainOut, *batchSize, *perTable, &outMutex)
+				if err != nil {
+					log.Printf("Error migrating table %s: %v\n", t, err)
+				}
+			}(table)
+		}
+		wg.Wait()
+	} else {
+		for _, table := range tables {
+			err = migrateTable(db, table, mainOut, *batchSize, *perTable, &outMutex)
+			if err != nil {
+				log.Printf("Error migrating table %s: %v\n", table, err)
+			}
 		}
 	}
+
 	log.Println("Migration completed successfully!")
 }
 
-func migrateTable(db *sql.DB, tableName string, out *os.File, batchSize int) error {
+func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int, perTable bool, outMutex *sync.Mutex) error {
 	log.Printf("Processing table: %s...\n", tableName)
+
+	var tableOut *os.File
+	if perTable {
+		var err error
+		fileName := fmt.Sprintf("%s.sql", tableName)
+		tableOut, err = os.Create(fileName)
+		if err != nil {
+			return fmt.Errorf("failed to create output file for %s: %v", tableName, err)
+		}
+		defer tableOut.Close()
+	} else {
+		tableOut = mainOut
+	}
 
 	query := fmt.Sprintf("SELECT * FROM %s", tableName)
 	rows, err := db.Query(query)
@@ -133,14 +175,14 @@ func migrateTable(db *sql.DB, tableName string, out *os.File, batchSize int) err
 		rowCount++
 
 		if len(batch) >= batchSize {
-			writeBatch(out, tableName, cols, batch)
+			writeBatch(tableOut, tableName, cols, batch, perTable, outMutex)
 			// keep the underlying array
 			batch = batch[:0]
 		}
 	}
 
 	if len(batch) > 0 {
-		writeBatch(out, tableName, cols, batch)
+		writeBatch(tableOut, tableName, cols, batch, perTable, outMutex)
 	}
 
 	log.Printf("Finished processing table: %s (%d rows)\n", tableName, rowCount)
@@ -196,11 +238,17 @@ func processRow(values []interface{}, colTypes []*sql.ColumnType) string {
 	return strings.Join(row, ", ")
 }
 
-func writeBatch(out *os.File, tableName string, cols []string, batch []string) {
+func writeBatch(out *os.File, tableName string, cols []string, batch []string, perTable bool, outMutex *sync.Mutex) {
 	// Build insert statement
 	colStr := strings.Join(cols, ", ")
 	valStr := strings.Join(batch, ",\n    ")
 	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n    %s;\n\n", tableName, colStr, valStr)
+
+	if !perTable {
+		outMutex.Lock()
+		defer outMutex.Unlock()
+	}
+
 	_, err := out.WriteString(stmt)
 	if err != nil {
 		log.Printf("Warning: failed to write batch for table %s: %v\n", tableName, err)
