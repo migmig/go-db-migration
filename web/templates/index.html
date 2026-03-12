@@ -4,68 +4,319 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: inline-block; width: 150px; }
-        input[type="text"], input[type="password"] { width: 300px; padding: 5px; }
-        button { padding: 8px 15px; cursor: pointer; }
-        #table-section, #progress-section { margin-top: 30px; display: none; }
-        .table-list { max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; }
-        .table-item { margin-bottom: 5px; }
-        .progress-container { margin-bottom: 15px; border: 1px solid #eee; padding: 10px; border-radius: 4px; }
-        .progress-bar-bg { background-color: #f3f3f3; height: 20px; width: 100%; border-radius: 10px; overflow: hidden; }
-        .progress-bar-fill { background-color: #4CAF50; height: 100%; width: 0%; transition: width 0.3s; }
-        .progress-text { font-size: 14px; margin-top: 5px; }
-        #download-btn { display: none; margin-top: 20px; background-color: #008CBA; color: white; border: none; font-size: 16px; font-weight: bold; }
-        #download-btn:hover { background-color: #005f7a; }
-        .error-msg { color: red; margin-top: 10px; }
+        :root {
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --success-color: #10b981;
+            --success-hover: #059669;
+            --danger-color: #ef4444;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.5;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-main);
+            letter-spacing: -0.025em;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            color: var(--text-main);
+            border-bottom: 2px solid var(--bg-color);
+            padding-bottom: 0.75rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: var(--text-main);
+            font-size: 0.9rem;
+        }
+
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        input[type="text"]:focus, input[type="password"]:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            box-shadow: var(--shadow-sm);
+        }
+        .btn-primary:hover:not(:disabled) {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+            box-shadow: var(--shadow-sm);
+        }
+        .btn-success:hover:not(:disabled) {
+            background-color: var(--success-hover);
+        }
+
+        button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        #table-section, #progress-section {
+            display: none;
+            animation: fadeIn 0.4s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .table-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 0.5rem;
+            background-color: var(--bg-color);
+            margin-bottom: 1rem;
+        }
+
+        .table-item {
+            padding: 0.5rem;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+        }
+        .table-item:hover {
+            background-color: var(--card-bg);
+        }
+
+        .table-item input[type="checkbox"] {
+            margin-right: 0.75rem;
+            width: 1.1rem;
+            height: 1.1rem;
+            cursor: pointer;
+            accent-color: var(--primary-color);
+        }
+        .table-item label {
+            margin-bottom: 0;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding: 0.5rem;
+        }
+        .checkbox-container input {
+            margin-right: 0.75rem;
+            width: 1.1rem;
+            height: 1.1rem;
+            accent-color: var(--primary-color);
+            cursor: pointer;
+        }
+        .checkbox-container label {
+            margin-bottom: 0;
+            cursor: pointer;
+        }
+
+        .progress-container {
+            margin-bottom: 1.25rem;
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            background-color: var(--bg-color);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .progress-bar-bg {
+            background-color: var(--border-color);
+            height: 12px;
+            width: 100%;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            background-color: var(--primary-color);
+            height: 100%;
+            width: 0%;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .progress-text {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        #download-btn {
+            display: none;
+            margin-top: 1.5rem;
+        }
+
+        .error-msg {
+            color: var(--danger-color);
+            margin-top: 0.75rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
     </style>
 </head>
 <body>
-    <h1>{{ .title }}</h1>
+    <div class="container">
+        <h1>{{ .title }}</h1>
 
-    <div id="conn-section">
-        <h2>1. Oracle DB Connection</h2>
-        <div class="form-group">
-            <label for="oracleUrl">Oracle URL:</label>
-            <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required>
+        <div id="conn-section" class="card">
+            <h2>1. Oracle DB Connection</h2>
+            <div class="form-group">
+                <label for="oracleUrl">Oracle URL</label>
+                <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="likeQuery">Table Filter (LIKE)</label>
+                <input type="text" id="likeQuery" placeholder="e.g. USERS_%">
+            </div>
+            <button id="btn-connect" class="btn-primary">Connect & Fetch Tables</button>
+            <div id="conn-error" class="error-msg"></div>
         </div>
-        <div class="form-group">
-            <label for="username">Username:</label>
-            <input type="text" id="username" required>
-        </div>
-        <div class="form-group">
-            <label for="password">Password:</label>
-            <input type="password" id="password" required>
-        </div>
-        <div class="form-group">
-            <label for="likeQuery">Table Filter (LIKE):</label>
-            <input type="text" id="likeQuery" placeholder="e.g. USERS_%">
-        </div>
-        <button id="btn-connect">Connect & Fetch Tables</button>
-        <div id="conn-error" class="error-msg"></div>
-    </div>
 
-    <div id="table-section">
-        <h2>2. Select Tables</h2>
-        <div class="form-group">
-            <input type="checkbox" id="checkAll"> <label for="checkAll" style="width: auto;">Select All</label>
+        <div id="table-section" class="card">
+            <h2>2. Select Tables</h2>
+            <div class="checkbox-container">
+                <input type="checkbox" id="checkAll">
+                <label for="checkAll">Select All Tables</label>
+            </div>
+            <div class="table-list" id="tableList">
+                <!-- Tables will be injected here -->
+            </div>
+            <button id="btn-migrate" class="btn-success">Start Migration</button>
+            <div id="migrate-error" class="error-msg"></div>
         </div>
-        <div class="table-list" id="tableList">
-            <!-- Tables will be injected here -->
-        </div>
-        <br>
-        <button id="btn-migrate" style="background-color: #4CAF50; color: white; border: none;">Start Migration</button>
-        <div id="migrate-error" class="error-msg"></div>
-    </div>
 
-    <div id="progress-section">
-        <h2>3. Migration Progress</h2>
-        <div id="progress-container">
-            <!-- Progress bars will be injected here -->
+        <div id="progress-section" class="card">
+            <h2>3. Migration Progress</h2>
+            <div id="progress-container">
+                <!-- Progress bars will be injected here -->
+            </div>
+            <button id="download-btn" class="btn-primary" onclick="downloadZipArchive()">
+                <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download ZIP Archive
+            </button>
         </div>
-        <button id="download-btn" onclick="downloadZipArchive()">Download ZIP Archive</button>
     </div>
 
     <script>
@@ -90,7 +341,7 @@
             }
 
             btnConnect.disabled = true;
-            btnConnect.innerText = 'Connecting...';
+            btnConnect.innerHTML = '<span style="opacity:0.8;">Connecting...</span>';
 
             try {
                 const res = await fetch('/api/tables', {
@@ -108,6 +359,9 @@
                 document.getElementById('table-section').style.display = 'block';
                 document.getElementById('progress-section').style.display = 'none';
                 downloadBtn.style.display = 'none';
+
+                // Smooth scroll to tables
+                document.getElementById('table-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             } catch (err) {
                 errorDiv.innerText = err.message;
             } finally {
@@ -119,15 +373,20 @@
         function renderTableList(tables) {
             const listDiv = document.getElementById('tableList');
             listDiv.innerHTML = '';
+            checkAll.checked = false;
+
             if (tables.length === 0) {
-                listDiv.innerHTML = '<p>No tables found.</p>';
+                listDiv.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center;">No tables found matching criteria.</div>';
                 return;
             }
 
             tables.forEach(table => {
                 const div = document.createElement('div');
                 div.className = 'table-item';
-                div.innerHTML = `<input type="checkbox" class="table-cb" value="${table}"> <label style="width:auto;">${table}</label>`;
+                div.innerHTML = `
+                    <input type="checkbox" class="table-cb" id="cb-${table}" value="${table}">
+                    <label for="cb-${table}">${table}</label>
+                `;
                 listDiv.appendChild(div);
             });
         }
@@ -160,6 +419,9 @@
             document.getElementById('progress-section').style.display = 'block';
             downloadBtn.style.display = 'none';
             btnMigrate.disabled = true;
+            btnMigrate.innerHTML = '<span style="opacity:0.8;">Migration Running...</span>';
+
+            document.getElementById('progress-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
             try {
                 const res = await fetch('/api/migrate', {
@@ -175,6 +437,7 @@
             } catch (err) {
                 errorDiv.innerText = err.message;
                 btnMigrate.disabled = false;
+                btnMigrate.innerText = 'Start Migration';
             }
         });
 
@@ -202,8 +465,9 @@
 
             if (msg.type === 'all_done') {
                 currentZipId = msg.zip_file_id;
-                downloadBtn.style.display = 'block';
+                downloadBtn.style.display = 'flex';
                 btnMigrate.disabled = false;
+                btnMigrate.innerText = 'Start Migration';
                 return;
             }
 
@@ -213,11 +477,13 @@
                 wrapper.id = `prog-${msg.table}`;
                 wrapper.className = 'progress-container';
                 wrapper.innerHTML = `
-                    <div style="font-weight:bold; margin-bottom:5px;">${msg.table}</div>
+                    <div class="progress-header">
+                        <span class="progress-title">${msg.table}</span>
+                        <span id="prog-text-${msg.table}" class="progress-text">Initializing...</span>
+                    </div>
                     <div class="progress-bar-bg">
                         <div id="prog-fill-${msg.table}" class="progress-bar-fill"></div>
                     </div>
-                    <div id="prog-text-${msg.table}" class="progress-text">Initializing...</div>
                 `;
                 container.appendChild(wrapper);
                 tableProgressData[msg.table] = { total: 0, count: 0 };
@@ -233,9 +499,20 @@
                 const data = tableProgressData[msg.table];
                 data.count = data.total; // ensure 100%
                 updateProgressUI(msg.table);
-                document.getElementById(`prog-text-${msg.table}`).innerText += ' - COMPLETED';
+
+                const fill = document.getElementById(`prog-fill-${msg.table}`);
+                fill.style.backgroundColor = 'var(--success-color)';
+                document.getElementById(`prog-text-${msg.table}`).innerHTML = `
+                    <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;color:var(--success-color)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    <span style="color:var(--success-color);font-weight:600">COMPLETED</span>
+                `;
             } else if (msg.type === 'error') {
-                document.getElementById(`prog-text-${msg.table}`).innerHTML = `<span style="color:red">ERROR: ${msg.error}</span>`;
+                const fill = document.getElementById(`prog-fill-${msg.table}`);
+                fill.style.backgroundColor = 'var(--danger-color)';
+                fill.style.width = '100%';
+                document.getElementById(`prog-text-${msg.table}`).innerHTML = `
+                    <span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}
+                `;
             }
         }
 
@@ -255,7 +532,10 @@
             }
 
             fill.style.width = `${pct}%`;
-            text.innerText = `${pct}% (${data.count} / ${data.total} rows)`;
+            // Only update text if it hasn't been marked completed or error
+            if (!text.innerHTML.includes('COMPLETED') && !text.innerHTML.includes('ERROR')) {
+                text.innerText = `${pct}% (${data.count.toLocaleString()} / ${data.total.toLocaleString()} rows)`;
+            }
         }
 
         function downloadZipArchive() {
