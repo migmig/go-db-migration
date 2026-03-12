@@ -21,6 +21,9 @@ func TestMigrateTable(t *testing.T) {
 	defer db.Close()
 
 	tableName := "MOCK_TABLE"
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM MOCK_TABLE").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(2))
+
 	rows := sqlmock.NewRows([]string{"ID", "NAME"}).
 		AddRow(1, "Alice").
 		AddRow(2, "Bob")
@@ -38,7 +41,7 @@ func TestMigrateTable(t *testing.T) {
 	var outMutex sync.Mutex
 	cfg := &config.Config{BatchSize: 1000}
 
-	err = migration.MigrateTable(db, nil, tableName, mainBuf, cfg, &outMutex)
+	err = migration.MigrateTable(db, nil, tableName, mainBuf, cfg, &outMutex, nil)
 	if err != nil {
 		t.Errorf("MigrateTable returned error: %v", err)
 	}

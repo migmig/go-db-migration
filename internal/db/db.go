@@ -65,6 +65,34 @@ func ConnectPostgres(url string) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(context.Background(), config)
 }
 
+func FetchTables(db *sql.DB, likeFilter string) ([]string, error) {
+	query := `SELECT table_name FROM user_tables`
+	var args []interface{}
+
+	if likeFilter != "" {
+		query += ` WHERE table_name LIKE :1`
+		args = append(args, likeFilter)
+	}
+	query += ` ORDER BY table_name`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return nil, err
+		}
+		tables = append(tables, tableName)
+	}
+
+	return tables, nil
+}
+
 func TableExists(ctx context.Context, pool PGPool, schema, table string) (bool, error) {
 	var exists bool
 	query := `

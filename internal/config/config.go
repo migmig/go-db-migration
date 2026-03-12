@@ -22,6 +22,10 @@ type Config struct {
 	WithDDL bool
 	DryRun  bool
 	LogJSON bool
+	// v3 flags
+	WebMode bool
+	// internal use for zip generation
+	OutputDir string
 }
 
 func ParseFlags() (*Config, error) {
@@ -42,8 +46,13 @@ func ParseFlags() (*Config, error) {
 	flag.BoolVar(&cfg.WithDDL, "with-ddl", false, "Generate CREATE TABLE DDLs")
 	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Verify connectivity and estimate data without actual migration")
 	flag.BoolVar(&cfg.LogJSON, "log-json", false, "Enable structured JSON logging")
+	flag.BoolVar(&cfg.WebMode, "web", false, "Run in Web UI mode")
 
 	flag.Parse()
+
+	if cfg.WebMode {
+		return cfg, nil
+	}
 
 	if cfg.OracleURL == "" || cfg.User == "" || cfg.Password == "" || *tablesFlag == "" {
 		flag.Usage()

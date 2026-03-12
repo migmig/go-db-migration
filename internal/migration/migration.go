@@ -18,16 +18,30 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ProgressTracker is used to send progress updates to the caller (e.g., Web UI)
+type ProgressTracker interface {
+	Init(table string, totalRows int)
+	Update(table string, processedRows int)
+	Done(table string)
+	Error(table string, err error)
+}
+
 type job struct {
 	tableName string
 }
 
-func Run(db *sql.DB, pgPool db.PGPool, cfg *config.Config) error {
+func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressTracker) error {
+	if cfg.OutputDir != "" {
+		if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %v", err)
+		}
+	}
+
 	if cfg.DryRun {
 		slog.Info("Dry run mode enabled. Verifying connectivity and estimating row counts.")
 		for _, table := range cfg.Tables {
 			var count int
-			err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+			err := dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 			if err != nil {
 				slog.Error("failed to get row count for table", "table", table, "error", err)
 				continue
@@ -44,7 +58,11 @@ func Run(db *sql.DB, pgPool db.PGPool, cfg *config.Config) error {
 
 	// If not direct migration, setup output file
 	if pgPool == nil && !cfg.PerTable {
-		mainOut, err = os.Create(cfg.OutFile)
+		outFile := cfg.OutFile
+		if cfg.OutputDir != "" {
+			outFile = cfg.OutputDir + "/" + outFile
+		}
+		mainOut, err = os.Create(outFile)
 		if err != nil {
 			return fmt.Errorf("error creating output file: %v", err)
 		}
@@ -65,7 +83,7 @@ func Run(db *sql.DB, pgPool db.PGPool, cfg *config.Config) error {
 	// Start workers
 	for w := 1; w <= numWorkers; w++ {
 		wg.Add(1)
-		go worker(w, db, pgPool, jobs, &wg, mainBuf, cfg, &outMutex)
+		go worker(w, dbConn, pgPool, jobs, &wg, mainBuf, cfg, &outMutex, tracker)
 	}
 
 	// Send jobs
@@ -78,25 +96,41 @@ func Run(db *sql.DB, pgPool db.PGPool, cfg *config.Config) error {
 	return nil
 }
 
-func worker(id int, db *sql.DB, pgPool db.PGPool, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex) {
+func worker(id int, dbConn *sql.DB, pgPool db.PGPool, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) {
 	defer wg.Done()
 	for j := range jobs {
 		slog.Info("worker processing table", "worker_id", id, "table", j.tableName)
-		err := MigrateTable(db, pgPool, j.tableName, mainBuf, cfg, outMutex)
+		err := MigrateTable(dbConn, pgPool, j.tableName, mainBuf, cfg, outMutex, tracker)
 		if err != nil {
 			slog.Error("error migrating table", "table", j.tableName, "error", err)
+			if tracker != nil {
+				tracker.Error(j.tableName, err)
+			}
 		}
 	}
 }
 
-func MigrateTable(db *sql.DB, pgPool db.PGPool, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex) error {
-	if pgPool != nil {
-		return MigrateTableDirect(db, pgPool, tableName, cfg)
+func MigrateTable(dbConn *sql.DB, pgPool db.PGPool, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
+	var totalRows int
+	_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&totalRows)
+	if tracker != nil {
+		tracker.Init(tableName, totalRows)
 	}
-	return MigrateTableToFile(db, tableName, mainBuf, cfg, outMutex)
+
+	var err error
+	if pgPool != nil {
+		err = MigrateTableDirect(dbConn, pgPool, tableName, cfg, tracker)
+	} else {
+		err = MigrateTableToFile(dbConn, tableName, mainBuf, cfg, outMutex, tracker)
+	}
+
+	if err == nil && tracker != nil {
+		tracker.Done(tableName)
+	}
+	return err
 }
 
-func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg *config.Config) error {
+func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg *config.Config, tracker ProgressTracker) error {
 	slog.Info("direct migration started", "table", tableName)
 
 	if cfg.WithDDL {
@@ -201,12 +235,15 @@ func (s *oracleCopySource) Err() error {
 	return s.rows.Err()
 }
 
-func MigrateTableToFile(db *sql.DB, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex) error {
+func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
 	slog.Info("file-based migration started", "table", tableName)
 
 	var tableBuf *bufio.Writer
 	if cfg.PerTable {
 		fileName := fmt.Sprintf("%s.sql", tableName)
+		if cfg.OutputDir != "" {
+			fileName = cfg.OutputDir + "/" + fileName
+		}
 		f, err := os.Create(fileName)
 		if err != nil {
 			return fmt.Errorf("failed to create output file for %s: %v", tableName, err)
@@ -219,7 +256,7 @@ func MigrateTableToFile(db *sql.DB, tableName string, mainBuf *bufio.Writer, cfg
 	}
 
 	if cfg.WithDDL {
-		colsMeta, err := GetTableMetadata(db, tableName)
+		colsMeta, err := GetTableMetadata(dbConn, tableName)
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
 		} else {
@@ -235,7 +272,7 @@ func MigrateTableToFile(db *sql.DB, tableName string, mainBuf *bufio.Writer, cfg
 	}
 
 	query := fmt.Sprintf("SELECT * FROM %s", tableName)
-	rows, err := db.Query(query)
+	rows, err := dbConn.Query(query)
 	if err != nil {
 		return fmt.Errorf("failed to execute query on %s: %v", tableName, err)
 	}
@@ -277,11 +314,17 @@ func MigrateTableToFile(db *sql.DB, tableName string, mainBuf *bufio.Writer, cfg
 		if len(batch) >= cfg.BatchSize {
 			WriteBatch(tableBuf, tableName, cols, batch, cfg, outMutex)
 			batch = batch[:0]
+			if tracker != nil {
+				tracker.Update(tableName, rowCount)
+			}
 		}
 	}
 
 	if len(batch) > 0 {
 		WriteBatch(tableBuf, tableName, cols, batch, cfg, outMutex)
+		if tracker != nil {
+			tracker.Update(tableName, rowCount)
+		}
 	}
 
 	slog.Info("file-based migration finished", "table", tableName, "rows", rowCount)

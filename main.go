@@ -8,12 +8,18 @@ import (
 	"dbmigrator/internal/db"
 	"dbmigrator/internal/logger"
 	"dbmigrator/internal/migration"
+	"dbmigrator/internal/web"
 )
 
 func main() {
 	cfg, err := config.ParseFlags()
 	if err != nil {
 		os.Exit(1)
+	}
+
+	if cfg.WebMode {
+		web.RunServer("8080")
+		return
 	}
 
 	logger.Setup(cfg.LogJSON)
@@ -37,7 +43,7 @@ func main() {
 		slog.Info("connected to postgres successfully")
 	}
 
-	if err := migration.Run(oracleDB, pgPool, cfg); err != nil {
+	if err := migration.Run(oracleDB, pgPool, cfg, nil); err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}

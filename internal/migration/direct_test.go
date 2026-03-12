@@ -48,7 +48,7 @@ func TestMigrateTableDirect(t *testing.T) {
 		WithDDL: false,
 	}
 
-	err = MigrateTableDirect(db, pgMock, tableName, cfg)
+	err = MigrateTableDirect(db, pgMock, tableName, cfg, nil)
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestMigrateTableDirect_WithDDL(t *testing.T) {
 		WithDDL: true,
 	}
 
-	err = MigrateTableDirect(db, pgMock, tableName, cfg)
+	err = MigrateTableDirect(db, pgMock, tableName, cfg, nil)
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
