@@ -21,6 +21,7 @@ func main() {
 	tablesFlag := flag.String("tables", "", "Comma-separated list of tables to migrate")
 	outFile := flag.String("out", "migration.sql", "Output SQL file name")
 	batchSize := flag.Int("batch", 1000, "Number of rows per bulk insert")
+	schema := flag.String("schema", "", "PostgreSQL schema name (optional)")
 	perTable := flag.Bool("per-table", false, "Output to separate files per table (e.g., <tablename>.sql)")
 	parallel := flag.Bool("parallel", false, "Process tables concurrently")
 
@@ -41,6 +42,7 @@ func main() {
 	log.Printf("Tables to migrate: %v", tables)
 	log.Printf("Output file: %s", *outFile)
 	log.Printf("Batch size: %d", *batchSize)
+	log.Printf("Target schema: %s", *schema)
 	log.Printf("Per-table output: %v", *perTable)
 	log.Printf("Parallel processing: %v", *parallel)
 
@@ -101,7 +103,7 @@ func main() {
 			wg.Add(1)
 			go func(t string) {
 				defer wg.Done()
-				err := migrateTable(db, t, mainOut, *batchSize, *perTable, &outMutex)
+				err := migrateTable(db, t, mainOut, *batchSize, *perTable, *schema, &outMutex)
 				if err != nil {
 					log.Printf("Error migrating table %s: %v\n", t, err)
 				}
@@ -110,7 +112,7 @@ func main() {
 		wg.Wait()
 	} else {
 		for _, table := range tables {
-			err = migrateTable(db, table, mainOut, *batchSize, *perTable, &outMutex)
+			err = migrateTable(db, table, mainOut, *batchSize, *perTable, *schema, &outMutex)
 			if err != nil {
 				log.Printf("Error migrating table %s: %v\n", table, err)
 			}
@@ -120,7 +122,7 @@ func main() {
 	log.Println("Migration completed successfully!")
 }
 
-func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int, perTable bool, outMutex *sync.Mutex) error {
+func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int, perTable bool, schema string, outMutex *sync.Mutex) error {
 	log.Printf("Processing table: %s...\n", tableName)
 
 	var tableOut *os.File
@@ -170,26 +172,30 @@ func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int,
 		}
 
 		// Process row
-		rowValues := processRow(values, colTypes)
+		typeNames := make([]string, len(colTypes))
+		for i, ct := range colTypes {
+			typeNames[i] = ct.DatabaseTypeName()
+		}
+		rowValues := processRow(values, typeNames)
 		batch = append(batch, fmt.Sprintf("(%s)", rowValues))
 		rowCount++
 
 		if len(batch) >= batchSize {
-			writeBatch(tableOut, tableName, cols, batch, perTable, outMutex)
+			writeBatch(tableOut, tableName, cols, batch, perTable, schema, outMutex)
 			// keep the underlying array
 			batch = batch[:0]
 		}
 	}
 
 	if len(batch) > 0 {
-		writeBatch(tableOut, tableName, cols, batch, perTable, outMutex)
+		writeBatch(tableOut, tableName, cols, batch, perTable, schema, outMutex)
 	}
 
 	log.Printf("Finished processing table: %s (%d rows)\n", tableName, rowCount)
 	return nil
 }
 
-func processRow(values []interface{}, colTypes []*sql.ColumnType) string {
+func processRow(values []interface{}, typeNames []string) string {
 	var row []string
 
 	for i, val := range values {
@@ -199,7 +205,7 @@ func processRow(values []interface{}, colTypes []*sql.ColumnType) string {
 		}
 
 		// Handle specific type conversions
-		dbTypeName := colTypes[i].DatabaseTypeName()
+		dbTypeName := typeNames[i]
 
 		switch v := val.(type) {
 		case []byte:
@@ -238,11 +244,17 @@ func processRow(values []interface{}, colTypes []*sql.ColumnType) string {
 	return strings.Join(row, ", ")
 }
 
-func writeBatch(out *os.File, tableName string, cols []string, batch []string, perTable bool, outMutex *sync.Mutex) {
+func writeBatch(out *os.File, tableName string, cols []string, batch []string, perTable bool, schema string, outMutex *sync.Mutex) {
 	// Build insert statement
 	colStr := strings.Join(cols, ", ")
 	valStr := strings.Join(batch, ",\n    ")
-	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n    %s;\n\n", tableName, colStr, valStr)
+
+	fullTableName := tableName
+	if schema != "" {
+		fullTableName = fmt.Sprintf("%s.%s", schema, tableName)
+	}
+
+	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n    %s;\n\n", fullTableName, colStr, valStr)
 
 	if !perTable {
 		outMutex.Lock()
