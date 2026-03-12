@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/hex"
 	"flag"
@@ -47,6 +48,7 @@ func main() {
 	log.Printf("Parallel processing: %v", *parallel)
 
 	var mainOut *os.File
+	var mainBuf *bufio.Writer
 	var err error
 
 	// Create Single Output File if not perTable
@@ -56,6 +58,8 @@ func main() {
 			log.Fatalf("Error creating output file: %v\n", err)
 		}
 		defer mainOut.Close()
+		mainBuf = bufio.NewWriter(mainOut)
+		defer mainBuf.Flush()
 	}
 
 	// Parse Oracle DSN
@@ -103,7 +107,7 @@ func main() {
 			wg.Add(1)
 			go func(t string) {
 				defer wg.Done()
-				err := migrateTable(db, t, mainOut, *batchSize, *perTable, *schema, &outMutex)
+				err := migrateTable(db, t, mainBuf, *batchSize, *perTable, *schema, &outMutex)
 				if err != nil {
 					log.Printf("Error migrating table %s: %v\n", t, err)
 				}
@@ -112,7 +116,7 @@ func main() {
 		wg.Wait()
 	} else {
 		for _, table := range tables {
-			err = migrateTable(db, table, mainOut, *batchSize, *perTable, *schema, &outMutex)
+			err = migrateTable(db, table, mainBuf, *batchSize, *perTable, *schema, &outMutex)
 			if err != nil {
 				log.Printf("Error migrating table %s: %v\n", table, err)
 			}
@@ -122,20 +126,21 @@ func main() {
 	log.Println("Migration completed successfully!")
 }
 
-func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int, perTable bool, schema string, outMutex *sync.Mutex) error {
+func migrateTable(db *sql.DB, tableName string, mainBuf *bufio.Writer, batchSize int, perTable bool, schema string, outMutex *sync.Mutex) error {
 	log.Printf("Processing table: %s...\n", tableName)
 
-	var tableOut *os.File
+	var tableBuf *bufio.Writer
 	if perTable {
-		var err error
 		fileName := fmt.Sprintf("%s.sql", tableName)
-		tableOut, err = os.Create(fileName)
+		f, err := os.Create(fileName)
 		if err != nil {
 			return fmt.Errorf("failed to create output file for %s: %v", tableName, err)
 		}
-		defer tableOut.Close()
+		defer f.Close()
+		tableBuf = bufio.NewWriter(f)
+		defer tableBuf.Flush()
 	} else {
-		tableOut = mainOut
+		tableBuf = mainBuf
 	}
 
 	query := fmt.Sprintf("SELECT * FROM %s", tableName)
@@ -181,14 +186,14 @@ func migrateTable(db *sql.DB, tableName string, mainOut *os.File, batchSize int,
 		rowCount++
 
 		if len(batch) >= batchSize {
-			writeBatch(tableOut, tableName, cols, batch, perTable, schema, outMutex)
+			writeBatch(tableBuf, tableName, cols, batch, perTable, schema, outMutex)
 			// keep the underlying array
 			batch = batch[:0]
 		}
 	}
 
 	if len(batch) > 0 {
-		writeBatch(tableOut, tableName, cols, batch, perTable, schema, outMutex)
+		writeBatch(tableBuf, tableName, cols, batch, perTable, schema, outMutex)
 	}
 
 	log.Printf("Finished processing table: %s (%d rows)\n", tableName, rowCount)
@@ -244,7 +249,7 @@ func processRow(values []interface{}, typeNames []string) string {
 	return strings.Join(row, ", ")
 }
 
-func writeBatch(out *os.File, tableName string, cols []string, batch []string, perTable bool, schema string, outMutex *sync.Mutex) {
+func writeBatch(out *bufio.Writer, tableName string, cols []string, batch []string, perTable bool, schema string, outMutex *sync.Mutex) {
 	// Build insert statement
 	colStr := strings.Join(cols, ", ")
 	valStr := strings.Join(batch, ",\n    ")

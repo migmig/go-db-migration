@@ -1,12 +1,64 @@
 package main
 
 import (
+	"bufio"
 	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestMigrateTable(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("Failed to open mock sql connection: %v", err)
+	}
+	defer db.Close()
+
+	tableName := "MOCK_TABLE"
+	rows := sqlmock.NewRows([]string{"ID", "NAME"}).
+		AddRow(1, "Alice").
+		AddRow(2, "Bob")
+
+	mock.ExpectQuery("SELECT \\* FROM " + tableName).WillReturnRows(rows)
+
+	// Create temp file for output
+	tmpFile, err := os.CreateTemp("", "migrate_test_*.sql")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	mainBuf := bufio.NewWriter(tmpFile)
+	var outMutex sync.Mutex
+
+	err = migrateTable(db, tableName, mainBuf, 1000, false, "", &outMutex)
+	if err != nil {
+		t.Errorf("migrateTable returned error: %v", err)
+	}
+	mainBuf.Flush()
+
+	// Verify file content
+	content, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read temp file: %v", err)
+	}
+
+	if !strings.Contains(string(content), "INSERT INTO MOCK_TABLE (ID, NAME) VALUES") {
+		t.Errorf("Output missing expected INSERT statement. Got:\n%s", string(content))
+	}
+	if !strings.Contains(string(content), "(1, 'Alice')") || !strings.Contains(string(content), "(2, 'Bob')") {
+		t.Errorf("Output missing expected row data. Got:\n%s", string(content))
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("There were unfulfilled expectations: %s", err)
+	}
+}
 
 func TestWriteBatch_SchemaMapping(t *testing.T) {
 	// Setup
@@ -29,7 +81,9 @@ func TestWriteBatch_SchemaMapping(t *testing.T) {
 	defer tmpFile.Close()
 
 	// ACTION: Call writeBatch with schema mapping
-	writeBatch(tmpFile, tableName, cols, batch, perTable, "public", &outMutex)
+	buf := bufio.NewWriter(tmpFile)
+	writeBatch(buf, tableName, cols, batch, perTable, "public", &outMutex)
+	buf.Flush()
 
 	// VERIFY
 	content, err := os.ReadFile(tmpFile.Name())
@@ -59,7 +113,9 @@ func TestWriteBatch_NoSchemaMapping(t *testing.T) {
 	defer tmpFile.Close()
 
 	// ACTION: Call writeBatch without schema mapping
-	writeBatch(tmpFile, tableName, cols, batch, perTable, "", &outMutex)
+	buf := bufio.NewWriter(tmpFile)
+	writeBatch(buf, tableName, cols, batch, perTable, "", &outMutex)
+	buf.Flush()
 
 	// VERIFY
 	content, err := os.ReadFile(tmpFile.Name())
@@ -94,7 +150,9 @@ func TestWriteBatch_PerTable(t *testing.T) {
 	defer tmpFile.Close()
 
 	// ACTION: Call writeBatch with perTable=true
-	writeBatch(tmpFile, tableName, cols, batch, perTable, "", &outMutex)
+	buf := bufio.NewWriter(tmpFile)
+	writeBatch(buf, tableName, cols, batch, perTable, "", &outMutex)
+	buf.Flush()
 
 	// VERIFY
 	content, err := os.ReadFile(tmpFile.Name())
