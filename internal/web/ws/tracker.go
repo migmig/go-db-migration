@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -18,10 +19,10 @@ var upgrader = websocket.Upgrader{
 type MsgType string
 
 const (
-	MsgInit   MsgType = "init"
-	MsgUpdate MsgType = "update"
-	MsgDone   MsgType = "done"
-	MsgError  MsgType = "error"
+	MsgInit    MsgType = "init"
+	MsgUpdate  MsgType = "update"
+	MsgDone    MsgType = "done"
+	MsgError   MsgType = "error"
 	MsgAllDone MsgType = "all_done"
 )
 
@@ -34,14 +35,22 @@ type ProgressMsg struct {
 	ZipFileID string  `json:"zip_file_id,omitempty"`
 }
 
+type tableState struct {
+	total     int
+	lastCount int
+	lastTime  time.Time
+}
+
 type WebSocketTracker struct {
 	clients map[*websocket.Conn]bool
+	states  map[string]*tableState
 	mu      sync.Mutex
 }
 
 func NewWebSocketTracker() *WebSocketTracker {
 	return &WebSocketTracker{
 		clients: make(map[*websocket.Conn]bool),
+		states:  make(map[string]*tableState),
 	}
 }
 
@@ -86,6 +95,14 @@ func (t *WebSocketTracker) broadcast(msg ProgressMsg) {
 }
 
 func (t *WebSocketTracker) Init(table string, totalRows int) {
+	t.mu.Lock()
+	t.states[table] = &tableState{
+		total:     totalRows,
+		lastCount: 0,
+		lastTime:  time.Now(),
+	}
+	t.mu.Unlock()
+
 	t.broadcast(ProgressMsg{
 		Type:  MsgInit,
 		Table: table,
@@ -94,14 +111,46 @@ func (t *WebSocketTracker) Init(table string, totalRows int) {
 }
 
 func (t *WebSocketTracker) Update(table string, processedRows int) {
-	t.broadcast(ProgressMsg{
-		Type:  MsgUpdate,
-		Table: table,
-		Count: processedRows,
-	})
+	t.mu.Lock()
+	state, exists := t.states[table]
+	if !exists {
+		t.mu.Unlock()
+		return
+	}
+
+	now := time.Now()
+	// Throttle: Send only if 200ms passed OR processed more than 5% of total since last update
+	timeElapsed := now.Sub(state.lastTime) > 200*time.Millisecond
+	progressSignificant := false
+	if state.total > 0 {
+		diff := processedRows - state.lastCount
+		if float64(diff)/float64(state.total) >= 0.05 {
+			progressSignificant = true
+		}
+	}
+
+	shouldSend := timeElapsed || progressSignificant
+
+	if shouldSend {
+		state.lastCount = processedRows
+		state.lastTime = now
+	}
+	t.mu.Unlock()
+
+	if shouldSend {
+		t.broadcast(ProgressMsg{
+			Type:  MsgUpdate,
+			Table: table,
+			Count: processedRows,
+		})
+	}
 }
 
 func (t *WebSocketTracker) Done(table string) {
+	t.mu.Lock()
+	delete(t.states, table)
+	t.mu.Unlock()
+
 	t.broadcast(ProgressMsg{
 		Type:  MsgDone,
 		Table: table,
@@ -109,6 +158,10 @@ func (t *WebSocketTracker) Done(table string) {
 }
 
 func (t *WebSocketTracker) Error(table string, err error) {
+	t.mu.Lock()
+	delete(t.states, table)
+	t.mu.Unlock()
+
 	t.broadcast(ProgressMsg{
 		Type:     MsgError,
 		Table:    table,

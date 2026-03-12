@@ -295,7 +295,7 @@
     </div>
 
     <div id="table-section" class="card">
-        <h2>2. Select Tables</h2>
+        <h2>2. Select Tables & Migration Mode</h2>
         <div class="checkbox-container">
             <input type="checkbox" id="checkAll">
             <label for="checkAll">Select All Tables</label>
@@ -303,7 +303,40 @@
         <div class="table-list" id="tableList">
             <!-- Tables will be injected here -->
         </div>
-        <button id="btn-migrate" class="btn-success">Start Migration</button>
+
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+            <details style="margin-bottom: 1rem; cursor: pointer;">
+                <summary style="font-weight: 600; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Advanced Settings</summary>
+                <div style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 1rem; background: var(--bg-color); border-radius: var(--radius-md);">
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="batchSize">Batch Size</label>
+                        <input type="text" id="batchSize" value="1000">
+                    </div>
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="workers">Parallel Workers</label>
+                        <input type="text" id="workers" value="4">
+                    </div>
+                </div>
+            </details>
+
+            <div class="checkbox-container" style="margin-bottom: 1rem;">
+                <input type="checkbox" id="directMigration">
+                <label for="directMigration">Direct Migration to PostgreSQL (No SQL files)</label>
+            </div>
+            
+            <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
+                <div class="form-group">
+                    <label for="pgUrl">PostgreSQL URL</label>
+                    <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname">
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="withDdl" checked>
+                    <label for="withDdl">Generate/Execute CREATE TABLE (DDL)</label>
+                </div>
+            </div>
+        </div>
+
+        <button id="btn-migrate" class="btn-success" style="margin-top: 1.5rem;">Start Migration</button>
         <div id="migrate-error" class="error-msg"></div>
     </div>
 
@@ -323,9 +356,15 @@
     const btnConnect = document.getElementById('btn-connect');
     const btnMigrate = document.getElementById('btn-migrate');
     const checkAll = document.getElementById('checkAll');
+    const directMigration = document.getElementById('directMigration');
+    const pgConfig = document.getElementById('pg-config');
     const downloadBtn = document.getElementById('download-btn');
     let ws;
     let currentZipId = '';
+
+    directMigration.addEventListener('change', (e) => {
+        pgConfig.style.display = e.target.checked ? 'block' : 'none';
+    });
 
     btnConnect.addEventListener('click', async () => {
         const oracleUrl = document.getElementById('oracleUrl').value;
@@ -410,6 +449,17 @@
         const oracleUrl = document.getElementById('oracleUrl').value;
         const username = document.getElementById('username').value;
         const password = document.getElementById('password').value;
+        
+        const isDirect = directMigration.checked;
+        const pgUrl = document.getElementById('pgUrl').value;
+        const withDdl = document.getElementById('withDdl').checked;
+        const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
+        const workers = parseInt(document.getElementById('workers').value) || 4;
+
+        if (isDirect && !pgUrl) {
+            errorDiv.innerText = 'Please provide a PostgreSQL connection URL for direct migration.';
+            return;
+        }
 
         // Setup WebSocket
         setupWebSocket();
@@ -427,7 +477,17 @@
             const res = await fetch('/api/migrate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ oracleUrl, username, password, tables: selectedTables })
+                body: JSON.stringify({ 
+                    oracleUrl, 
+                    username, 
+                    password, 
+                    tables: selectedTables,
+                    direct: isDirect,
+                    pgUrl: pgUrl,
+                    withDdl: withDdl,
+                    batchSize: batchSize,
+                    workers: workers
+                })
             });
 
             const data = await res.json();
@@ -446,7 +506,8 @@
             ws.close();
         }
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${protocol}//${window.location.host}/api/progress`);
+        const host = window.location.host;
+        ws = new WebSocket(`${protocol}//${host}/api/progress`);
 
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);
@@ -465,7 +526,11 @@
 
         if (msg.type === 'all_done') {
             currentZipId = msg.zip_file_id;
-            downloadBtn.style.display = 'flex';
+            if (currentZipId) {
+                downloadBtn.style.display = 'flex';
+            } else {
+                downloadBtn.style.display = 'none';
+            }
             btnMigrate.disabled = false;
             btnMigrate.innerText = 'Start Migration';
             return;
