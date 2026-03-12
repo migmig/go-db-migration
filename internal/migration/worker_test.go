@@ -37,12 +37,17 @@ func TestWorkerPool(t *testing.T) {
 	// We'll call worker directly or use Run
 	// Run will cleanup files so we might want to use a temp dir or just verify mock calls.
 
+	// Setup row counts for progress tracker queries
+	for _, table := range tables {
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + table).WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
+	}
+
 	// Temporarily redirect os.Create for perTable if needed, but let's just use Run
 	// and clean up the .sql files created.
 	defer os.Remove("T1.sql")
 	defer os.Remove("T2.sql")
 
-	err = Run(db, nil, cfg)
+	err = Run(db, nil, cfg, nil)
 	if err != nil {
 		t.Errorf("Run failed: %v", err)
 	}
@@ -63,6 +68,7 @@ func TestWorkerSingleFile(t *testing.T) {
 
 	tables := []string{"T1", "T2"}
 	for _, table := range tables {
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + table).WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
 		rows := sqlmock.NewRows([]string{"ID"}).AddRow(1)
 		mock.ExpectQuery("SELECT \\* FROM " + table).WillReturnRows(rows)
 	}
@@ -91,7 +97,7 @@ func TestWorkerSingleFile(t *testing.T) {
 
 	for w := 1; w <= cfg.Workers; w++ {
 		wg.Add(1)
-		go worker(w, db, nil, jobs, &wg, mainBuf, cfg, &outMutex)
+		go worker(w, db, nil, jobs, &wg, mainBuf, cfg, &outMutex, nil)
 	}
 
 	for _, table := range cfg.Tables {

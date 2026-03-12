@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .title }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: inline-block; width: 150px; }
+        input[type="text"], input[type="password"] { width: 300px; padding: 5px; }
+        button { padding: 8px 15px; cursor: pointer; }
+        #table-section, #progress-section { margin-top: 30px; display: none; }
+        .table-list { max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; }
+        .table-item { margin-bottom: 5px; }
+        .progress-container { margin-bottom: 15px; border: 1px solid #eee; padding: 10px; border-radius: 4px; }
+        .progress-bar-bg { background-color: #f3f3f3; height: 20px; width: 100%; border-radius: 10px; overflow: hidden; }
+        .progress-bar-fill { background-color: #4CAF50; height: 100%; width: 0%; transition: width 0.3s; }
+        .progress-text { font-size: 14px; margin-top: 5px; }
+        #download-btn { display: none; margin-top: 20px; background-color: #008CBA; color: white; border: none; font-size: 16px; font-weight: bold; }
+        #download-btn:hover { background-color: #005f7a; }
+        .error-msg { color: red; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>{{ .title }}</h1>
+
+    <div id="conn-section">
+        <h2>1. Oracle DB Connection</h2>
+        <div class="form-group">
+            <label for="oracleUrl">Oracle URL:</label>
+            <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required>
+        </div>
+        <div class="form-group">
+            <label for="username">Username:</label>
+            <input type="text" id="username" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" required>
+        </div>
+        <div class="form-group">
+            <label for="likeQuery">Table Filter (LIKE):</label>
+            <input type="text" id="likeQuery" placeholder="e.g. USERS_%">
+        </div>
+        <button id="btn-connect">Connect & Fetch Tables</button>
+        <div id="conn-error" class="error-msg"></div>
+    </div>
+
+    <div id="table-section">
+        <h2>2. Select Tables</h2>
+        <div class="form-group">
+            <input type="checkbox" id="checkAll"> <label for="checkAll" style="width: auto;">Select All</label>
+        </div>
+        <div class="table-list" id="tableList">
+            <!-- Tables will be injected here -->
+        </div>
+        <br>
+        <button id="btn-migrate" style="background-color: #4CAF50; color: white; border: none;">Start Migration</button>
+        <div id="migrate-error" class="error-msg"></div>
+    </div>
+
+    <div id="progress-section">
+        <h2>3. Migration Progress</h2>
+        <div id="progress-container">
+            <!-- Progress bars will be injected here -->
+        </div>
+        <button id="download-btn" onclick="downloadZipArchive()">Download ZIP Archive</button>
+    </div>
+
+    <script>
+        const btnConnect = document.getElementById('btn-connect');
+        const btnMigrate = document.getElementById('btn-migrate');
+        const checkAll = document.getElementById('checkAll');
+        const downloadBtn = document.getElementById('download-btn');
+        let ws;
+        let currentZipId = '';
+
+        btnConnect.addEventListener('click', async () => {
+            const oracleUrl = document.getElementById('oracleUrl').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const likeQuery = document.getElementById('likeQuery').value;
+            const errorDiv = document.getElementById('conn-error');
+            errorDiv.innerText = '';
+
+            if (!oracleUrl || !username || !password) {
+                errorDiv.innerText = 'Please fill in all required fields.';
+                return;
+            }
+
+            btnConnect.disabled = true;
+            btnConnect.innerText = 'Connecting...';
+
+            try {
+                const res = await fetch('/api/tables', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oracleUrl, username, password, like: likeQuery })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Failed to fetch tables');
+                }
+
+                renderTableList(data.tables || []);
+                document.getElementById('table-section').style.display = 'block';
+                document.getElementById('progress-section').style.display = 'none';
+                downloadBtn.style.display = 'none';
+            } catch (err) {
+                errorDiv.innerText = err.message;
+            } finally {
+                btnConnect.disabled = false;
+                btnConnect.innerText = 'Connect & Fetch Tables';
+            }
+        });
+
+        function renderTableList(tables) {
+            const listDiv = document.getElementById('tableList');
+            listDiv.innerHTML = '';
+            if (tables.length === 0) {
+                listDiv.innerHTML = '<p>No tables found.</p>';
+                return;
+            }
+
+            tables.forEach(table => {
+                const div = document.createElement('div');
+                div.className = 'table-item';
+                div.innerHTML = `<input type="checkbox" class="table-cb" value="${table}"> <label style="width:auto;">${table}</label>`;
+                listDiv.appendChild(div);
+            });
+        }
+
+        checkAll.addEventListener('change', (e) => {
+            const cbs = document.querySelectorAll('.table-cb');
+            cbs.forEach(cb => cb.checked = e.target.checked);
+        });
+
+        btnMigrate.addEventListener('click', async () => {
+            const cbs = document.querySelectorAll('.table-cb:checked');
+            const selectedTables = Array.from(cbs).map(cb => cb.value);
+            const errorDiv = document.getElementById('migrate-error');
+            errorDiv.innerText = '';
+
+            if (selectedTables.length === 0) {
+                errorDiv.innerText = 'Please select at least one table.';
+                return;
+            }
+
+            const oracleUrl = document.getElementById('oracleUrl').value;
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            // Setup WebSocket
+            setupWebSocket();
+
+            // Clear previous progress
+            document.getElementById('progress-container').innerHTML = '';
+            document.getElementById('progress-section').style.display = 'block';
+            downloadBtn.style.display = 'none';
+            btnMigrate.disabled = true;
+
+            try {
+                const res = await fetch('/api/migrate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oracleUrl, username, password, tables: selectedTables })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.error || 'Failed to start migration');
+                }
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                btnMigrate.disabled = false;
+            }
+        });
+
+        function setupWebSocket() {
+            if (ws) {
+                ws.close();
+            }
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/api/progress`);
+
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleProgressMessage(msg);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocket error:", err);
+            };
+        }
+
+        const tableProgressData = {};
+
+        function handleProgressMessage(msg) {
+            const container = document.getElementById('progress-container');
+
+            if (msg.type === 'all_done') {
+                currentZipId = msg.zip_file_id;
+                downloadBtn.style.display = 'block';
+                btnMigrate.disabled = false;
+                return;
+            }
+
+            let wrapper = document.getElementById(`prog-${msg.table}`);
+            if (!wrapper && msg.table) {
+                wrapper = document.createElement('div');
+                wrapper.id = `prog-${msg.table}`;
+                wrapper.className = 'progress-container';
+                wrapper.innerHTML = `
+                    <div style="font-weight:bold; margin-bottom:5px;">${msg.table}</div>
+                    <div class="progress-bar-bg">
+                        <div id="prog-fill-${msg.table}" class="progress-bar-fill"></div>
+                    </div>
+                    <div id="prog-text-${msg.table}" class="progress-text">Initializing...</div>
+                `;
+                container.appendChild(wrapper);
+                tableProgressData[msg.table] = { total: 0, count: 0 };
+            }
+
+            if (msg.type === 'init') {
+                tableProgressData[msg.table].total = msg.total || 0;
+                updateProgressUI(msg.table);
+            } else if (msg.type === 'update') {
+                tableProgressData[msg.table].count = msg.count || 0;
+                updateProgressUI(msg.table);
+            } else if (msg.type === 'done') {
+                const data = tableProgressData[msg.table];
+                data.count = data.total; // ensure 100%
+                updateProgressUI(msg.table);
+                document.getElementById(`prog-text-${msg.table}`).innerText += ' - COMPLETED';
+            } else if (msg.type === 'error') {
+                document.getElementById(`prog-text-${msg.table}`).innerHTML = `<span style="color:red">ERROR: ${msg.error}</span>`;
+            }
+        }
+
+        function updateProgressUI(tableName) {
+            const data = tableProgressData[tableName];
+            const fill = document.getElementById(`prog-fill-${tableName}`);
+            const text = document.getElementById(`prog-text-${tableName}`);
+
+            if (!fill || !text) return;
+
+            let pct = 0;
+            if (data.total > 0) {
+                pct = Math.min(100, Math.floor((data.count / data.total) * 100));
+            } else if (data.count > 0 && data.total === 0) {
+                // Unknown total case
+                pct = 100;
+            }
+
+            fill.style.width = `${pct}%`;
+            text.innerText = `${pct}% (${data.count} / ${data.total} rows)`;
+        }
+
+        function downloadZipArchive() {
+            if (currentZipId) {
+                window.location.href = `/api/download/${currentZipId}`;
+            }
+        }
+    </script>
+</body>
+</html>
