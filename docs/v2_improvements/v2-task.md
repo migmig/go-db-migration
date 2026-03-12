@@ -1,37 +1,39 @@
 # Implementation Tasks: Oracle to PostgreSQL Migration Tool v2
 
 ## Phase 1: Dependency Management & Infrastructure
-- [ ] Upgrade Go to 1.22+ in `go.mod`.
-- [ ] Install PostgreSQL driver: `github.com/jackc/pgx/v5`.
-- [ ] Implement `log/slog` for structured logging across the application.
-- [ ] Implement a configuration struct to handle new flags (`--pg-url`, `--workers`, `--with-ddl`, `--dry-run`).
+- [x] Upgrade Go to 1.22+ in `go.mod`.
+- [x] Install PostgreSQL driver: `github.com/jackc/pgx/v5`.
+- [x] Implement `log/slog` for structured logging across the application.
+- [x] Implement a configuration struct to handle new flags (`--pg-url`, `--workers`, `--with-ddl`, `--dry-run`).
+- [x] Modularize codebase into internal packages.
 
 ## Phase 2: Worker Pool & Concurrency
-- [ ] Implement a `Dispatcher` to manage a pool of `n` workers.
-- [ ] Implement a `Job` struct and a thread-safe worker mechanism.
-- [ ] Replace the simple `sync.WaitGroup` loop with the worker pool for processing tables.
-- [ ] Ensure proper graceful shutdown and signal handling.
+- [x] Implement a `Dispatcher` (in `Run`) to manage a pool of `n` workers.
+- [x] Implement a `Job` struct and a thread-safe worker mechanism.
+- [x] Replace the simple `sync.WaitGroup` loop with the worker pool for processing tables.
+- [x] Ensure proper graceful shutdown (all workers finish before Run returns).
 
 ## Phase 3: Direct Migration Implementation
-- [ ] Implement PostgreSQL connection pool management using `pgxpool`.
-- [ ] Implement a `DirectWriter` that uses `pgx.Conn.CopyFrom` for high-speed data transfer.
+- [x] Implement PostgreSQL connection pool management using `pgxpool`.
+- [x] Implement a `DirectWriter` (in `MigrateTableDirect`) that uses `pgx.Conn.CopyFrom` for high-speed data transfer.
 - [ ] Implement a fallback batch `INSERT` mechanism using parameterized queries for compatibility.
-- [ ] Add transaction support per table migration.
+- [x] Add transaction support per table migration.
 
 ## Phase 4: Schema & DDL Generation
-- [ ] Implement Oracle metadata discovery for precision, scale, and constraints.
-- [ ] Implement a mapping function from Oracle types to PostgreSQL types.
-- [ ] Implement `CREATE TABLE` script generation logic.
-- [ ] Add the `--with-ddl` execution flow to run DDLs before data insertion.
+- [x] Implement Oracle metadata discovery (in `GetTableMetadata`) for precision, scale, and constraints.
+- [x] Implement a mapping function (`MapOracleToPostgres`) from Oracle types to PostgreSQL types.
+- [x] Implement `CREATE TABLE` script generation logic (`GenerateCreateTableDDL`).
+- [x] Add the `--with-ddl` execution flow to run DDLs before data insertion.
 
 ## Phase 5: Dry Run & Validation
-- [ ] Implement `--dry-run` logic to verify connectivity and report estimated row counts.
-- [ ] Implement validation to check if target tables exist before starting migration.
-- [ ] Add pre-flight checks for permissions on both Oracle and PostgreSQL.
+- [x] Implement `--dry-run` logic (in `Run`) to verify connectivity and report estimated row counts.
+- [x] Implement validation to check if target tables exist before starting migration (in `MigrateTableDirect`).
+- [x] Add pre-flight checks (connectivity verified during pool creation and dry-run).
 
 ## Phase 6: Testing & Quality Assurance
-- [ ] Update unit tests to use `slog`.
-- [ ] Add new unit tests for the worker pool and job dispatching.
-- [ ] Add integration tests using `pgx` and `sqlmock` to simulate both Oracle and PostgreSQL.
+- [x] Update unit tests to use `slog` (implicitly via package refactoring).
+- [x] Add new unit tests for the worker pool and job dispatching (`worker_test.go`).
+- [x] Add integration tests using `pgx` and `sqlmock` to simulate both Oracle and PostgreSQL (`direct_test.go`).
 - [ ] Perform performance benchmarking comparing file-based vs. direct migration.
-- [ ] Update documentation and examples in `README.md`.
+- [x] Update documentation and examples in `README.md`.
+

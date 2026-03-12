@@ -1,273 +1,46 @@
 package main
 
 import (
-	"bufio"
-	"database/sql"
-	"encoding/hex"
-	"flag"
-	"fmt"
-	"log"
+	"log/slog"
 	"os"
-	"strings"
-	"sync"
-	"time"
 
-	go_ora "github.com/sijms/go-ora/v2"
+	"dbmigrator/internal/config"
+	"dbmigrator/internal/db"
+	"dbmigrator/internal/logger"
+	"dbmigrator/internal/migration"
 )
 
 func main() {
-	dbURL := flag.String("url", "", "Oracle Database URL (e.g., host:port/service_name)")
-	user := flag.String("user", "", "Database username")
-	password := flag.String("password", "", "Database password")
-	tablesFlag := flag.String("tables", "", "Comma-separated list of tables to migrate")
-	outFile := flag.String("out", "migration.sql", "Output SQL file name")
-	batchSize := flag.Int("batch", 1000, "Number of rows per bulk insert")
-	schema := flag.String("schema", "", "PostgreSQL schema name (optional)")
-	perTable := flag.Bool("per-table", false, "Output to separate files per table (e.g., <tablename>.sql)")
-	parallel := flag.Bool("parallel", false, "Process tables concurrently")
-
-	flag.Parse()
-
-	if *dbURL == "" || *user == "" || *password == "" || *tablesFlag == "" {
-		fmt.Println("Usage: dbmigrator -url <dburl> -user <username> -password <password> -tables <table1,table2> [-out <outfile>] [-batch <size>] [-per-table] [-parallel]")
-		flag.PrintDefaults()
+	cfg, err := config.ParseFlags()
+	if err != nil {
 		os.Exit(1)
 	}
 
-	tables := strings.Split(*tablesFlag, ",")
-	for i := range tables {
-		tables[i] = strings.TrimSpace(tables[i])
-	}
+	logger.Setup(cfg.LogJSON)
 
-	log.Printf("Connecting to Oracle DB at %s as %s...", *dbURL, *user)
-	log.Printf("Tables to migrate: %v", tables)
-	log.Printf("Output file: %s", *outFile)
-	log.Printf("Batch size: %d", *batchSize)
-	log.Printf("Target schema: %s", *schema)
-	log.Printf("Per-table output: %v", *perTable)
-	log.Printf("Parallel processing: %v", *parallel)
+	slog.Info("starting migration", "tables", cfg.Tables, "batch_size", cfg.BatchSize)
 
-	var mainOut *os.File
-	var mainBuf *bufio.Writer
-	var err error
-
-	// Create Single Output File if not perTable
-	if !*perTable {
-		mainOut, err = os.Create(*outFile)
-		if err != nil {
-			log.Fatalf("Error creating output file: %v\n", err)
-		}
-		defer mainOut.Close()
-		mainBuf = bufio.NewWriter(mainOut)
-		defer mainBuf.Flush()
-	}
-
-	// Parse Oracle DSN
-	// e.g., oracle://user:password@host:port/service_name
-	// if url doesn't contain oracle://, let's format it.
-	dsn := *dbURL
-	if !strings.HasPrefix(dsn, "oracle://") {
-		// Attempt to use go-ora connection string builder
-		serverParts := strings.Split(dsn, "/")
-		hostPort := serverParts[0]
-		serviceName := ""
-		if len(serverParts) > 1 {
-			serviceName = serverParts[1]
-		}
-
-		host := hostPort
-		port := 1521
-		if strings.Contains(hostPort, ":") {
-			parts := strings.Split(hostPort, ":")
-			host = parts[0]
-			fmt.Sscanf(parts[1], "%d", &port)
-		}
-
-		dsn = go_ora.BuildUrl(host, port, serviceName, *user, *password, nil)
-	}
-
-	db, err := sql.Open("oracle", dsn)
+	oracleDB, err := db.ConnectOracle(cfg.OracleURL, cfg.User, cfg.Password)
 	if err != nil {
-		log.Fatalf("Error opening connection: %v\n", err)
+		slog.Error("failed to connect to oracle", "error", err)
+		os.Exit(1)
 	}
-	defer db.Close()
+	defer oracleDB.Close()
 
-	err = db.Ping()
+	pgPool, err := db.ConnectPostgres(cfg.PGURL)
 	if err != nil {
-		log.Fatalf("Error connecting to database: %v\n", err)
+		slog.Error("failed to connect to postgres", "error", err)
+		os.Exit(1)
 	}
-	log.Println("Connected to Oracle Database successfully!")
-
-	// Mutex for synchronizing writes to a single file when running in parallel
-	var outMutex sync.Mutex
-
-	if *parallel {
-		var wg sync.WaitGroup
-		for _, table := range tables {
-			wg.Add(1)
-			go func(t string) {
-				defer wg.Done()
-				err := migrateTable(db, t, mainBuf, *batchSize, *perTable, *schema, &outMutex)
-				if err != nil {
-					log.Printf("Error migrating table %s: %v\n", t, err)
-				}
-			}(table)
-		}
-		wg.Wait()
-	} else {
-		for _, table := range tables {
-			err = migrateTable(db, table, mainBuf, *batchSize, *perTable, *schema, &outMutex)
-			if err != nil {
-				log.Printf("Error migrating table %s: %v\n", table, err)
-			}
-		}
+	if pgPool != nil {
+		defer pgPool.Close()
+		slog.Info("connected to postgres successfully")
 	}
 
-	log.Println("Migration completed successfully!")
-}
-
-func migrateTable(db *sql.DB, tableName string, mainBuf *bufio.Writer, batchSize int, perTable bool, schema string, outMutex *sync.Mutex) error {
-	log.Printf("Processing table: %s...\n", tableName)
-
-	var tableBuf *bufio.Writer
-	if perTable {
-		fileName := fmt.Sprintf("%s.sql", tableName)
-		f, err := os.Create(fileName)
-		if err != nil {
-			return fmt.Errorf("failed to create output file for %s: %v", tableName, err)
-		}
-		defer f.Close()
-		tableBuf = bufio.NewWriter(f)
-		defer tableBuf.Flush()
-	} else {
-		tableBuf = mainBuf
+	if err := migration.Run(oracleDB, pgPool, cfg); err != nil {
+		slog.Error("migration failed", "error", err)
+		os.Exit(1)
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
-	rows, err := db.Query(query)
-	if err != nil {
-		return fmt.Errorf("failed to execute query on %s: %v", tableName, err)
-	}
-	defer rows.Close()
-
-	cols, err := rows.Columns()
-	if err != nil {
-		return fmt.Errorf("failed to get columns for %s: %v", tableName, err)
-	}
-
-	// Fetch column types to identify CLOB/BLOB/DATE
-	colTypes, err := rows.ColumnTypes()
-	if err != nil {
-		return fmt.Errorf("failed to get column types for %s: %v", tableName, err)
-	}
-
-	values := make([]interface{}, len(cols))
-	valuePtrs := make([]interface{}, len(cols))
-	for i := range cols {
-		valuePtrs[i] = &values[i]
-	}
-
-	rowCount := 0
-	var batch []string
-
-	for rows.Next() {
-		err := rows.Scan(valuePtrs...)
-		if err != nil {
-			return fmt.Errorf("failed to scan row: %v", err)
-		}
-
-		// Process row
-		typeNames := make([]string, len(colTypes))
-		for i, ct := range colTypes {
-			typeNames[i] = ct.DatabaseTypeName()
-		}
-		rowValues := processRow(values, typeNames)
-		batch = append(batch, fmt.Sprintf("(%s)", rowValues))
-		rowCount++
-
-		if len(batch) >= batchSize {
-			writeBatch(tableBuf, tableName, cols, batch, perTable, schema, outMutex)
-			// keep the underlying array
-			batch = batch[:0]
-		}
-	}
-
-	if len(batch) > 0 {
-		writeBatch(tableBuf, tableName, cols, batch, perTable, schema, outMutex)
-	}
-
-	log.Printf("Finished processing table: %s (%d rows)\n", tableName, rowCount)
-	return nil
-}
-
-func processRow(values []interface{}, typeNames []string) string {
-	var row []string
-
-	for i, val := range values {
-		if val == nil {
-			row = append(row, "NULL")
-			continue
-		}
-
-		// Handle specific type conversions
-		dbTypeName := typeNames[i]
-
-		switch v := val.(type) {
-		case []byte:
-			if strings.Contains(strings.ToUpper(dbTypeName), "BLOB") || strings.Contains(strings.ToUpper(dbTypeName), "RAW") {
-				// Likely BLOB or RAW, convert to bytea for postgres
-				row = append(row, fmt.Sprintf("'\\x%s'", hex.EncodeToString(v)))
-			} else {
-				// Sometimes strings come through as []byte
-				str := string(v)
-				escaped := strings.ReplaceAll(str, "'", "''")
-				row = append(row, fmt.Sprintf("'%s'", escaped))
-			}
-		case string:
-			// Strings, likely CLOB or VARCHAR, escape quotes
-			escaped := strings.ReplaceAll(v, "'", "''")
-			row = append(row, fmt.Sprintf("'%s'", escaped))
-		case time.Time:
-			// Date or Timestamp, preserve precision
-			row = append(row, fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.999999999")))
-		case int, int64, float64:
-			row = append(row, fmt.Sprintf("%v", v))
-		case bool:
-			if v {
-				row = append(row, "TRUE")
-			} else {
-				row = append(row, "FALSE")
-			}
-		default:
-			// Fallback to string representation for other types
-			str := fmt.Sprintf("%v", v)
-			escaped := strings.ReplaceAll(str, "'", "''")
-			row = append(row, fmt.Sprintf("'%s'", escaped))
-		}
-	}
-
-	return strings.Join(row, ", ")
-}
-
-func writeBatch(out *bufio.Writer, tableName string, cols []string, batch []string, perTable bool, schema string, outMutex *sync.Mutex) {
-	// Build insert statement
-	colStr := strings.Join(cols, ", ")
-	valStr := strings.Join(batch, ",\n    ")
-
-	fullTableName := tableName
-	if schema != "" {
-		fullTableName = fmt.Sprintf("%s.%s", schema, tableName)
-	}
-
-	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n    %s;\n\n", fullTableName, colStr, valStr)
-
-	if !perTable {
-		outMutex.Lock()
-		defer outMutex.Unlock()
-	}
-
-	_, err := out.WriteString(stmt)
-	if err != nil {
-		log.Printf("Warning: failed to write batch for table %s: %v\n", tableName, err)
-	}
+	slog.Info("migration completed successfully")
 }
