@@ -144,10 +144,10 @@ type mockDryRunTracker struct {
 	errors []string
 }
 
-func (m *mockDryRunTracker) Init(table string, totalRows int)        {}
-func (m *mockDryRunTracker) Update(table string, processedRows int)  {}
-func (m *mockDryRunTracker) Done(table string)                       {}
-func (m *mockDryRunTracker) Error(table string, err error)           { m.errors = append(m.errors, table) }
+func (m *mockDryRunTracker) Init(table string, totalRows int)       {}
+func (m *mockDryRunTracker) Update(table string, processedRows int) {}
+func (m *mockDryRunTracker) Done(table string)                      {}
+func (m *mockDryRunTracker) Error(table string, err error)          { m.errors = append(m.errors, table) }
 func (m *mockDryRunTracker) DryRunResult(table string, totalRows int, connectionOk bool) {
 	m.results = append(m.results, struct {
 		table        string
