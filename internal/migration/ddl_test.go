@@ -7,43 +7,53 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"dbmigrator/internal/dialect"
 )
 
 func TestMapOracleToPostgres(t *testing.T) {
 	nullInt := func(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: true} }
+	dia := &dialect.PostgresDialect{}
 
 	tests := []struct {
 		name     string
-		col      ColumnMetadata
+		col      dialect.ColumnDef
 		expected string
 	}{
-		{"VARCHAR2", ColumnMetadata{Type: "VARCHAR2"}, "text"},
-		{"CHAR", ColumnMetadata{Type: "CHAR"}, "text"},
-		{"NCHAR", ColumnMetadata{Type: "NCHAR"}, "text"},
-		{"NVARCHAR2", ColumnMetadata{Type: "NVARCHAR2"}, "text"},
-		{"NUMBER no precision", ColumnMetadata{Type: "NUMBER"}, "numeric"},
-		{"NUMBER precision=9 → integer", ColumnMetadata{Type: "NUMBER", Precision: nullInt(9)}, "integer"},
-		{"NUMBER precision=10 → bigint", ColumnMetadata{Type: "NUMBER", Precision: nullInt(10)}, "bigint"},
-		{"NUMBER precision=1 → integer", ColumnMetadata{Type: "NUMBER", Precision: nullInt(1)}, "integer"},
-		{"NUMBER with scale → numeric(p,s)", ColumnMetadata{Type: "NUMBER", Precision: nullInt(10), Scale: nullInt(2)}, "numeric(10, 2)"},
-		{"NUMBER scale=0 not numeric", ColumnMetadata{Type: "NUMBER", Precision: nullInt(5), Scale: nullInt(0)}, "integer"},
-		{"DATE", ColumnMetadata{Type: "DATE"}, "timestamp"},
-		{"TIMESTAMP", ColumnMetadata{Type: "TIMESTAMP(6)"}, "timestamp"},
-		{"TIMESTAMP WITH TZ", ColumnMetadata{Type: "TIMESTAMP WITH TIME ZONE"}, "timestamp"},
-		{"CLOB", ColumnMetadata{Type: "CLOB"}, "text"},
-		{"BLOB", ColumnMetadata{Type: "BLOB"}, "bytea"},
-		{"RAW", ColumnMetadata{Type: "RAW"}, "bytea"},
-		{"FLOAT", ColumnMetadata{Type: "FLOAT"}, "double precision"},
-		{"lowercase float", ColumnMetadata{Type: "float"}, "double precision"},
-		{"unknown type falls back to text", ColumnMetadata{Type: "XMLTYPE"}, "text"},
-		{"unknown type INTERVAL", ColumnMetadata{Type: "INTERVAL YEAR TO MONTH"}, "text"},
+		{"VARCHAR2", dialect.ColumnDef{Type: "VARCHAR2"}, "text"},
+		{"CHAR", dialect.ColumnDef{Type: "CHAR"}, "text"},
+		{"NCHAR", dialect.ColumnDef{Type: "NCHAR"}, "text"},
+		{"NVARCHAR2", dialect.ColumnDef{Type: "NVARCHAR2"}, "text"},
+		{"NUMBER no precision", dialect.ColumnDef{Type: "NUMBER"}, "numeric"},
+		{"NUMBER precision=9 → integer", dialect.ColumnDef{Type: "NUMBER", Precision: nullInt(9)}, "integer"},
+		{"NUMBER precision=10 → bigint", dialect.ColumnDef{Type: "NUMBER", Precision: nullInt(10)}, "bigint"},
+		{"NUMBER precision=1 → smallint", dialect.ColumnDef{Type: "NUMBER", Precision: nullInt(1)}, "smallint"},
+		{"NUMBER with scale → numeric(p,s)", dialect.ColumnDef{Type: "NUMBER", Precision: nullInt(10), Scale: nullInt(2)}, "numeric(10, 2)"},
+		{"NUMBER scale=0 not numeric", dialect.ColumnDef{Type: "NUMBER", Precision: nullInt(5), Scale: nullInt(0)}, "integer"},
+		{"DATE", dialect.ColumnDef{Type: "DATE"}, "timestamp"},
+		{"TIMESTAMP", dialect.ColumnDef{Type: "TIMESTAMP(6)"}, "timestamp"},
+		{"TIMESTAMP WITH TZ", dialect.ColumnDef{Type: "TIMESTAMP WITH TIME ZONE"}, "timestamp"},
+		{"CLOB", dialect.ColumnDef{Type: "CLOB"}, "text"},
+		{"BLOB", dialect.ColumnDef{Type: "BLOB"}, "bytea"},
+		{"RAW", dialect.ColumnDef{Type: "RAW"}, "bytea"},
+		{"FLOAT", dialect.ColumnDef{Type: "FLOAT"}, "double precision"},
+		{"lowercase float", dialect.ColumnDef{Type: "float"}, "double precision"},
+		{"unknown type falls back to text", dialect.ColumnDef{Type: "XMLTYPE"}, "text"},
+		{"unknown type INTERVAL", dialect.ColumnDef{Type: "INTERVAL YEAR TO MONTH"}, "text"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := MapOracleToPostgres(tt.col)
+			prec := 0
+			if tt.col.Precision.Valid {
+				prec = int(tt.col.Precision.Int64)
+			}
+			s := 0
+			if tt.col.Scale.Valid {
+				s = int(tt.col.Scale.Int64)
+			}
+			result := dia.MapOracleType(tt.col.Type, prec, s)
 			if result != tt.expected {
-				t.Errorf("MapOracleToPostgres(%+v) = %q; want %q", tt.col, result, tt.expected)
+				t.Errorf("MapOracleType(%+v) = %q; want %q", tt.col, result, tt.expected)
 			}
 		})
 	}
@@ -51,49 +61,52 @@ func TestMapOracleToPostgres(t *testing.T) {
 
 func TestGenerateCreateTableDDL_WithSchema(t *testing.T) {
 	nullInt := func(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: true} }
-	cols := []ColumnMetadata{
+	cols := []dialect.ColumnDef{
 		{Name: "ID", Type: "NUMBER", Precision: nullInt(10), Nullable: "N"},
 		{Name: "NAME", Type: "VARCHAR2", Nullable: "Y"},
 		{Name: "SCORE", Type: "NUMBER", Precision: nullInt(8), Scale: nullInt(2), Nullable: "Y"},
 	}
+	dia := &dialect.PostgresDialect{}
 
-	ddl := GenerateCreateTableDDL("USERS", "public", cols)
+	ddl := GenerateCreateTableDDL("USERS", "public", cols, dia)
 
-	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS public.USERS") {
+	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS \"public\".\"users\"") {
 		t.Errorf("expected schema.table in DDL, got:\n%s", ddl)
 	}
-	if !strings.Contains(ddl, "id bigint NOT NULL") {
+	if !strings.Contains(ddl, "\"id\" bigint NOT NULL") {
 		t.Errorf("expected 'id bigint NOT NULL', got:\n%s", ddl)
 	}
-	if !strings.Contains(ddl, "name text") {
+	if !strings.Contains(ddl, "\"name\" text") {
 		t.Errorf("expected 'name text', got:\n%s", ddl)
 	}
 	if strings.Contains(ddl, "name text NOT NULL") {
 		t.Errorf("nullable column should not have NOT NULL, got:\n%s", ddl)
 	}
-	if !strings.Contains(ddl, "score numeric(8, 2)") {
+	if !strings.Contains(ddl, "\"score\" numeric(8, 2)") {
 		t.Errorf("expected 'score numeric(8, 2)', got:\n%s", ddl)
 	}
 }
 
 func TestGenerateCreateTableDDL_WithoutSchema(t *testing.T) {
-	cols := []ColumnMetadata{
+	cols := []dialect.ColumnDef{
 		{Name: "ID", Type: "NUMBER", Nullable: "N"},
 	}
+	dia := &dialect.PostgresDialect{}
 
-	ddl := GenerateCreateTableDDL("ORDERS", "", cols)
+	ddl := GenerateCreateTableDDL("ORDERS", "", cols, dia)
 
-	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS ORDERS") {
+	if !strings.Contains(ddl, "CREATE TABLE IF NOT EXISTS \"orders\"") {
 		t.Errorf("expected table without schema prefix, got:\n%s", ddl)
 	}
-	if strings.Contains(ddl, ".ORDERS") {
+	if strings.Contains(ddl, ".\"orders\"") {
 		t.Errorf("schema separator should not appear when schema is empty, got:\n%s", ddl)
 	}
 }
 
 func TestGenerateCreateTableDDL_EndsWithSemicolon(t *testing.T) {
-	cols := []ColumnMetadata{{Name: "X", Type: "VARCHAR2", Nullable: "Y"}}
-	ddl := GenerateCreateTableDDL("T", "", cols)
+	cols := []dialect.ColumnDef{{Name: "X", Type: "VARCHAR2", Nullable: "Y"}}
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateCreateTableDDL("T", "", cols, dia)
 	trimmed := strings.TrimSpace(ddl)
 	if !strings.HasSuffix(trimmed, ";") {
 		t.Errorf("DDL should end with ';', got:\n%s", ddl)
@@ -101,10 +114,11 @@ func TestGenerateCreateTableDDL_EndsWithSemicolon(t *testing.T) {
 }
 
 func TestGenerateCreateTableDDL_ColumnNamesLowercased(t *testing.T) {
-	cols := []ColumnMetadata{
+	cols := []dialect.ColumnDef{
 		{Name: "MY_COL", Type: "VARCHAR2", Nullable: "Y"},
 	}
-	ddl := GenerateCreateTableDDL("T", "", cols)
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateCreateTableDDL("T", "", cols, dia)
 	if !strings.Contains(ddl, "my_col") {
 		t.Errorf("expected column name to be lowercased, got:\n%s", ddl)
 	}
@@ -181,7 +195,7 @@ func TestGetTableMetadata_TableNameUppercased(t *testing.T) {
 // ── GenerateSequenceDDL ────────────────────────────────────────────────────────
 
 func TestGenerateSequenceDDL_Basic(t *testing.T) {
-	seq := SequenceMetadata{
+	seq := dialect.SequenceMetadata{
 		Name:        "USERS_SEQ",
 		MinValue:    1,
 		MaxValue:    "100000",
@@ -189,9 +203,10 @@ func TestGenerateSequenceDDL_Basic(t *testing.T) {
 		CycleFlag:   "N",
 		LastNumber:  42,
 	}
-	ddl := GenerateSequenceDDL(seq, "")
+	dia := &dialect.PostgresDialect{}
+	ddl, _ := GenerateSequenceDDL(seq, "", dia)
 
-	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS users_seq") {
+	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS \"users_seq\"") {
 		t.Errorf("expected sequence name in DDL, got:\n%s", ddl)
 	}
 	if !strings.Contains(ddl, "START WITH 42") {
@@ -212,7 +227,7 @@ func TestGenerateSequenceDDL_Basic(t *testing.T) {
 }
 
 func TestGenerateSequenceDDL_MaxValueOmit(t *testing.T) {
-	seq := SequenceMetadata{
+	seq := dialect.SequenceMetadata{
 		Name:        "MY_SEQ",
 		MinValue:    1,
 		MaxValue:    "9999999999999999999999999999", // Oracle 기본값
@@ -220,7 +235,8 @@ func TestGenerateSequenceDDL_MaxValueOmit(t *testing.T) {
 		CycleFlag:   "N",
 		LastNumber:  1,
 	}
-	ddl := GenerateSequenceDDL(seq, "")
+	dia := &dialect.PostgresDialect{}
+	ddl, _ := GenerateSequenceDDL(seq, "", dia)
 
 	if strings.Contains(ddl, "MAXVALUE") {
 		t.Errorf("Oracle 기본 MAXVALUE는 생략되어야 하는데 포함됨:\n%s", ddl)
@@ -228,7 +244,7 @@ func TestGenerateSequenceDDL_MaxValueOmit(t *testing.T) {
 }
 
 func TestGenerateSequenceDDL_Cycle(t *testing.T) {
-	seq := SequenceMetadata{
+	seq := dialect.SequenceMetadata{
 		Name:        "CYCLE_SEQ",
 		MinValue:    1,
 		MaxValue:    "1000",
@@ -236,7 +252,8 @@ func TestGenerateSequenceDDL_Cycle(t *testing.T) {
 		CycleFlag:   "Y",
 		LastNumber:  1,
 	}
-	ddl := GenerateSequenceDDL(seq, "")
+	dia := &dialect.PostgresDialect{}
+	ddl, _ := GenerateSequenceDDL(seq, "", dia)
 
 	if strings.Contains(ddl, "NO CYCLE") {
 		t.Errorf("CycleFlag=Y 이면 NO CYCLE이 아닌 CYCLE이어야 함:\n%s", ddl)
@@ -247,7 +264,7 @@ func TestGenerateSequenceDDL_Cycle(t *testing.T) {
 }
 
 func TestGenerateSequenceDDL_WithSchema(t *testing.T) {
-	seq := SequenceMetadata{
+	seq := dialect.SequenceMetadata{
 		Name:        "ORDER_SEQ",
 		MinValue:    1,
 		MaxValue:    "9999999999999999999999999999",
@@ -255,9 +272,10 @@ func TestGenerateSequenceDDL_WithSchema(t *testing.T) {
 		CycleFlag:   "N",
 		LastNumber:  100,
 	}
-	ddl := GenerateSequenceDDL(seq, "myschema")
+	dia := &dialect.PostgresDialect{}
+	ddl, _ := GenerateSequenceDDL(seq, "myschema", dia)
 
-	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS myschema.order_seq") {
+	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS \"myschema\".\"order_seq\"") {
 		t.Errorf("스키마 접두사가 포함되어야 함, got:\n%s", ddl)
 	}
 }
@@ -265,29 +283,31 @@ func TestGenerateSequenceDDL_WithSchema(t *testing.T) {
 // ── GenerateIndexDDL ───────────────────────────────────────────────────────────
 
 func TestGenerateIndexDDL_Normal(t *testing.T) {
-	idx := IndexMetadata{
+	idx := dialect.IndexMetadata{
 		Name:       "IDX_USERS_EMAIL",
 		Uniqueness: "NONUNIQUE",
 		IndexType:  "NORMAL",
 		IsPK:       false,
-		Columns:    []IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
+		Columns:    []dialect.IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
 	}
-	ddl := GenerateIndexDDL(idx, "USERS", "")
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateIndexDDL(idx, "USERS", "", dia)
 
-	if !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)") {
+	if !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS \"idx_users_email\" ON \"users\" (\"email\")") {
 		t.Errorf("일반 인덱스 DDL 불일치:\n%s", ddl)
 	}
 }
 
 func TestGenerateIndexDDL_Unique(t *testing.T) {
-	idx := IndexMetadata{
+	idx := dialect.IndexMetadata{
 		Name:       "UQ_USERS_EMAIL",
 		Uniqueness: "UNIQUE",
 		IndexType:  "NORMAL",
 		IsPK:       false,
-		Columns:    []IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
+		Columns:    []dialect.IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
 	}
-	ddl := GenerateIndexDDL(idx, "USERS", "")
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateIndexDDL(idx, "USERS", "", dia)
 
 	if !strings.Contains(ddl, "CREATE UNIQUE INDEX IF NOT EXISTS") {
 		t.Errorf("UNIQUE INDEX 키워드가 없음:\n%s", ddl)
@@ -298,31 +318,33 @@ func TestGenerateIndexDDL_Unique(t *testing.T) {
 }
 
 func TestGenerateIndexDDL_PrimaryKey(t *testing.T) {
-	idx := IndexMetadata{
+	idx := dialect.IndexMetadata{
 		Name:       "SYS_C001234",
 		Uniqueness: "UNIQUE",
 		IndexType:  "NORMAL",
 		IsPK:       true,
-		Columns:    []IndexColumn{{Name: "ID", Position: 1, Descend: "ASC"}},
+		Columns:    []dialect.IndexColumn{{Name: "ID", Position: 1, Descend: "ASC"}},
 	}
-	ddl := GenerateIndexDDL(idx, "USERS", "")
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateIndexDDL(idx, "USERS", "", dia)
 
-	if !strings.Contains(ddl, "ALTER TABLE users ADD PRIMARY KEY (id)") {
+	if !strings.Contains(ddl, "ALTER TABLE \"users\" ADD PRIMARY KEY (\"id\")") {
 		t.Errorf("PK는 ALTER TABLE ... ADD PRIMARY KEY 형태여야 함:\n%s", ddl)
 	}
 }
 
 func TestGenerateIndexDDL_Descend(t *testing.T) {
-	idx := IndexMetadata{
+	idx := dialect.IndexMetadata{
 		Name:       "IDX_USERS_CREATED",
 		Uniqueness: "NONUNIQUE",
 		IndexType:  "NORMAL",
 		IsPK:       false,
-		Columns:    []IndexColumn{{Name: "CREATED_AT", Position: 1, Descend: "DESC"}},
+		Columns:    []dialect.IndexColumn{{Name: "CREATED_AT", Position: 1, Descend: "DESC"}},
 	}
-	ddl := GenerateIndexDDL(idx, "USERS", "")
+	dia := &dialect.PostgresDialect{}
+	ddl := GenerateIndexDDL(idx, "USERS", "", dia)
 
-	if !strings.Contains(ddl, "created_at DESC") {
+	if !strings.Contains(ddl, "\"created_at\" DESC") {
 		t.Errorf("DESC 컬럼 표현식이 없음:\n%s", ddl)
 	}
 }

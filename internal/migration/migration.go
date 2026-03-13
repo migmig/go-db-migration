@@ -4,16 +4,15 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
+	"dbmigrator/internal/dialect"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -64,7 +63,7 @@ func splitNames(s string) []string {
 	return out
 }
 
-func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressTracker) error {
+func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, tracker ProgressTracker) error {
 	if cfg.OutputDir != "" {
 		if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
 			return fmt.Errorf("failed to create output directory: %v", err)
@@ -98,7 +97,7 @@ func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressT
 	var err error
 
 	// If not direct migration, setup output file
-	if pgPool == nil && !cfg.PerTable {
+	if pgPool == nil && targetDB == nil && !cfg.PerTable {
 		outFile := cfg.OutFile
 		if cfg.OutputDir != "" {
 			outFile = cfg.OutputDir + "/" + outFile
@@ -124,7 +123,7 @@ func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressT
 	// Start workers
 	for w := 1; w <= numWorkers; w++ {
 		wg.Add(1)
-		go worker(w, dbConn, pgPool, jobs, &wg, mainBuf, cfg, &outMutex, tracker)
+		go worker(w, dbConn, targetDB, pgPool, dia, jobs, &wg, mainBuf, cfg, &outMutex, tracker)
 	}
 
 	// Send jobs
@@ -137,11 +136,11 @@ func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressT
 	return nil
 }
 
-func worker(id int, dbConn *sql.DB, pgPool db.PGPool, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) {
+func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) {
 	defer wg.Done()
 	for j := range jobs {
 		slog.Info("worker processing table", "worker_id", id, "table", j.tableName)
-		err := MigrateTable(dbConn, pgPool, j.tableName, mainBuf, cfg, outMutex, tracker)
+		err := MigrateTable(dbConn, targetDB, pgPool, dia, j.tableName, mainBuf, cfg, outMutex, tracker)
 		if err != nil {
 			slog.Error("error migrating table", "table", j.tableName, "error", err)
 			if tracker != nil {
@@ -151,7 +150,7 @@ func worker(id int, dbConn *sql.DB, pgPool db.PGPool, jobs <-chan job, wg *sync.
 	}
 }
 
-func MigrateTable(dbConn *sql.DB, pgPool db.PGPool, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
+func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
 	var totalRows int
 	_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&totalRows)
 	if tracker != nil {
@@ -159,10 +158,10 @@ func MigrateTable(dbConn *sql.DB, pgPool db.PGPool, tableName string, mainBuf *b
 	}
 
 	var err error
-	if pgPool != nil {
-		err = MigrateTableDirect(dbConn, pgPool, tableName, cfg, tracker)
+	if pgPool != nil || targetDB != nil {
+		err = MigrateTableDirect(dbConn, targetDB, pgPool, dia, tableName, cfg, tracker)
 	} else {
-		err = MigrateTableToFile(dbConn, tableName, mainBuf, cfg, outMutex, tracker)
+		err = MigrateTableToFile(dbConn, dia, tableName, mainBuf, cfg, outMutex, tracker)
 	}
 
 	if err == nil && tracker != nil {
@@ -171,7 +170,7 @@ func MigrateTable(dbConn *sql.DB, pgPool db.PGPool, tableName string, mainBuf *b
 	return err
 }
 
-func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg *config.Config, tracker ProgressTracker) error {
+func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, cfg *config.Config, tracker ProgressTracker) error {
 	slog.Info("direct migration started", "table", tableName)
 
 	ddlTracker, hasDDLTracker := tracker.(DDLProgressTracker)
@@ -185,8 +184,18 @@ func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg 
 				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
 			} else {
 				for _, seq := range seqs {
-					ddl := GenerateSequenceDDL(seq, cfg.Schema)
-					if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
+					ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
+					if !supported || ddl == "" {
+						slog.Warn("Sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
+						continue
+					}
+					var err error
+					if pgPool != nil {
+						_, err = pgPool.Exec(context.Background(), ddl)
+					} else if targetDB != nil {
+						_, err = targetDB.Exec(ddl)
+					}
+					if err != nil {
 						slog.Warn("failed to execute sequence DDL", "sequence", seq.Name, "error", err)
 						if hasDDLTracker {
 							ddlTracker.DDLProgress("sequence", seq.Name, "error", err)
@@ -205,8 +214,13 @@ func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg 
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
 		} else {
-			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta)
-			_, err = pgPool.Exec(context.Background(), ddl)
+			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta, dia)
+			var err error
+			if pgPool != nil {
+				_, err = pgPool.Exec(context.Background(), ddl)
+			} else if targetDB != nil {
+				_, err = targetDB.Exec(ddl)
+			}
 			if err != nil {
 				return fmt.Errorf("failed to execute DDL for %s: %v", tableName, err)
 			}
@@ -214,16 +228,30 @@ func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg 
 		}
 	} else {
 		// Validation check if not using DDL
-		schema := cfg.Schema
-		if schema == "" {
-			schema = "public"
-		}
-		exists, err := db.TableExists(context.Background(), pgPool, schema, tableName)
-		if err != nil {
-			return fmt.Errorf("failed to check table existence for %s: %v", tableName, err)
-		}
-		if !exists {
-			return fmt.Errorf("target table %s.%s does not exist. Use --with-ddl to create it automatically", schema, tableName)
+		if pgPool != nil {
+			schema := cfg.Schema
+			if schema == "" {
+				schema = "public"
+			}
+			exists, err := db.TableExists(context.Background(), pgPool, schema, tableName)
+			if err != nil {
+				return fmt.Errorf("failed to check table existence for %s: %v", tableName, err)
+			}
+			if !exists {
+				return fmt.Errorf("target table %s.%s does not exist. Use --with-ddl to create it automatically", schema, tableName)
+			}
+		} else if targetDB != nil {
+			// For non-postgres, we can try to query 1 row to check existence
+			// This is a naive check but works for most DBs
+			qTableName := dia.QuoteIdentifier(strings.ToLower(tableName))
+			if cfg.Schema != "" {
+				qTableName = fmt.Sprintf("%s.%s", dia.QuoteIdentifier(strings.ToLower(cfg.Schema)), qTableName)
+			}
+			rows, err := targetDB.Query(fmt.Sprintf("SELECT 1 FROM %s WHERE 1=0", qTableName))
+			if err != nil {
+				return fmt.Errorf("target table %s does not exist or cannot be accessed. Use --with-ddl to create it automatically. err: %v", qTableName, err)
+			}
+			rows.Close()
 		}
 	}
 
@@ -239,44 +267,127 @@ func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg 
 		return err
 	}
 
-	// Use COPY for high performance
-	ctx := context.Background()
-
-	// Transaction per table
-	tx, err := pgPool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to start pg transaction: %v", err)
-	}
-	defer tx.Rollback(ctx)
-
 	rowCount := 0
-	// We need to implement pgx.CopyFromSource
-	source := &oracleCopySource{
-		rows: rows,
-		cols: cols,
-		err:  nil,
+
+	if pgPool != nil {
+		// Use COPY for high performance (Postgres only)
+		ctx := context.Background()
+
+		// Transaction per table
+		tx, err := pgPool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to start pg transaction: %v", err)
+		}
+		defer tx.Rollback(ctx)
+
+		source := &oracleCopySource{
+			rows: rows,
+			cols: cols,
+			err:  nil,
+		}
+
+		n, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, cols, source)
+		if err != nil {
+			return fmt.Errorf("COPY failed for %s: %v", tableName, err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("failed to commit transaction for %s: %v", tableName, err)
+		}
+
+		rowCount = int(n)
+	} else if targetDB != nil {
+		// Non-postgres direct migration via batch INSERT
+		tx, err := targetDB.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to start target transaction: %v", err)
+		}
+		defer tx.Rollback()
+
+		colTypes, err := rows.ColumnTypes()
+		if err != nil {
+			return err
+		}
+
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range cols {
+			valuePtrs[i] = &values[i]
+		}
+
+		var currentBatch [][]any
+
+		for rows.Next() {
+			err := rows.Scan(valuePtrs...)
+			if err != nil {
+				return fmt.Errorf("failed to scan row: %v", err)
+			}
+
+			// We need to copy values because valuePtrs points to the same underlying slice memory
+			rowCopy := make([]any, len(cols))
+			for i, v := range values {
+				// Handle some basic driver specific parsing if needed, but mostly pass through
+				if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "BLOB") {
+					rowCopy[i] = append([]byte(nil), b...)
+				} else if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "RAW") {
+					rowCopy[i] = append([]byte(nil), b...)
+				} else {
+					rowCopy[i] = v
+				}
+			}
+
+			currentBatch = append(currentBatch, rowCopy)
+			rowCount++
+
+			if len(currentBatch) >= cfg.BatchSize {
+				stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+				for _, stmt := range stmts {
+					if _, err := tx.Exec(stmt); err != nil {
+						return fmt.Errorf("failed to execute batch insert: %v\nstmt: %s", err, stmt)
+					}
+				}
+				currentBatch = currentBatch[:0]
+				if tracker != nil {
+					tracker.Update(tableName, rowCount)
+				}
+			}
+		}
+
+		if len(currentBatch) > 0 {
+			stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+			for _, stmt := range stmts {
+				if _, err := tx.Exec(stmt); err != nil {
+					return fmt.Errorf("failed to execute batch insert: %v\nstmt: %s", err, stmt)
+				}
+			}
+			if tracker != nil {
+				tracker.Update(tableName, rowCount)
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction for %s: %v", tableName, err)
+		}
 	}
 
-	n, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, cols, source)
-	if err != nil {
-		return fmt.Errorf("COPY failed for %s: %v", tableName, err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction for %s: %v", tableName, err)
-	}
-
-	rowCount = int(n)
-
-	// Index DDLs — executed after COPY for performance
+	// Index DDLs — executed after COPY/INSERT for performance
 	if cfg.WithDDL && cfg.WithIndexes {
 		indexes, err := GetIndexMetadata(dbConn, tableName, owner)
 		if err != nil {
 			slog.Warn("failed to get index metadata", "table", tableName, "error", err)
 		} else {
 			for _, idx := range indexes {
-				ddl := GenerateIndexDDL(idx, tableName, cfg.Schema)
-				if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
+				ddl := GenerateIndexDDL(idx, tableName, cfg.Schema, dia)
+				if ddl == "" {
+					continue
+				}
+				var err error
+				if pgPool != nil {
+					_, err = pgPool.Exec(context.Background(), ddl)
+				} else if targetDB != nil {
+					_, err = targetDB.Exec(ddl)
+				}
+				if err != nil {
 					slog.Warn("failed to execute index DDL", "index", idx.Name, "error", err)
 					if hasDDLTracker {
 						ddlTracker.DDLProgress("index", idx.Name, "error", err)
@@ -326,7 +437,7 @@ func (s *oracleCopySource) Err() error {
 	return s.rows.Err()
 }
 
-func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
+func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker) error {
 	slog.Info("file-based migration started", "table", tableName)
 
 	var tableBuf *bufio.Writer
@@ -358,7 +469,11 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
 			} else {
 				for _, seq := range seqs {
-					ddl := GenerateSequenceDDL(seq, cfg.Schema)
+					ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
+					if !supported || ddl == "" {
+						slog.Warn("Sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
+						continue
+					}
 					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
 					if hasDDLTracker {
 						ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
@@ -373,7 +488,7 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
 		} else {
-			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta)
+			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta, dia)
 			writeToBuf(tableBuf, ddl+"\n", cfg.PerTable, outMutex)
 		}
 
@@ -384,7 +499,10 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 				slog.Warn("failed to get index metadata", "table", tableName, "error", err)
 			} else {
 				for _, idx := range indexes {
-					ddl := GenerateIndexDDL(idx, tableName, cfg.Schema)
+					ddl := GenerateIndexDDL(idx, tableName, cfg.Schema, dia)
+					if ddl == "" {
+						continue
+					}
 					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
 					if hasDDLTracker {
 						ddlTracker.DDLProgress("index", idx.Name, "ok", nil)
@@ -419,7 +537,7 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 	}
 
 	rowCount := 0
-	var batch []string
+	var currentBatch [][]any
 
 	for rows.Next() {
 		err := rows.Scan(valuePtrs...)
@@ -427,25 +545,37 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 			return fmt.Errorf("failed to scan row: %v", err)
 		}
 
-		typeNames := make([]string, len(colTypes))
-		for i, ct := range colTypes {
-			typeNames[i] = ct.DatabaseTypeName()
+		// We need to copy values because valuePtrs points to the same underlying slice memory
+		rowCopy := make([]any, len(cols))
+		for i, v := range values {
+			if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "BLOB") {
+				rowCopy[i] = append([]byte(nil), b...)
+			} else if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "RAW") {
+				rowCopy[i] = append([]byte(nil), b...)
+			} else {
+				rowCopy[i] = v
+			}
 		}
-		rowValues := ProcessRow(values, typeNames)
-		batch = append(batch, fmt.Sprintf("(%s)", rowValues))
+		currentBatch = append(currentBatch, rowCopy)
 		rowCount++
 
-		if len(batch) >= cfg.BatchSize {
-			WriteBatch(tableBuf, tableName, cols, batch, cfg, outMutex)
-			batch = batch[:0]
+		if len(currentBatch) >= cfg.BatchSize {
+			stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+			for _, stmt := range stmts {
+				writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex)
+			}
+			currentBatch = currentBatch[:0]
 			if tracker != nil {
 				tracker.Update(tableName, rowCount)
 			}
 		}
 	}
 
-	if len(batch) > 0 {
-		WriteBatch(tableBuf, tableName, cols, batch, cfg, outMutex)
+	if len(currentBatch) > 0 {
+		stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+		for _, stmt := range stmts {
+			writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex)
+		}
 		if tracker != nil {
 			tracker.Update(tableName, rowCount)
 		}
@@ -455,75 +585,10 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 	return nil
 }
 
-func ProcessRow(values []interface{}, typeNames []string) string {
-	var row []string
-
-	for i, val := range values {
-		if val == nil {
-			row = append(row, "NULL")
-			continue
-		}
-
-		dbTypeName := typeNames[i]
-
-		switch v := val.(type) {
-		case []byte:
-			if strings.Contains(strings.ToUpper(dbTypeName), "BLOB") || strings.Contains(strings.ToUpper(dbTypeName), "RAW") {
-				row = append(row, fmt.Sprintf("'\\x%s'", hex.EncodeToString(v)))
-			} else {
-				str := string(v)
-				escaped := strings.ReplaceAll(str, "'", "''")
-				row = append(row, fmt.Sprintf("'%s'", escaped))
-			}
-		case string:
-			escaped := strings.ReplaceAll(v, "'", "''")
-			row = append(row, fmt.Sprintf("'%s'", escaped))
-		case time.Time:
-			row = append(row, fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.999999999")))
-		case int, int64, float64:
-			row = append(row, fmt.Sprintf("%v", v))
-		case bool:
-			if v {
-				row = append(row, "TRUE")
-			} else {
-				row = append(row, "FALSE")
-			}
-		default:
-			str := fmt.Sprintf("%v", v)
-			escaped := strings.ReplaceAll(str, "'", "''")
-			row = append(row, fmt.Sprintf("'%s'", escaped))
-		}
-	}
-
-	return strings.Join(row, ", ")
-}
-
 func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex) {
 	if !perTable {
 		outMutex.Lock()
 		defer outMutex.Unlock()
 	}
 	buf.WriteString(s)
-}
-
-func WriteBatch(out *bufio.Writer, tableName string, cols []string, batch []string, cfg *config.Config, outMutex *sync.Mutex) {
-	colStr := strings.Join(cols, ", ")
-	valStr := strings.Join(batch, ",\n    ")
-
-	fullTableName := tableName
-	if cfg.Schema != "" {
-		fullTableName = fmt.Sprintf("%s.%s", cfg.Schema, tableName)
-	}
-
-	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES\n    %s;\n\n", fullTableName, colStr, valStr)
-
-	if !cfg.PerTable {
-		outMutex.Lock()
-		defer outMutex.Unlock()
-	}
-
-	_, err := out.WriteString(stmt)
-	if err != nil {
-		slog.Warn("failed to write batch", "table", tableName, "error", err)
-	}
 }

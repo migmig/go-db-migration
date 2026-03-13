@@ -2,10 +2,12 @@ package migration
 
 import (
 	"bufio"
-	"dbmigrator/internal/config"
 	"os"
 	"sync"
 	"testing"
+
+	"dbmigrator/internal/config"
+	"dbmigrator/internal/dialect"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
@@ -47,7 +49,8 @@ func TestWorkerPool(t *testing.T) {
 	defer os.Remove("T1.sql")
 	defer os.Remove("T2.sql")
 
-	err = Run(db, nil, cfg, nil)
+	dia := &dialect.PostgresDialect{}
+	err = Run(db, nil, nil, dia, cfg, nil)
 	if err != nil {
 		t.Errorf("Run failed: %v", err)
 	}
@@ -95,9 +98,10 @@ func TestWorkerSingleFile(t *testing.T) {
 	var outMutex sync.Mutex
 	mainBuf := bufio.NewWriter(tmpFile)
 
+	dia := &dialect.PostgresDialect{}
 	for w := 1; w <= cfg.Workers; w++ {
 		wg.Add(1)
-		go worker(w, db, nil, jobs, &wg, mainBuf, cfg, &outMutex, nil)
+		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil)
 	}
 
 	for _, table := range cfg.Tables {

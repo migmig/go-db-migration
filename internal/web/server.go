@@ -1,6 +1,7 @@
 package web
 
 import (
+	"database/sql"
 	"embed"
 	"fmt"
 	"html/template"
@@ -15,6 +16,7 @@ import (
 
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
+	"dbmigrator/internal/dialect"
 	"dbmigrator/internal/logger"
 	"dbmigrator/internal/migration"
 	"dbmigrator/internal/web/ws"
@@ -104,6 +106,9 @@ type startMigrationRequest struct {
 	WithSequences bool   `json:"withSequences"`
 	WithIndexes   bool   `json:"withIndexes"`
 	OracleOwner   string `json:"oracleOwner"`
+	// v6 추가 필드
+	TargetDB  string `json:"targetDb"`
+	TargetURL string `json:"targetUrl"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -151,15 +156,44 @@ func startMigration(c *gin.Context) {
 		}
 		defer oracleDB.Close()
 
+		targetDBName := req.TargetDB
+		if targetDBName == "" {
+			targetDBName = "postgres"
+		}
+
+		dia, err := dialect.GetDialect(targetDBName)
+		if err != nil {
+			log.Printf("Failed to get dialect: %v", err)
+			tracker.AllDone("")
+			return
+		}
+
 		var pgPool db.PGPool
-		if req.Direct && req.PGURL != "" {
-			pgPool, err = db.ConnectPostgres(req.PGURL)
-			if err != nil {
-				log.Printf("Failed to connect to Postgres: %v", err)
-				tracker.AllDone("")
-				return
+		var targetDB *sql.DB
+
+		targetURL := req.TargetURL
+		if targetURL == "" {
+			targetURL = req.PGURL // backward compat
+		}
+
+		if req.Direct && targetURL != "" {
+			if targetDBName == "postgres" {
+				pgPool, err = db.ConnectPostgres(targetURL)
+				if err != nil {
+					log.Printf("Failed to connect to Postgres: %v", err)
+					tracker.AllDone("")
+					return
+				}
+				defer pgPool.Close()
+			} else {
+				targetDB, err = db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(targetURL))
+				if err != nil {
+					log.Printf("Failed to connect to Target DB: %v", err)
+					tracker.AllDone("")
+					return
+				}
+				defer targetDB.Close()
 			}
-			defer pgPool.Close()
 		}
 
 		workers := req.Workers
@@ -194,14 +228,15 @@ func startMigration(c *gin.Context) {
 			Schema:        req.Schema,
 			DryRun:        req.DryRun,
 			OutputDir:     outDir,
-			PGURL:         req.PGURL,
+			TargetDB:      targetDBName,
+			TargetURL:     targetURL,
 			WithDDL:       req.WithDDL,
 			WithSequences: req.WithSequences,
 			WithIndexes:   req.WithIndexes,
 			OracleOwner:   req.OracleOwner,
 		}
 
-		err = migration.Run(oracleDB, pgPool, cfg, tracker)
+		err = migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
 		if err != nil {
 			log.Printf("Migration failed: %v", err)
 			tracker.AllDone("")

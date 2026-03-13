@@ -2,6 +2,7 @@ package migration
 
 import (
 	"dbmigrator/internal/config"
+	"dbmigrator/internal/dialect"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -47,8 +48,9 @@ func TestMigrateTableDirect(t *testing.T) {
 		Schema:  "public",
 		WithDDL: false,
 	}
+	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, pgMock, tableName, cfg, nil)
+	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil)
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
@@ -103,8 +105,9 @@ func TestMigrateTableDirect_WithDDL(t *testing.T) {
 		Schema:  "public",
 		WithDDL: true,
 	}
+	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, pgMock, tableName, cfg, nil)
+	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil)
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
