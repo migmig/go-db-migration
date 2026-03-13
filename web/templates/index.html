@@ -346,13 +346,23 @@
 
             <div class="checkbox-container" style="margin-bottom: 1rem;">
                 <input type="checkbox" id="directMigration">
-                <label for="directMigration">Direct Migration to PostgreSQL (No SQL files)</label>
+                <label for="directMigration">Direct Migration to Target DB (No SQL files)</label>
             </div>
             
             <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
                 <div class="form-group">
-                    <label for="pgUrl">PostgreSQL URL</label>
-                    <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname">
+                    <label for="targetDb" style="display: block; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-main); font-size: 0.9rem;">Target DB Type</label>
+                    <select id="targetDb" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); font-size: 1rem; font-family: inherit; margin-bottom: 1rem; box-sizing: border-box;">
+                        <option value="postgres" selected>PostgreSQL</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="mariadb">MariaDB</option>
+                        <option value="sqlite">SQLite</option>
+                        <option value="mssql">SQL Server (MSSQL)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="targetUrl">Target DB URL</label>
+                    <input type="text" id="targetUrl" placeholder="postgres://user:pass@host:port/dbname">
                 </div>
                 <div class="checkbox-container">
                     <input type="checkbox" id="withDdl" checked>
@@ -411,6 +421,21 @@
     directMigration.addEventListener('change', (e) => {
         pgConfig.style.display = e.target.checked ? 'block' : 'none';
         sqlOnlyControls.style.display = e.target.checked ? 'none' : 'block';
+    });
+
+    const targetDbSelect = document.getElementById('targetDb');
+    const targetUrlInput = document.getElementById('targetUrl');
+    targetDbSelect.addEventListener('change', (e) => {
+        const dbType = e.target.value;
+        if (dbType === 'postgres') {
+            targetUrlInput.placeholder = 'postgres://user:pass@host:port/dbname';
+        } else if (dbType === 'mysql' || dbType === 'mariadb') {
+            targetUrlInput.placeholder = 'user:pass@tcp(host:port)/dbname';
+        } else if (dbType === 'sqlite') {
+            targetUrlInput.placeholder = 'file:./mydb.sqlite3?_foreign_keys=on';
+        } else if (dbType === 'mssql') {
+            targetUrlInput.placeholder = 'sqlserver://user:pass@host:1433?database=dbname';
+        }
     });
 
     document.getElementById('withDdl').addEventListener('change', (e) => {
@@ -522,7 +547,8 @@
         const password = document.getElementById('password').value;
         
         const isDirect = directMigration.checked;
-        const pgUrl = document.getElementById('pgUrl').value;
+        const targetDb = document.getElementById('targetDb').value;
+        const targetUrl = document.getElementById('targetUrl').value;
         const withDdl = document.getElementById('withDdl').checked;
         const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
         const workers = parseInt(document.getElementById('workers').value) || 4;
@@ -537,8 +563,8 @@
 
         isDryRunMode = dryRun;
 
-        if (isDirect && !pgUrl) {
-            errorDiv.innerText = 'Please provide a PostgreSQL connection URL for direct migration.';
+        if (isDirect && !targetUrl) {
+            errorDiv.innerText = 'Please provide a Target DB connection URL for direct migration.';
             return;
         }
 
@@ -567,7 +593,9 @@
                     password,
                     tables: selectedTables,
                     direct: isDirect,
-                    pgUrl: pgUrl,
+                    pgUrl: targetUrl,
+                    targetDb: targetDb,
+                    targetUrl: targetUrl,
                     withDdl: withDdl,
                     batchSize: batchSize,
                     workers: workers,
