@@ -29,6 +29,9 @@ type Config struct {
 	WithIndexes   bool
 	Sequences     string
 	OracleOwner   string
+	// v6 flags
+	TargetDB  string
+	TargetURL string
 	// internal use for zip generation
 	OutputDir string
 }
@@ -93,8 +96,18 @@ func ParseFlags() (*Config, error) {
 	flag.BoolVar(&cfg.WithIndexes, "with-indexes", false, "연관 Index DDL 포함")
 	flag.StringVar(&cfg.Sequences, "sequences", "", "추가 포함할 Sequence 이름 목록 (쉼표 구분)")
 	flag.StringVar(&cfg.OracleOwner, "oracle-owner", "", "Oracle 스키마 소유자 (미지정 시 -user 값 사용)")
+	// v6 flags
+	flag.StringVar(&cfg.TargetDB, "target-db", "postgres", "출력 대상 DB 종류 (postgres/mysql/mariadb/sqlite/mssql)")
+	flag.StringVar(&cfg.TargetURL, "target-url", "", "대상 DB 연결 URL (PostgreSQL 외 Direct 마이그레이션 시)")
 
 	flag.Parse()
+
+	// v6: Backward compatibility for pg-url
+	if cfg.TargetDB == "postgres" && cfg.PGURL != "" {
+		cfg.TargetURL = cfg.PGURL
+	} else if cfg.TargetDB != "postgres" && cfg.PGURL != "" {
+		fmt.Println("Warning: -pg-url is specified but -target-db is not postgres. -pg-url will be ignored.")
+	}
 
 	if cfg.WebMode {
 		return cfg, nil

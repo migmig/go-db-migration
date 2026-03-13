@@ -308,6 +308,16 @@
             <details style="margin-bottom: 1rem; cursor: pointer;">
                 <summary style="font-weight: 600; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Advanced Settings</summary>
                 <div style="padding: 1rem; background: var(--bg-color); border-radius: var(--radius-md);">
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label for="targetDb">출력 대상 DB (Target DB)</label>
+                        <select id="targetDb" onchange="handleTargetDbChange()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem;">
+                            <option value="postgres" selected>PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="mariadb">MariaDB</option>
+                            <option value="sqlite">SQLite</option>
+                            <option value="mssql">MSSQL (SQL Server)</option>
+                        </select>
+                    </div>
                     <div style="display: flex; gap: 1rem; margin-top: 0.75rem;">
                         <div class="form-group" style="flex: 1; margin-bottom: 0;">
                             <label for="batchSize">Batch Size</label>
@@ -346,12 +356,12 @@
 
             <div class="checkbox-container" style="margin-bottom: 1rem;">
                 <input type="checkbox" id="directMigration">
-                <label for="directMigration">Direct Migration to PostgreSQL (No SQL files)</label>
+                <label for="directMigration" id="directMigrationLabel">Direct Migration to Target DB (No SQL files)</label>
             </div>
             
             <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
                 <div class="form-group">
-                    <label for="pgUrl">PostgreSQL URL</label>
+                    <label for="pgUrl" id="targetUrlLabel">Target URL</label>
                     <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname">
                 </div>
                 <div class="checkbox-container">
@@ -412,6 +422,43 @@
         pgConfig.style.display = e.target.checked ? 'block' : 'none';
         sqlOnlyControls.style.display = e.target.checked ? 'none' : 'block';
     });
+
+    function handleTargetDbChange() {
+        const targetDb = document.getElementById('targetDb').value;
+        const pgUrlInput = document.getElementById('pgUrl');
+        const schemaInput = document.getElementById('schema');
+        const withSequencesCb = document.getElementById('withSequences');
+
+        switch (targetDb) {
+            case 'postgres':
+                pgUrlInput.placeholder = "postgres://user:pass@host:5432/dbname";
+                schemaInput.parentElement.style.display = 'block';
+                withSequencesCb.disabled = false;
+                withSequencesCb.title = "";
+                break;
+            case 'mysql':
+            case 'mariadb':
+                pgUrlInput.placeholder = "user:pass@tcp(host:3306)/dbname";
+                schemaInput.parentElement.style.display = 'block';
+                withSequencesCb.checked = false;
+                withSequencesCb.disabled = true;
+                withSequencesCb.title = "MySQL/MariaDB doesn't support sequences (use AUTO_INCREMENT)";
+                break;
+            case 'sqlite':
+                pgUrlInput.placeholder = "/path/to/file.db";
+                schemaInput.parentElement.style.display = 'none';
+                withSequencesCb.checked = false;
+                withSequencesCb.disabled = true;
+                withSequencesCb.title = "SQLite doesn't support sequences";
+                break;
+            case 'mssql':
+                pgUrlInput.placeholder = "sqlserver://user:pass@host:1433?database=dbname";
+                schemaInput.parentElement.style.display = 'block';
+                withSequencesCb.disabled = false;
+                withSequencesCb.title = "";
+                break;
+        }
+    }
 
     document.getElementById('withDdl').addEventListener('change', (e) => {
         const withSeq = document.getElementById('withSequences');
@@ -522,7 +569,8 @@
         const password = document.getElementById('password').value;
         
         const isDirect = directMigration.checked;
-        const pgUrl = document.getElementById('pgUrl').value;
+        const targetDb = document.getElementById('targetDb').value;
+        const targetUrl = document.getElementById('pgUrl').value.trim();
         const withDdl = document.getElementById('withDdl').checked;
         const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
         const workers = parseInt(document.getElementById('workers').value) || 4;
@@ -537,8 +585,8 @@
 
         isDryRunMode = dryRun;
 
-        if (isDirect && !pgUrl) {
-            errorDiv.innerText = 'Please provide a PostgreSQL connection URL for direct migration.';
+        if (isDirect && !targetUrl) {
+            errorDiv.innerText = 'Please provide a Target DB connection URL for direct migration.';
             return;
         }
 
@@ -567,7 +615,9 @@
                     password,
                     tables: selectedTables,
                     direct: isDirect,
-                    pgUrl: pgUrl,
+                    targetDb: targetDb,
+                    targetUrl: targetUrl,
+                    pgUrl: targetUrl, // backward compatibility just in case
                     withDdl: withDdl,
                     batchSize: batchSize,
                     workers: workers,

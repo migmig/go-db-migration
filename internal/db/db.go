@@ -10,6 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	go_ora "github.com/sijms/go-ora/v2"
+
+	// Drivers for targets
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/microsoft/go-mssqldb"
 )
 
 // PGPool interface for testability
@@ -63,6 +68,20 @@ func ConnectPostgres(url string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pgxpool.NewWithConfig(context.Background(), config)
+}
+
+func ConnectTargetDB(driverName, url string) (*sql.DB, error) {
+	if url == "" {
+		return nil, nil
+	}
+	db, err := sql.Open(driverName, url)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 func FetchTables(db *sql.DB, likeFilter string) ([]string, error) {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"dbmigrator/internal/config"
+	"dbmigrator/internal/dialect"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
 )
@@ -42,7 +43,8 @@ func TestRun_PerTableFalse_SingleFileWithOutFileName(t *testing.T) {
 		OutputDir: outDir,
 	}
 
-	if err := Run(db, nil, cfg, nil); err != nil {
+	dia := &dialect.PostgresDialect{}
+	if err := Run(db, nil, nil, dia, cfg, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -85,7 +87,8 @@ func TestRun_PerTableTrue_CreatesPerTableFiles(t *testing.T) {
 		OutputDir: outDir,
 	}
 
-	if err := Run(db, nil, cfg, nil); err != nil {
+	dia := &dialect.PostgresDialect{}
+	if err := Run(db, nil, nil, dia, cfg, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -122,13 +125,14 @@ func TestMigrateTableToFile_Schema_InsertsHaveSchemaPrefix(t *testing.T) {
 		PerTable:  false,
 	}
 
-	if err := MigrateTableToFile(db, "ITEMS", w, cfg, &mu, nil); err != nil {
+	dia := &dialect.PostgresDialect{}
+	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
 
 	out := buf.String()
-	if !strings.Contains(out, "INSERT INTO myschema.ITEMS") {
+	if !strings.Contains(out, "INSERT INTO \"myschema\".\"items\"") {
 		t.Errorf("expected INSERT to contain schema prefix, got:\n%s", out)
 	}
 }
@@ -174,7 +178,8 @@ func TestRun_DryRun_CallsDryRunTracker(t *testing.T) {
 		DryRun: true,
 	}
 
-	if err := Run(db, nil, cfg, tracker); err != nil {
+	dia := &dialect.PostgresDialect{}
+	if err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -212,7 +217,8 @@ func TestRun_DryRun_ErrorCallsTrackerError(t *testing.T) {
 		DryRun: true,
 	}
 
-	if err := Run(db, nil, cfg, tracker); err != nil {
+	dia := &dialect.PostgresDialect{}
+	if err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
 		t.Fatalf("Run should not return error on per-table count failure: %v", err)
 	}
 
