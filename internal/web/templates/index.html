@@ -20,7 +20,55 @@
             --radius-lg: 12px;
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --header-bg: #ffffff;
+            --header-border: #e2e8f0;
+            --step-done-bg: #10b981;
+            --step-active-bg: #3b82f6;
+            --step-disabled-bg: #cbd5e1;
+            --stepper-line: #e2e8f0;
         }
+
+        [data-theme="dark"] {
+            --primary-color: #60a5fa;
+            --primary-hover: #3b82f6;
+            --success-color: #34d399;
+            --success-hover: #10b981;
+            --danger-color: #f87171;
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --header-bg: #1e293b;
+            --header-border: #334155;
+            --step-done-bg: #34d399;
+            --step-active-bg: #60a5fa;
+            --step-disabled-bg: #475569;
+            --stepper-line: #334155;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --primary-color: #60a5fa;
+                --primary-hover: #3b82f6;
+                --success-color: #34d399;
+                --success-hover: #10b981;
+                --danger-color: #f87171;
+                --bg-color: #0f172a;
+                --card-bg: #1e293b;
+                --text-main: #f1f5f9;
+                --text-muted: #94a3b8;
+                --border-color: #334155;
+                --header-bg: #1e293b;
+                --header-border: #334155;
+                --step-done-bg: #34d399;
+                --step-active-bg: #60a5fa;
+                --step-disabled-bg: #475569;
+                --stepper-line: #334155;
+            }
+        }
+
+        * { box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -28,25 +76,144 @@
             color: var(--text-main);
             line-height: 1.5;
             margin: 0;
-            padding: 40px 20px;
+            padding: 0;
+        }
+
+        /* ── App Header ── */
+        .app-header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--header-border);
+            box-shadow: var(--shadow-sm);
             display: flex;
-            justify-content: center;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.5rem;
         }
 
-        .container {
-            max-width: 800px;
-            width: 100%;
-        }
-
-        h1 {
-            text-align: center;
-            font-size: 2.25rem;
+        .app-title {
+            font-size: 1.25rem;
             font-weight: 700;
-            margin-bottom: 2rem;
+            margin: 0;
+            letter-spacing: -0.02em;
             color: var(--text-main);
-            letter-spacing: -0.025em;
         }
 
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .session-info {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            background: var(--bg-color);
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .session-info code {
+            font-family: monospace;
+            font-size: 0.78rem;
+        }
+
+        #theme-toggle {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            width: auto;
+            display: inline-flex;
+            transition: background 0.2s;
+        }
+
+        #theme-toggle:hover {
+            background: var(--border-color);
+        }
+
+        /* ── Container ── */
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 2rem 1.5rem 4rem;
+        }
+
+        /* ── Stepper ── */
+        .stepper-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        .step__num {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background-color: var(--step-disabled-bg);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        .step__label {
+            white-space: nowrap;
+        }
+
+        .stepper-line {
+            flex: 1;
+            height: 2px;
+            background-color: var(--stepper-line);
+            margin: 0 0.75rem;
+        }
+
+        .step--active .step__num {
+            background-color: var(--step-active-bg);
+        }
+
+        .step--active .step__label {
+            color: var(--text-main);
+        }
+
+        .step--done .step__num {
+            background-color: var(--step-done-bg);
+        }
+
+        .step--done .step__label {
+            color: var(--text-muted);
+        }
+
+        .step--done {
+            cursor: pointer;
+        }
+
+        .step--done:hover .step__label {
+            color: var(--text-main);
+        }
+
+        /* ── Cards ── */
         .card {
             background-color: var(--card-bg);
             border-radius: var(--radius-lg);
@@ -57,7 +224,7 @@
         }
 
         h2 {
-            font-size: 1.25rem;
+            font-size: 1.125rem;
             font-weight: 600;
             margin-top: 0;
             margin-bottom: 1.5rem;
@@ -66,6 +233,7 @@
             padding-bottom: 0.75rem;
         }
 
+        /* ── Forms ── */
         .form-group {
             margin-bottom: 1.25rem;
         }
@@ -78,21 +246,32 @@
             font-size: 0.9rem;
         }
 
-        input[type="text"], input[type="password"] {
+        input[type="text"], input[type="password"], select {
             width: 100%;
             padding: 0.75rem 1rem;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-md);
             font-size: 1rem;
             font-family: inherit;
-            box-sizing: border-box;
+            background-color: var(--card-bg);
+            color: var(--text-main);
             transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input[type="text"]:focus, input[type="password"]:focus {
-            outline: none;
+        input[type="text"]:focus, input[type="password"]:focus, select:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+            outline: none;
+        }
+
+        input[type="text"]:focus-visible, input[type="password"]:focus-visible, select:focus-visible {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 2px;
+        }
+
+        :focus-visible {
+            outline: 2px solid var(--primary-color);
+            outline-offset: 2px;
         }
 
         button {
@@ -114,34 +293,63 @@
             color: white;
             box-shadow: var(--shadow-sm);
         }
-        .btn-primary:hover:not(:disabled) {
-            background-color: var(--primary-hover);
-        }
+        .btn-primary:hover:not(:disabled) { background-color: var(--primary-hover); }
 
         .btn-success {
             background-color: var(--success-color);
             color: white;
             box-shadow: var(--shadow-sm);
         }
-        .btn-success:hover:not(:disabled) {
-            background-color: var(--success-hover);
+        .btn-success:hover:not(:disabled) { background-color: var(--success-hover); }
+
+        .btn-secondary {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
         }
+        .btn-secondary:hover:not(:disabled) { background-color: var(--border-color); }
 
         button:disabled {
-            opacity: 0.7;
+            opacity: 0.6;
             cursor: not-allowed;
         }
 
-        #table-section, #progress-section {
+        /* ── Step content visibility ── */
+        .step-content {
             display: none;
-            animation: fadeIn 0.4s ease-in-out;
+        }
+        .step-content.active {
+            display: block;
+            animation: fadeIn 0.35s ease-in-out;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
         }
 
+        /* ── Connection success banner ── */
+        .conn-success-banner {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #d1fae5;
+            border: 1px solid #6ee7b7;
+            color: #065f46;
+            padding: 0.75rem 1rem;
+            border-radius: var(--radius-md);
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-top: 0.75rem;
+        }
+        [data-theme="dark"] .conn-success-banner {
+            background: #064e3b;
+            border-color: #10b981;
+            color: #6ee7b7;
+        }
+
+        /* ── Table list ── */
         .table-list {
             max-height: 300px;
             overflow-y: auto;
@@ -158,9 +366,7 @@
             display: flex;
             align-items: center;
         }
-        .table-item:hover {
-            background-color: var(--card-bg);
-        }
+        .table-item:hover { background-color: var(--card-bg); }
 
         .table-item input[type="checkbox"] {
             margin-right: 0.75rem;
@@ -193,6 +399,7 @@
             cursor: pointer;
         }
 
+        /* ── Progress ── */
         .progress-container {
             margin-bottom: 1.25rem;
             border: 1px solid var(--border-color);
@@ -239,6 +446,7 @@
             margin-top: 1.5rem;
         }
 
+        /* ── Errors & Warnings ── */
         .error-msg {
             color: var(--danger-color);
             margin-top: 0.75rem;
@@ -256,297 +464,589 @@
             margin-bottom: 10px;
             font-size: 14px;
         }
+        [data-theme="dark"] .warning-banner {
+            background-color: #3d2e00;
+            border-color: #b45309;
+            color: #fcd34d;
+        }
 
-        .session-info {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            font-size: 0.8rem;
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* ── Step 2 Grid ── */
+        .step2-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        @media (max-width: 1024px) {
+            .step2-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── Settings section headings ── */
+        .settings-section-title {
+            font-size: 0.78rem;
+            font-weight: 700;
             color: var(--text-muted);
-            background: var(--card-bg);
-            padding: 4px 8px;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            margin: 0 0 0.75rem 0;
+            padding: 0;
         }
 
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
+        .settings-divider {
+            border: none;
+            border-top: 1px solid var(--border-color);
+            margin: 1rem 0;
         }
-        ::-webkit-scrollbar-track {
-            background: transparent;
+
+        /* ── Selected count badge ── */
+        #selectedCount {
+            font-size: 0.78rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            margin-left: 0.5rem;
         }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
+
+        /* ── Overall Progress ── */
+        .overall-progress {
+            padding: 1rem;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            margin-bottom: 1.5rem;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
+
+        /* ── Summary Card ── */
+        .summary-card {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .summary-stats {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .summary-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        .summary-stat__label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .summary-stat__value {
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .stat--success { color: var(--success-color); }
+        .stat--danger  { color: var(--danger-color); }
+        .stat--warn    { color: #f59e0b; }
+        .stat--neutral { color: var(--text-main); }
+
+        /* ── Responsive 768px ── */
+        @media (max-width: 768px) {
+            .container { padding: 1rem 0.75rem 3rem; }
+            button { padding: 0.85rem 1.5rem; }
         }
     </style>
 </head>
 <body>
-<div class="session-info">Session ID: <span id="currentSessionId">{{ .sessionId }}</span></div>
+
+<!-- ── App Header ── -->
+<header class="app-header">
+    <h1 class="app-title">{{ .title }}</h1>
+    <div class="header-actions">
+        <span class="session-info">Session: <code id="currentSessionId">{{ .sessionId }}</code></span>
+        <button id="theme-toggle" aria-label="다크모드 토글">🌙</button>
+    </div>
+</header>
+
 <div class="container">
-    <h1>{{ .title }}</h1>
 
-    <div id="conn-section" class="card">
-        <h2>1. Oracle DB Connection</h2>
-        <div class="form-group">
-            <label for="oracleUrl">Oracle URL</label>
-            <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required>
+    <!-- ── Stepper Header ── -->
+    <div class="stepper-header" role="navigation" aria-label="진행 단계">
+        <div class="step step--active" data-step="1" id="stepper-1">
+            <div class="step__num">1</div>
+            <span class="step__label">Connect</span>
         </div>
-        <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
-            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                <label for="username">Username</label>
-                <input type="text" id="username" required>
-            </div>
-            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                <label for="password">Password</label>
-                <input type="password" id="password" required>
-            </div>
+        <div class="stepper-line"></div>
+        <div class="step step--disabled" data-step="2" id="stepper-2">
+            <div class="step__num">2</div>
+            <span class="step__label">Configure</span>
         </div>
-        <div class="form-group">
-            <label for="likeQuery">Table Filter (LIKE)</label>
-            <input type="text" id="likeQuery" placeholder="e.g. USERS_%">
+        <div class="stepper-line"></div>
+        <div class="step step--disabled" data-step="3" id="stepper-3">
+            <div class="step__num">3</div>
+            <span class="step__label">Run</span>
         </div>
-        <button id="btn-connect" class="btn-primary">Connect & Fetch Tables</button>
-        <div id="conn-error" class="error-msg"></div>
     </div>
 
-    <div id="table-section" class="card">
-        <h2>2. Select Tables & Migration Mode</h2>
-        <div class="checkbox-container">
-            <input type="checkbox" id="checkAll">
-            <label for="checkAll">Select All Tables</label>
-        </div>
-        <div class="table-list" id="tableList">
-            <!-- Tables will be injected here -->
-        </div>
-
-        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
-            <details style="margin-bottom: 1rem; cursor: pointer;">
-                <summary style="font-weight: 600; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Advanced Settings</summary>
-                <div style="padding: 1rem; background: var(--bg-color); border-radius: var(--radius-md);">
-                    <div class="form-group" style="margin-bottom: 1rem;">
-                        <label for="targetDb">출력 대상 DB (Target DB)</label>
-                        <select id="targetDb" onchange="handleTargetDbChange()" style="width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.9rem;">
-                            <option value="postgres" selected>PostgreSQL</option>
-                            <option value="mysql">MySQL</option>
-                            <option value="mariadb">MariaDB</option>
-                            <option value="sqlite">SQLite</option>
-                            <option value="mssql">MSSQL (SQL Server)</option>
-                        </select>
-                    </div>
-                    <div style="display: flex; gap: 1rem; margin-top: 0.75rem;">
-                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                            <label for="batchSize">Batch Size</label>
-                            <input type="text" id="batchSize" value="1000">
-                        </div>
-                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                            <label for="workers">Parallel Workers</label>
-                            <input type="text" id="workers" value="4">
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 1rem; margin-top: 0.75rem;">
-                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                            <label for="dbMaxOpen" style="font-size:0.8rem;" title="DB Max Open Connections (0=Unlimited)">DB Max Open</label>
-                            <input type="text" id="dbMaxOpen" value="0">
-                        </div>
-                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                            <label for="dbMaxIdle" style="font-size:0.8rem;" title="DB Max Idle Connections">DB Max Idle</label>
-                            <input type="text" id="dbMaxIdle" value="2">
-                        </div>
-                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                            <label for="dbMaxLife" style="font-size:0.8rem;" title="DB Conn Max Lifetime in seconds (0=Unlimited)">DB Max Life (s)</label>
-                            <input type="text" id="dbMaxLife" value="0">
-                        </div>
-                    </div>
-                    <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid var(--border-color);">
-                    <div id="sql-only-controls">
-                        <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
-                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                                <label for="outFile">Output Filename</label>
-                                <input type="text" id="outFile" value="migration.sql">
-                            </div>
-                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                                <label for="schema">Schema</label>
-                                <input type="text" id="schema" placeholder="public">
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 2rem;">
-                            <div class="checkbox-container" style="margin-bottom: 0;">
-                                <input type="checkbox" id="perTable" checked>
-                                <label for="perTable">Per-Table File Output</label>
-                            </div>
-                            <div class="checkbox-container" style="margin-bottom: 0;">
-                                <input type="checkbox" id="logJson">
-                                <label for="logJson">JSON Logging</label>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid var(--border-color);">
-                    <div id="ddl-settings">
-                        <div class="checkbox-container">
-                            <input type="checkbox" id="withDdl" checked>
-                            <label for="withDdl">Generate/Execute CREATE TABLE (DDL)</label>
-                        </div>
-                        <div id="ddlSubOptions" style="padding-left: 1.5rem; display: block;">
-                            <div class="checkbox-container" style="margin-bottom: 0.5rem;">
-                                <input type="checkbox" id="withSequences" disabled>
-                                <label for="withSequences" style="color: var(--text-muted);">Sequence DDL 포함 (--with-sequences)</label>
-                            </div>
-                            <div class="checkbox-container" style="margin-bottom: 0.5rem;">
-                                <input type="checkbox" id="withIndexes" disabled>
-                                <label for="withIndexes" style="color: var(--text-muted);">Index DDL 포함 (--with-indexes)</label>
-                            </div>
-                            <div class="checkbox-container" style="margin-bottom: 0.75rem;">
-                                <input type="checkbox" id="withConstraints" disabled>
-                                <label for="withConstraints" style="color: var(--text-muted);">제약조건(Default, FK, Check) 포함 (--with-constraints)</label>
-                            </div>
-                            <div class="form-group" style="margin-bottom: 0.75rem;">
-                                <label for="oracleOwner">Oracle 소유자</label>
-                                <input type="text" id="oracleOwner" placeholder="접속 계정과 동일" style="font-size:0.9rem;">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </details>
-
-            <div class="checkbox-container" style="margin-bottom: 1rem;">
-                <input type="checkbox" id="directMigration">
-                <label for="directMigration" id="directMigrationLabel">Direct Migration to Target DB (No SQL files)</label>
+    <!-- ── Step 1: Connect ── -->
+    <div class="step-content active" id="step-1">
+        <div id="conn-section" class="card">
+            <h2>Oracle DB Connection</h2>
+            <div class="form-group">
+                <label for="oracleUrl">Oracle URL</label>
+                <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
             </div>
-            
-            <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required aria-label="Oracle 사용자명">
+                </div>
+                <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required aria-label="Oracle 패스워드">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="likeQuery">Table Filter (LIKE)</label>
+                <input type="text" id="likeQuery" placeholder="e.g. USERS_%" aria-label="테이블 필터 (LIKE 패턴)">
+            </div>
+            <button id="btn-connect" class="btn-primary" aria-label="Oracle 연결 및 테이블 조회">Connect &amp; Fetch Tables</button>
+            <div id="conn-error" class="error-msg" role="alert"></div>
+            <div id="conn-success" class="conn-success-banner" style="display:none" role="status"></div>
+        </div>
+    </div>
+
+    <!-- ── Step 2: Configure ── -->
+    <div class="step-content" id="step-2">
+        <div class="step2-grid">
+
+            <!-- Left panel: table selection -->
+            <div class="card">
+                <h2>테이블 선택 <span id="selectedCount">0 / 0 선택됨</span></h2>
+                <div class="form-group" style="margin-bottom: 0.75rem;">
+                    <input type="text" id="tableSearch" placeholder="테이블 검색..." aria-label="테이블 검색">
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <button id="btn-select-all" type="button" class="btn-secondary" style="flex: 1; padding: 0.5rem 0.75rem; font-size: 0.85rem;" aria-label="전체 테이블 선택">전체 선택</button>
+                    <button id="btn-deselect-all" type="button" class="btn-secondary" style="flex: 1; padding: 0.5rem 0.75rem; font-size: 0.85rem;" aria-label="전체 테이블 선택 해제">전체 해제</button>
+                </div>
+                <div class="table-list" id="tableList" role="listbox" aria-label="마이그레이션할 테이블 목록">
+                    <!-- Tables injected here -->
+                </div>
+                <div id="tableSearchEmpty" style="display: none; padding: 0.75rem; color: var(--text-muted); text-align: center; font-size: 0.875rem;">검색 결과가 없습니다.</div>
+            </div>
+
+            <!-- Right panel: migration settings -->
+            <div class="card">
+                <h2>마이그레이션 설정</h2>
+
+                <!-- Section A: Output mode -->
+                <h3 class="settings-section-title">A. 출력 방식</h3>
                 <div class="form-group">
-                    <label for="pgUrl" id="targetUrlLabel">Target URL</label>
-                    <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer;">
+                        <input type="radio" name="migrationMode" id="modeFile" value="file" checked aria-label="SQL 파일 생성 모드">
+                        SQL 파일 생성
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer; margin-top: 0.5rem;">
+                        <input type="radio" name="migrationMode" id="modeDirect" value="direct" aria-label="Direct Migration 모드">
+                        Direct Migration (SQL 파일 없이 직접 이관)
+                    </label>
                 </div>
+                <div id="sql-only-controls" style="margin-top: 0.5rem;">
+                    <div class="form-group" style="margin-bottom: 0.75rem;">
+                        <label for="outFile">출력 파일명</label>
+                        <input type="text" id="outFile" value="migration.sql" aria-label="출력 파일명">
+                    </div>
+                    <div style="display: flex; gap: 2rem;">
+                        <div class="checkbox-container" style="margin-bottom: 0;">
+                            <input type="checkbox" id="perTable" checked aria-label="테이블별 개별 파일 출력">
+                            <label for="perTable">테이블별 개별 파일 출력</label>
+                        </div>
+                        <div class="checkbox-container" style="margin-bottom: 0;">
+                            <input type="checkbox" id="logJson" aria-label="JSON 로깅 활성화">
+                            <label for="logJson">JSON 로깅</label>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="settings-divider">
+
+                <!-- Section B: Target DB -->
+                <h3 class="settings-section-title">B. 대상 데이터베이스</h3>
+                <div class="form-group">
+                    <label for="targetDb">대상 DB</label>
+                    <select id="targetDb" onchange="handleTargetDbChange()" aria-label="대상 데이터베이스 선택">
+                        <option value="postgres" selected>PostgreSQL</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="mariadb">MariaDB</option>
+                        <option value="sqlite">SQLite</option>
+                        <option value="mssql">MSSQL (SQL Server)</option>
+                    </select>
+                </div>
+                <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
+                    <div class="form-group">
+                        <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
+                        <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname" aria-label="대상 DB 연결 URL">
+                    </div>
+                </div>
+                <div class="form-group" id="schema-group">
+                    <label for="schema">스키마</label>
+                    <input type="text" id="schema" placeholder="public" aria-label="대상 스키마">
+                </div>
+
+                <hr class="settings-divider">
+
+                <!-- Section C: DDL options -->
+                <h3 class="settings-section-title">C. DDL 옵션</h3>
+                <div id="ddl-settings">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="withDdl" checked aria-label="CREATE TABLE DDL 생성/실행">
+                        <label for="withDdl">CREATE TABLE DDL 생성/실행</label>
+                    </div>
+                    <div id="ddlSubOptions" style="padding-left: 1.5rem; display: block;">
+                        <div class="checkbox-container" style="margin-bottom: 0.5rem;">
+                            <input type="checkbox" id="withSequences" disabled aria-label="Sequence 포함" aria-disabled="true">
+                            <label for="withSequences" style="color: var(--text-muted);">Sequence 포함</label>
+                        </div>
+                        <div class="checkbox-container" style="margin-bottom: 0.5rem;">
+                            <input type="checkbox" id="withIndexes" disabled aria-label="Index 포함" aria-disabled="true">
+                            <label for="withIndexes" style="color: var(--text-muted);">Index 포함</label>
+                        </div>
+                        <div class="checkbox-container" style="margin-bottom: 0.75rem;">
+                            <input type="checkbox" id="withConstraints" disabled aria-label="제약조건(FK, Check, Default) 포함" aria-disabled="true">
+                            <label for="withConstraints" style="color: var(--text-muted);">제약조건 포함 (FK, Check, Default)</label>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0.75rem;">
+                            <label for="oracleOwner">Oracle 소유자</label>
+                            <input type="text" id="oracleOwner" placeholder="접속 계정과 동일" aria-label="Oracle 소유자 계정">
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="settings-divider">
+
+                <!-- Section D: Advanced settings -->
+                <h3 class="settings-section-title">D. 고급 설정</h3>
+                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="batchSize">배치 크기</label>
+                        <input type="text" id="batchSize" value="1000" aria-label="배치 크기">
+                    </div>
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="workers">병렬 워커 수</label>
+                        <input type="text" id="workers" value="4" aria-label="병렬 워커 수">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="dbMaxOpen" title="DB 최대 열린 연결 수 (0=무제한)">DB Max Open</label>
+                        <input type="text" id="dbMaxOpen" value="0" aria-label="DB 최대 열린 연결 수 (0=무제한)">
+                    </div>
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="dbMaxIdle" title="DB 최대 유휴 연결 수">DB Max Idle</label>
+                        <input type="text" id="dbMaxIdle" value="2" aria-label="DB 최대 유휴 연결 수">
+                    </div>
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="dbMaxLife" title="DB 연결 최대 수명 (초, 0=무제한)">DB Max Life (초)</label>
+                        <input type="text" id="dbMaxLife" value="0" aria-label="DB 연결 최대 수명 (초, 0=무제한)">
+                    </div>
+                </div>
+
+                <hr class="settings-divider">
+
+                <!-- Dry-run + Start -->
+                <div class="checkbox-container" style="margin-bottom: 1rem;">
+                    <input type="checkbox" id="dryRun" aria-label="Dry-Run 모드 - 연결 확인 및 행 수 추정만 실행">
+                    <label for="dryRun">Dry-Run (연결 확인 및 예상 행 수만 조회)</label>
+                </div>
+                <button id="btn-migrate" class="btn-success" aria-label="마이그레이션 시작">Start Migration</button>
+                <div id="migrate-error" class="error-msg" role="alert"></div>
             </div>
-        </div>
 
-        <div class="checkbox-container" style="margin-top: 1.5rem; margin-bottom: 0;">
-            <input type="checkbox" id="dryRun">
-            <label for="dryRun">Dry-Run (Verify connectivity &amp; estimate row counts only)</label>
         </div>
-        <button id="btn-migrate" class="btn-success" style="margin-top: 1rem;">Start Migration</button>
-        <div id="migrate-error" class="error-msg"></div>
     </div>
 
-    <div id="progress-section" class="card">
-        <h2 id="progress-title">3. Migration Progress</h2>
-        <div id="progress-container">
-            <!-- Progress bars will be injected here -->
+    <!-- ── Step 3: Run ── -->
+    <div class="step-content" id="step-3">
+        <div id="progress-section" class="card">
+            <h2 id="progress-title">Migration Progress</h2>
+
+            <!-- Overall progress bar -->
+            <div class="overall-progress" id="overall-progress" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <span style="font-weight: 600; font-size: 0.9rem;">전체 진행률</span>
+                    <span id="overall-label" style="font-size: 0.875rem; color: var(--text-muted);">0 / 0 완료</span>
+                </div>
+                <div class="progress-bar-bg" style="height: 16px;">
+                    <div id="overall-fill" class="progress-bar-fill"></div>
+                </div>
+                <div style="text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"><span id="overall-pct">0%</span></div>
+            </div>
+
+            <!-- Summary card (shown on all_done) -->
+            <div id="summary-card" class="summary-card" style="display: none;"></div>
+
+            <div id="progress-container">
+                <!-- Progress bars injected here -->
+            </div>
+            <button id="download-btn" class="btn-primary" onclick="downloadZipArchive()" style="display:none; margin-top:1.5rem;" aria-label="ZIP 파일 다운로드">
+                <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download ZIP Archive
+            </button>
+            <button id="new-migration-btn" class="btn-secondary" style="display:none; margin-top:0.75rem;" aria-label="새 마이그레이션 시작">
+                New Migration
+            </button>
         </div>
-        <button id="download-btn" class="btn-primary" onclick="downloadZipArchive()">
-            <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-            Download ZIP Archive
-        </button>
     </div>
-</div>
+
+</div><!-- /.container -->
 
 <script>
-    const btnConnect = document.getElementById('btn-connect');
-    const btnMigrate = document.getElementById('btn-migrate');
-    const checkAll = document.getElementById('checkAll');
-    const directMigration = document.getElementById('directMigration');
-    const pgConfig = document.getElementById('pg-config');
-    const downloadBtn = document.getElementById('download-btn');
-    const dryRunCb = document.getElementById('dryRun');
+    // ── DOM refs ──
+    const btnConnect      = document.getElementById('btn-connect');
+    const btnMigrate      = document.getElementById('btn-migrate');
+    const pgConfig        = document.getElementById('pg-config');
+    const downloadBtn     = document.getElementById('download-btn');
+    const newMigrationBtn = document.getElementById('new-migration-btn');
+    const dryRunCb        = document.getElementById('dryRun');
     const sqlOnlyControls = document.getElementById('sql-only-controls');
-    let ws;
-    let currentZipId = '';
-    let isDryRunMode = false;
-    const sessionId = document.getElementById('currentSessionId').innerText;
+    const connSuccess     = document.getElementById('conn-success');
 
-    directMigration.addEventListener('change', (e) => {
-        pgConfig.style.display = e.target.checked ? 'block' : 'none';
-        sqlOnlyControls.style.display = e.target.checked ? 'none' : 'block';
+    let ws;
+    let currentZipId  = '';
+    let isDryRunMode  = false;
+    let totalTables   = 0;
+    let doneTables    = 0;
+    const sessionId   = document.getElementById('currentSessionId').innerText;
+
+    // ── Theme ──
+    (function initTheme() {
+        const saved = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = saved || (prefersDark ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+        document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+    })();
+
+    document.getElementById('theme-toggle').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem('theme', next);
+        document.getElementById('theme-toggle').textContent = next === 'dark' ? '☀️' : '🌙';
     });
 
+    // ── Stepper ──
+    let currentStep = 1;
+
+    function goToStep(n) {
+        if (n > currentStep) return; // 앞 단계로 건너뛰기 불가
+        if (n === currentStep) return;
+
+        // Reset if going back to step 1
+        if (n === 1) {
+            resetToStep1();
+        }
+
+        showStep(n);
+    }
+
+    function showStep(n) {
+        currentStep = n;
+
+        // Update step content
+        document.querySelectorAll('.step-content').forEach((el, i) => {
+            el.classList.toggle('active', i + 1 === n);
+        });
+
+        // Update stepper header
+        for (let i = 1; i <= 3; i++) {
+            const el = document.getElementById(`stepper-${i}`);
+            el.className = 'step';
+            if (i < n) {
+                el.classList.add('step--done');
+                el.querySelector('.step__num').innerHTML = `<svg style="width:14px;height:14px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>`;
+            } else if (i === n) {
+                el.classList.add('step--active');
+                el.querySelector('.step__num').textContent = i;
+            } else {
+                el.classList.add('step--disabled');
+                el.querySelector('.step__num').textContent = i;
+            }
+        }
+
+        // Attach click handlers for done steps (back navigation)
+        for (let i = 1; i < n; i++) {
+            const el = document.getElementById(`stepper-${i}`);
+            el.onclick = () => goToStep(i);
+        }
+    }
+
+    function resetToStep1() {
+        // Clear table list and progress
+        document.getElementById('tableList').innerHTML = '';
+        document.getElementById('progress-container').innerHTML = '';
+        document.getElementById('summary-card').style.display = 'none';
+        document.getElementById('overall-progress').style.display = 'none';
+        document.getElementById('overall-fill').style.width = '0%';
+        downloadBtn.style.display = 'none';
+        newMigrationBtn.style.display = 'none';
+        document.getElementById('conn-error').innerText = '';
+        document.getElementById('migrate-error').innerText = '';
+        connSuccess.style.display = 'none';
+        btnMigrate.disabled = false;
+        btnMigrate.innerText = 'Start Migration';
+        // Password cleared for security
+        document.getElementById('password').value = '';
+        if (ws) { ws.close(); ws = null; }
+        tableProgressData = {};
+        shownWarnings.clear();
+        migrationStartTime = 0;
+        successCount = 0; failCount = 0; warnCount = 0;
+        totalTables = 0; doneTables = 0;
+        updateSelectedCount();
+    }
+
+    // ── Migration mode radio toggle ──
+    document.querySelectorAll('input[name="migrationMode"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const isDirect = e.target.value === 'direct';
+            pgConfig.style.display        = isDirect ? 'block' : 'none';
+            sqlOnlyControls.style.display = isDirect ? 'none'  : 'block';
+        });
+    });
+
+    // ── Table search ──
+    document.getElementById('tableSearch').addEventListener('input', (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        const items = document.querySelectorAll('#tableList .table-item');
+        let visible = 0;
+        items.forEach(item => {
+            const label = item.querySelector('label');
+            const match = !q || label.textContent.toLowerCase().includes(q);
+            item.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        const empty = document.getElementById('tableSearchEmpty');
+        if (empty) empty.style.display = (visible === 0 && items.length > 0) ? 'block' : 'none';
+    });
+
+    // ── Select/deselect all buttons ──
+    document.getElementById('btn-select-all').addEventListener('click', () => {
+        document.querySelectorAll('#tableList .table-item').forEach(item => {
+            if (item.style.display !== 'none') item.querySelector('.table-cb').checked = true;
+        });
+        updateSelectedCount();
+    });
+
+    document.getElementById('btn-deselect-all').addEventListener('click', () => {
+        document.querySelectorAll('.table-cb').forEach(cb => cb.checked = false);
+        updateSelectedCount();
+    });
+
+    function updateSelectedCount() {
+        const all     = document.querySelectorAll('.table-cb');
+        const checked = document.querySelectorAll('.table-cb:checked');
+        const span    = document.getElementById('selectedCount');
+        if (span) span.textContent = `${checked.length} / ${all.length} 선택됨`;
+    }
+
+    // ── Target DB change ──
     function handleTargetDbChange() {
-        const targetDb = document.getElementById('targetDb').value;
-        const pgUrlInput = document.getElementById('pgUrl');
-        const schemaInput = document.getElementById('schema');
+        const targetDb        = document.getElementById('targetDb').value;
+        const pgUrlInput      = document.getElementById('pgUrl');
+        const schemaGroup     = document.getElementById('schema-group');
         const withSequencesCb = document.getElementById('withSequences');
 
         switch (targetDb) {
             case 'postgres':
                 pgUrlInput.placeholder = "postgres://user:pass@host:5432/dbname";
-                schemaInput.parentElement.style.display = 'block';
+                schemaGroup.style.display = 'block';
                 withSequencesCb.disabled = false;
+                withSequencesCb.removeAttribute('aria-disabled');
                 withSequencesCb.title = "";
                 break;
             case 'mysql':
             case 'mariadb':
                 pgUrlInput.placeholder = "user:pass@tcp(host:3306)/dbname";
-                schemaInput.parentElement.style.display = 'block';
-                withSequencesCb.checked = false;
+                schemaGroup.style.display = 'block';
+                withSequencesCb.checked  = false;
                 withSequencesCb.disabled = true;
+                withSequencesCb.setAttribute('aria-disabled', 'true');
                 withSequencesCb.title = "MySQL/MariaDB doesn't support sequences (use AUTO_INCREMENT)";
                 break;
             case 'sqlite':
                 pgUrlInput.placeholder = "/path/to/file.db";
-                schemaInput.parentElement.style.display = 'none';
-                withSequencesCb.checked = false;
+                schemaGroup.style.display = 'none';
+                withSequencesCb.checked  = false;
                 withSequencesCb.disabled = true;
+                withSequencesCb.setAttribute('aria-disabled', 'true');
                 withSequencesCb.title = "SQLite doesn't support sequences";
                 break;
             case 'mssql':
                 pgUrlInput.placeholder = "sqlserver://user:pass@host:1433?database=dbname";
-                schemaInput.parentElement.style.display = 'block';
+                schemaGroup.style.display = 'block';
                 withSequencesCb.disabled = false;
+                withSequencesCb.removeAttribute('aria-disabled');
                 withSequencesCb.title = "";
                 break;
         }
     }
 
-    document.getElementById('withDdl').addEventListener('change', function(e) {
+    // ── DDL sub-options toggle ──
+    document.getElementById('withDdl').addEventListener('change', function() {
         const ddlSubOptions = document.getElementById('ddlSubOptions');
-        const withSeq = document.getElementById('withSequences');
-        const withIdx = document.getElementById('withIndexes');
+        const withSeq  = document.getElementById('withSequences');
+        const withIdx  = document.getElementById('withIndexes');
         const withCons = document.getElementById('withConstraints');
-        const oracleOwner = document.getElementById('oracleOwner');
-        const seqLabel = document.querySelector('label[for="withSequences"]');
-        const idxLabel = document.querySelector('label[for="withIndexes"]');
+        const seqLabel  = document.querySelector('label[for="withSequences"]');
+        const idxLabel  = document.querySelector('label[for="withIndexes"]');
         const consLabel = document.querySelector('label[for="withConstraints"]');
-        
+
         if (this.checked) {
             ddlSubOptions.style.display = 'block';
-            withSeq.disabled = false;
-            withIdx.disabled = false;
-            withCons.disabled = false;
-            seqLabel.style.color = '';
-            idxLabel.style.color = '';
-            consLabel.style.color = '';
+            withSeq.disabled  = false; withSeq.removeAttribute('aria-disabled');
+            withIdx.disabled  = false; withIdx.removeAttribute('aria-disabled');
+            withCons.disabled = false; withCons.removeAttribute('aria-disabled');
+            seqLabel.style.color = ''; idxLabel.style.color = ''; consLabel.style.color = '';
         } else {
             ddlSubOptions.style.display = 'none';
-            withSeq.checked = false;
-            withIdx.checked = false;
-            withCons.checked = false;
-            oracleOwner.value = '';
-            withSeq.disabled = true;
-            withIdx.disabled = true;
-            withCons.disabled = true;
+            withSeq.checked = withIdx.checked = withCons.checked = false;
+            withSeq.disabled  = true; withSeq.setAttribute('aria-disabled', 'true');
+            withIdx.disabled  = true; withIdx.setAttribute('aria-disabled', 'true');
+            withCons.disabled = true; withCons.setAttribute('aria-disabled', 'true');
+            document.getElementById('oracleOwner').value = '';
             seqLabel.style.color = 'var(--text-muted)';
             idxLabel.style.color = 'var(--text-muted)';
             consLabel.style.color = 'var(--text-muted)';
         }
     });
 
+    // ── Dry-run label ──
     dryRunCb.addEventListener('change', (e) => {
         btnMigrate.innerText = e.target.checked ? 'Run Verification' : 'Start Migration';
     });
 
+    // ── Connect ──
     btnConnect.addEventListener('click', async () => {
         const oracleUrl = document.getElementById('oracleUrl').value;
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
+        const username  = document.getElementById('username').value;
+        const password  = document.getElementById('password').value;
         const likeQuery = document.getElementById('likeQuery').value;
-        const errorDiv = document.getElementById('conn-error');
+        const errorDiv  = document.getElementById('conn-error');
         errorDiv.innerText = '';
+        connSuccess.style.display = 'none';
 
         if (!oracleUrl || !username || !password) {
             errorDiv.innerText = 'Please fill in all required fields.';
@@ -554,94 +1054,121 @@
         }
 
         btnConnect.disabled = true;
+        btnConnect.setAttribute('aria-busy', 'true');
         btnConnect.innerHTML = '<span style="opacity:0.8;">Connecting...</span>';
 
         try {
-            const res = await fetch('/api/tables', {
-                method: 'POST',
+            const res  = await fetch('/api/tables', {
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ oracleUrl, username, password, like: likeQuery })
+                body:    JSON.stringify({ oracleUrl, username, password, like: likeQuery })
             });
-
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to fetch tables');
-            }
+            if (!res.ok) throw new Error(data.error || 'Failed to fetch tables');
 
-            renderTableList(data.tables || []);
-            document.getElementById('table-section').style.display = 'block';
-            document.getElementById('progress-section').style.display = 'none';
-            downloadBtn.style.display = 'none';
+            const tables = data.tables || [];
+            renderTableList(tables);
 
-            // Smooth scroll to tables
-            document.getElementById('table-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Show success banner
+            connSuccess.innerHTML = `<svg style="width:16px;height:16px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg> Connected: <strong>${oracleUrl}</strong> &mdash; ${tables.length} tables found`;
+            connSuccess.style.display = 'flex';
+
+            // Advance to step 2 after brief pause
+            setTimeout(() => {
+                showStep(2);
+                document.querySelector('.container').scrollTo({ top: 0, behavior: 'smooth' });
+            }, 600);
+
         } catch (err) {
-            errorDiv.innerText = err.message;
+            errorDiv.innerText = classifyConnError(err.message);
         } finally {
             btnConnect.disabled = false;
+            btnConnect.removeAttribute('aria-busy');
             btnConnect.innerText = 'Connect & Fetch Tables';
         }
     });
 
+    function classifyConnError(msg) {
+        if (!msg) return 'Connection failed.';
+        const m = msg.toLowerCase();
+        if (m.includes('connection refused') || m.includes('i/o timeout') || m.includes('no route'))
+            return 'Oracle 서버에 연결할 수 없습니다. URL을 확인하세요. (' + msg + ')';
+        if (m.includes('invalid username') || m.includes('invalid password') || m.includes('ora-01017'))
+            return '사용자명 또는 패스워드가 올바르지 않습니다.';
+        return msg;
+    }
+
+    // ── Table list render ──
     function renderTableList(tables) {
         const listDiv = document.getElementById('tableList');
         listDiv.innerHTML = '';
-        checkAll.checked = false;
+
+        // Reset search
+        const searchInput = document.getElementById('tableSearch');
+        if (searchInput) searchInput.value = '';
+        const searchEmpty = document.getElementById('tableSearchEmpty');
+        if (searchEmpty) searchEmpty.style.display = 'none';
 
         if (tables.length === 0) {
             listDiv.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center;">No tables found matching criteria.</div>';
+            updateSelectedCount();
             return;
         }
 
         tables.forEach(table => {
             const div = document.createElement('div');
             div.className = 'table-item';
+            div.setAttribute('role', 'option');
             div.innerHTML = `
-                    <input type="checkbox" class="table-cb" id="cb-${table}" value="${table}">
-                    <label for="cb-${table}">${table}</label>
-                `;
+                <input type="checkbox" class="table-cb" id="cb-${table}" value="${table}" aria-label="${table}">
+                <label for="cb-${table}">${table}</label>
+            `;
             listDiv.appendChild(div);
         });
+
+        listDiv.querySelectorAll('.table-cb').forEach(cb => {
+            cb.addEventListener('change', updateSelectedCount);
+        });
+
+        updateSelectedCount();
     }
 
-    checkAll.addEventListener('change', (e) => {
-        const cbs = document.querySelectorAll('.table-cb');
-        cbs.forEach(cb => cb.checked = e.target.checked);
-    });
+    // ── Migrate ──
+    let migrationStartTime = 0;
+    let successCount = 0, failCount = 0, warnCount = 0;
 
     btnMigrate.addEventListener('click', async () => {
-        const cbs = document.querySelectorAll('.table-cb:checked');
+        const cbs            = document.querySelectorAll('.table-cb:checked');
         const selectedTables = Array.from(cbs).map(cb => cb.value);
-        const errorDiv = document.getElementById('migrate-error');
-        errorDiv.innerText = '';
+        const errorDiv       = document.getElementById('migrate-error');
+        errorDiv.innerText   = '';
 
         if (selectedTables.length === 0) {
             errorDiv.innerText = 'Please select at least one table.';
             return;
         }
 
-        const oracleUrl = document.getElementById('oracleUrl').value;
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        
-        const isDirect = directMigration.checked;
-        const targetDb = document.getElementById('targetDb').value;
-        const targetUrl = document.getElementById('pgUrl').value.trim();
-        const withDdl = document.getElementById('withDdl').checked;
-        const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
-        const workers = parseInt(document.getElementById('workers').value) || 4;
-        const outFile = document.getElementById('outFile').value || 'migration.sql';
-        const perTable = document.getElementById('perTable').checked;
-        const schema = document.getElementById('schema').value;
-        const dryRun = dryRunCb.checked;
-        const logJson = document.getElementById('logJson').checked;
-        const withSequences = document.getElementById('withSequences').checked;
-        const withIndexes = document.getElementById('withIndexes').checked;
+        const oracleUrl       = document.getElementById('oracleUrl').value;
+        const username        = document.getElementById('username').value;
+        const password        = document.getElementById('password').value;
+        const isDirect        = document.getElementById('modeDirect').checked;
+        const targetDb        = document.getElementById('targetDb').value;
+        const targetUrl       = document.getElementById('pgUrl').value.trim();
+        const withDdl         = document.getElementById('withDdl').checked;
+        const batchSize       = parseInt(document.getElementById('batchSize').value)  || 1000;
+        const workers         = parseInt(document.getElementById('workers').value)    || 4;
+        const outFile         = document.getElementById('outFile').value              || 'migration.sql';
+        const perTable        = document.getElementById('perTable').checked;
+        const schema          = document.getElementById('schema').value;
+        const dryRun          = dryRunCb.checked;
+        const logJson         = document.getElementById('logJson').checked;
+        const withSequences   = document.getElementById('withSequences').checked;
+        const withIndexes     = document.getElementById('withIndexes').checked;
         const withConstraints = document.getElementById('withConstraints').checked;
-        const oracleOwner = document.getElementById('oracleOwner').value;
-        const dbMaxOpen = parseInt(document.getElementById('dbMaxOpen').value) || 0;
-        const dbMaxIdle = parseInt(document.getElementById('dbMaxIdle').value) || 2;
-        const dbMaxLife = parseInt(document.getElementById('dbMaxLife').value) || 0;
+        const oracleOwner     = document.getElementById('oracleOwner').value;
+        const dbMaxOpen       = parseInt(document.getElementById('dbMaxOpen').value)  || 0;
+        const dbMaxIdle       = parseInt(document.getElementById('dbMaxIdle').value)  || 2;
+        const dbMaxLife       = parseInt(document.getElementById('dbMaxLife').value)  || 0;
 
         isDryRunMode = dryRun;
 
@@ -650,92 +1177,93 @@
             return;
         }
 
-        // Setup WebSocket
+        // Reset counters & progress
+        successCount = failCount = warnCount = 0;
+        totalTables = selectedTables.length;
+        doneTables  = 0;
+        migrationStartTime = Date.now();
+        tableProgressData = {};
+        shownWarnings.clear();
+        document.getElementById('progress-container').innerHTML = '';
+        document.getElementById('summary-card').style.display = 'none';
+        downloadBtn.style.display    = 'none';
+        newMigrationBtn.style.display = 'none';
+
+        // Show overall progress bar
+        const overallProg = document.getElementById('overall-progress');
+        if (overallProg && totalTables > 0) {
+            overallProg.style.display = 'block';
+            updateOverallProgress();
+        }
+
         setupWebSocket();
 
-        // Clear previous progress
-        document.getElementById('progress-container').innerHTML = '';
-        document.getElementById('progress-section').style.display = 'block';
         document.getElementById('progress-title').innerText = dryRun
-            ? '3. Verification Results (Dry-Run)'
-            : '3. Migration Progress';
-        downloadBtn.style.display = 'none';
+            ? 'Verification Results (Dry-Run)'
+            : 'Migration Progress';
+
         btnMigrate.disabled = true;
+        btnMigrate.setAttribute('aria-busy', 'true');
         btnMigrate.innerHTML = `<span style="opacity:0.8;">${dryRun ? 'Verifying...' : 'Migration Running...'}</span>`;
 
-        document.getElementById('progress-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Advance to step 3
+        showStep(3);
 
         try {
             const res = await fetch('/api/migrate', {
-                method: 'POST',
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sessionId: sessionId,
-                    oracleUrl,
-                    username,
-                    password,
+                body:    JSON.stringify({
+                    sessionId, oracleUrl, username, password,
                     tables: selectedTables,
-                    direct: isDirect,
-                    targetDb: targetDb,
-                    targetUrl: targetUrl,
-                    pgUrl: targetUrl, // backward compatibility just in case
-                    withDdl: withDdl,
-                    batchSize: batchSize,
-                    workers: workers,
-                    outFile: outFile,
-                    perTable: perTable,
-                    schema: schema,
-                    dryRun: dryRun,
-                    logJson: logJson,
-                    withSequences: withSequences,
-                    withIndexes: withIndexes,
-                    withConstraints: withConstraints,
-                    oracleOwner: oracleOwner,
-                    dbMaxOpen: dbMaxOpen,
-                    dbMaxIdle: dbMaxIdle,
-                    dbMaxLife: dbMaxLife
+                    direct: isDirect, targetDb, targetUrl,
+                    pgUrl: targetUrl,
+                    withDdl, batchSize, workers, outFile, perTable,
+                    schema, dryRun, logJson, withSequences, withIndexes,
+                    withConstraints, oracleOwner,
+                    dbMaxOpen, dbMaxIdle, dbMaxLife
                 })
             });
-
             const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || 'Failed to start migration');
-            }
+            if (!res.ok) throw new Error(data.error || 'Failed to start migration');
         } catch (err) {
             errorDiv.innerText = err.message;
             btnMigrate.disabled = false;
+            btnMigrate.removeAttribute('aria-busy');
             btnMigrate.innerText = 'Start Migration';
         }
     });
 
-    function setupWebSocket() {
-        if (ws) {
-            ws.close();
-        }
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.host;
-        ws = new WebSocket(`${protocol}//${host}/api/progress?sessionId=${sessionId}`);
-
-        ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            handleProgressMessage(msg);
-        };
-
-        ws.onerror = (err) => {
-            console.error("WebSocket error:", err);
-        };
+    // ── Overall progress ──
+    function updateOverallProgress() {
+        const pct   = totalTables > 0 ? Math.floor((doneTables / totalTables) * 100) : 0;
+        const fill  = document.getElementById('overall-fill');
+        const label = document.getElementById('overall-label');
+        const pctEl = document.getElementById('overall-pct');
+        if (fill)  fill.style.width = `${pct}%`;
+        if (label) label.textContent = `${doneTables} / ${totalTables} 완료`;
+        if (pctEl) pctEl.textContent = `${pct}%`;
     }
 
-    const tableProgressData = {};
-    const shownWarnings = new Set();
+    // ── WebSocket ──
+    function setupWebSocket() {
+        if (ws) ws.close();
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}/api/progress?sessionId=${sessionId}`);
+        ws.onmessage = (event) => handleProgressMessage(JSON.parse(event.data));
+        ws.onerror   = (err)   => console.error('WebSocket error:', err);
+    }
+
+    let tableProgressData = {};
+    const shownWarnings   = new Set();
 
     function showWarningBanner(message) {
         if (shownWarnings.has(message)) return;
         shownWarnings.add(message);
-
+        warnCount++;
         const container = document.getElementById('progress-container');
-        const banner = document.createElement('div');
-        banner.className = 'warning-banner';
+        const banner    = document.createElement('div');
+        banner.className   = 'warning-banner';
         banner.textContent = '⚠ ' + message;
         container.insertBefore(banner, container.firstChild);
     }
@@ -750,13 +1278,47 @@
 
         if (msg.type === 'all_done') {
             currentZipId = msg.zip_file_id;
-            if (currentZipId && !isDryRunMode) {
-                downloadBtn.style.display = 'flex';
-            } else {
-                downloadBtn.style.display = 'none';
-            }
             btnMigrate.disabled = false;
+            btnMigrate.removeAttribute('aria-busy');
             btnMigrate.innerText = isDryRunMode ? 'Run Verification' : 'Start Migration';
+
+            // Update overall progress to 100%
+            doneTables = totalTables;
+            updateOverallProgress();
+
+            // Render summary card
+            const elapsed    = migrationStartTime ? Math.floor((Date.now() - migrationStartTime) / 1000) : 0;
+            const mins       = Math.floor(elapsed / 60);
+            const secs       = elapsed % 60;
+            const elapsedStr = mins > 0 ? `${mins}분 ${secs}초` : `${secs}초`;
+            const summaryCard = document.getElementById('summary-card');
+            summaryCard.style.display = 'block';
+            summaryCard.innerHTML = `
+                <div class="summary-stats">
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">성공</span>
+                        <span class="summary-stat__value stat--success">${successCount}</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">실패</span>
+                        <span class="summary-stat__value ${failCount > 0 ? 'stat--danger' : 'stat--neutral'}">${failCount}</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">경고</span>
+                        <span class="summary-stat__value ${warnCount > 0 ? 'stat--warn' : 'stat--neutral'}">${warnCount}</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">소요 시간</span>
+                        <span class="summary-stat__value stat--neutral">${elapsedStr}</span>
+                    </div>
+                </div>
+                ${currentZipId && !isDryRunMode ? `
+                <button class="btn-primary" onclick="downloadZipArchive()" style="margin-bottom: 0.75rem;" aria-label="ZIP 파일 다운로드">
+                    <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    ZIP 다운로드
+                </button>` : ''}
+                <button class="btn-secondary" onclick="goToStep(1)" aria-label="새 마이그레이션 시작">새 마이그레이션</button>
+            `;
             return;
         }
 
@@ -769,14 +1331,14 @@
                 item.style.cssText = 'padding:0.4rem 0.75rem; font-size:0.875rem; font-family:monospace; border-radius:4px; margin-bottom:4px; background:var(--bg-color);';
                 container.appendChild(item);
             }
-            const okIcon = `<svg style="width:13px;height:13px;vertical-align:middle;margin-right:4px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+            const okIcon  = `<svg style="width:13px;height:13px;vertical-align:middle;margin-right:4px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
             const errIcon = `<svg style="width:13px;height:13px;vertical-align:middle;margin-right:4px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
             if (msg.status === 'ok') {
                 item.style.color = 'var(--success-color)';
-                item.innerHTML = `${okIcon}[${msg.object}] ${msg.object_name}`;
+                item.innerHTML   = `${okIcon}[${msg.object}] ${msg.object_name}`;
             } else {
                 item.style.color = 'var(--danger-color)';
-                item.innerHTML = `${errIcon}[${msg.object}] ${msg.object_name} — ${msg.error || 'error'}`;
+                item.innerHTML   = `${errIcon}[${msg.object}] ${msg.object_name} — ${msg.error || 'error'}`;
             }
             return;
         }
@@ -785,14 +1347,14 @@
             let wrapper = document.getElementById(`prog-${msg.table}`);
             if (!wrapper) {
                 wrapper = document.createElement('div');
-                wrapper.id = `prog-${msg.table}`;
+                wrapper.id        = `prog-${msg.table}`;
                 wrapper.className = 'progress-container';
                 container.appendChild(wrapper);
             }
-            const okIcon = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+            const okIcon  = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
             const errIcon = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
-            const color = msg.connection_ok ? 'var(--success-color)' : 'var(--danger-color)';
-            const icon = msg.connection_ok ? okIcon : errIcon;
+            const color  = msg.connection_ok ? 'var(--success-color)' : 'var(--danger-color)';
+            const icon   = msg.connection_ok ? okIcon : errIcon;
             const status = msg.connection_ok ? 'OK' : 'FAILED';
             wrapper.innerHTML = `
                 <div class="progress-header">
@@ -800,26 +1362,24 @@
                     <span style="color:${color};font-weight:600;font-size:0.875rem">${icon} ${status} — ~${msg.total.toLocaleString()} rows</span>
                 </div>
             `;
-            if (!msg.connection_ok) {
-                showWarningBanner('대상 DB 연결에 실패했습니다. URL을 확인해 주세요.');
-            }
+            if (!msg.connection_ok) showWarningBanner('대상 DB 연결에 실패했습니다. URL을 확인해 주세요.');
             return;
         }
 
         let wrapper = document.getElementById(`prog-${msg.table}`);
         if (!wrapper && msg.table) {
             wrapper = document.createElement('div');
-            wrapper.id = `prog-${msg.table}`;
+            wrapper.id        = `prog-${msg.table}`;
             wrapper.className = 'progress-container';
             wrapper.innerHTML = `
-                    <div class="progress-header">
-                        <span class="progress-title">${msg.table}</span>
-                        <span id="prog-text-${msg.table}" class="progress-text">Initializing...</span>
-                    </div>
-                    <div class="progress-bar-bg">
-                        <div id="prog-fill-${msg.table}" class="progress-bar-fill"></div>
-                    </div>
-                `;
+                <div class="progress-header">
+                    <span class="progress-title">${msg.table}</span>
+                    <span id="prog-text-${msg.table}" class="progress-text">Initializing...</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div id="prog-fill-${msg.table}" class="progress-bar-fill"></div>
+                </div>
+            `;
             container.appendChild(wrapper);
             tableProgressData[msg.table] = { total: 0, count: 0 };
         }
@@ -831,23 +1391,28 @@
             tableProgressData[msg.table].count = msg.count || 0;
             updateProgressUI(msg.table);
         } else if (msg.type === 'done') {
+            successCount++;
+            doneTables++;
             const data = tableProgressData[msg.table];
-            data.count = data.total; // ensure 100%
+            data.count = data.total;
             updateProgressUI(msg.table);
-
             const fill = document.getElementById(`prog-fill-${msg.table}`);
             fill.style.backgroundColor = 'var(--success-color)';
             document.getElementById(`prog-text-${msg.table}`).innerHTML = `
-                    <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;color:var(--success-color)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                    <span style="color:var(--success-color);font-weight:600">COMPLETED</span>
-                `;
+                <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;color:var(--success-color)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                <span style="color:var(--success-color);font-weight:600">COMPLETED</span>
+            `;
+            updateOverallProgress();
         } else if (msg.type === 'error') {
+            failCount++;
+            doneTables++;
             const fill = document.getElementById(`prog-fill-${msg.table}`);
             fill.style.backgroundColor = 'var(--danger-color)';
             fill.style.width = '100%';
             document.getElementById(`prog-text-${msg.table}`).innerHTML = `
-                    <span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}
-                `;
+                <span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}
+            `;
+            updateOverallProgress();
         }
     }
 
@@ -855,29 +1420,26 @@
         const data = tableProgressData[tableName];
         const fill = document.getElementById(`prog-fill-${tableName}`);
         const text = document.getElementById(`prog-text-${tableName}`);
-
         if (!fill || !text) return;
 
         let pct = 0;
         if (data.total > 0) {
             pct = Math.min(100, Math.floor((data.count / data.total) * 100));
-        } else if (data.count > 0 && data.total === 0) {
-            // Unknown total case
+        } else if (data.count > 0) {
             pct = 100;
         }
-
         fill.style.width = `${pct}%`;
-        // Only update text if it hasn't been marked completed or error
         if (!text.innerHTML.includes('COMPLETED') && !text.innerHTML.includes('ERROR')) {
             text.innerText = `${pct}% (${data.count.toLocaleString()} / ${data.total.toLocaleString()} rows)`;
         }
     }
 
     function downloadZipArchive() {
-        if (currentZipId) {
-            window.location.href = `/api/download/${currentZipId}`;
-        }
+        if (currentZipId) window.location.href = `/api/download/${currentZipId}`;
     }
+
+    // ── New Migration button ──
+    newMigrationBtn.addEventListener('click', () => goToStep(1));
 </script>
 </body>
 </html>
