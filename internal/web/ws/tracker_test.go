@@ -358,6 +358,61 @@ func TestHandleConnection_DryRunResult_ConnectionFailed(t *testing.T) {
 	}
 }
 
+func TestHandleConnection_ReceivesDDLProgressMessage(t *testing.T) {
+	tr := NewWebSocketTracker()
+	conn, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.DDLProgress("sequence", "USERS_SEQ", "ok", nil)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg ProgressMsg
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("failed to read ddl_progress message: %v", err)
+	}
+	if msg.Type != MsgDDLProgress {
+		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDDLProgress)
+	}
+	if msg.Object != "sequence" {
+		t.Errorf("msg.Object = %q, want %q", msg.Object, "sequence")
+	}
+	if msg.ObjectName != "USERS_SEQ" {
+		t.Errorf("msg.ObjectName = %q, want %q", msg.ObjectName, "USERS_SEQ")
+	}
+	if msg.Status != "ok" {
+		t.Errorf("msg.Status = %q, want %q", msg.Status, "ok")
+	}
+	if msg.ErrorMsg != "" {
+		t.Errorf("msg.ErrorMsg should be empty for ok status, got %q", msg.ErrorMsg)
+	}
+}
+
+func TestDDLProgress_ErrorIncludesMessage(t *testing.T) {
+	tr := NewWebSocketTracker()
+	conn, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.DDLProgress("index", "IDX_USERS_EMAIL", "error", errors.New("constraint violation"))
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg ProgressMsg
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("failed to read ddl_progress message: %v", err)
+	}
+	if msg.Type != MsgDDLProgress {
+		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDDLProgress)
+	}
+	if msg.Object != "index" {
+		t.Errorf("msg.Object = %q, want %q", msg.Object, "index")
+	}
+	if msg.Status != "error" {
+		t.Errorf("msg.Status = %q, want %q", msg.Status, "error")
+	}
+	if msg.ErrorMsg != "constraint violation" {
+		t.Errorf("msg.ErrorMsg = %q, want %q", msg.ErrorMsg, "constraint violation")
+	}
+}
+
 func TestBroadcast_RemovesDeadClient(t *testing.T) {
 	tr := NewWebSocketTracker()
 	conn, cleanup := dialTestServer(t, tr)

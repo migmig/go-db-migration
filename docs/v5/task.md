@@ -140,21 +140,21 @@
 ## Phase 7: 테스트
 
 ### 7-1. 단위 테스트 (`ddl_test.go` 확장)
-- [ ] `TestGenerateSequenceDDL_Basic` - 기본 Sequence DDL 생성 검증
-- [ ] `TestGenerateSequenceDDL_MaxValueOmit` - Oracle 기본 MAXVALUE 생략 검증
-- [ ] `TestGenerateSequenceDDL_Cycle` - CYCLE 옵션 반영 검증
-- [ ] `TestGenerateSequenceDDL_WithSchema` - 스키마 접두사 포함 검증
-- [ ] `TestGenerateIndexDDL_Normal` - 일반 Index DDL 검증
-- [ ] `TestGenerateIndexDDL_Unique` - Unique Index DDL 검증
-- [ ] `TestGenerateIndexDDL_PrimaryKey` - PK → ALTER TABLE 변환 검증
-- [ ] `TestGenerateIndexDDL_Descend` - DESC 컬럼 표현 검증
-- [ ] `TestDDLProgress_Broadcast` - DDLProgress WebSocket 메시지 검증
+- [x] `TestGenerateSequenceDDL_Basic` - 기본 Sequence DDL 생성 검증
+- [x] `TestGenerateSequenceDDL_MaxValueOmit` - Oracle 기본 MAXVALUE 생략 검증
+- [x] `TestGenerateSequenceDDL_Cycle` - CYCLE 옵션 반영 검증
+- [x] `TestGenerateSequenceDDL_WithSchema` - 스키마 접두사 포함 검증
+- [x] `TestGenerateIndexDDL_Normal` - 일반 Index DDL 검증
+- [x] `TestGenerateIndexDDL_Unique` - Unique Index DDL 검증
+- [x] `TestGenerateIndexDDL_PrimaryKey` - PK → ALTER TABLE 변환 검증
+- [x] `TestGenerateIndexDDL_Descend` - DESC 컬럼 표현 검증
+- [x] `TestDDLProgress_Broadcast` - DDLProgress WebSocket 메시지 검증
 
 ### 7-2. 통합 테스트 (`v5_integration_test.go` 신규)
-- [ ] `WithSequences=true`: Sequence DDL이 CREATE TABLE 이전에 출력되는지 검증
-- [ ] `WithIndexes=true`: Index DDL이 CREATE TABLE 이후에 출력되는지 검증
-- [ ] `WithSequences=false, WithIndexes=false`: 기존 동작 완전 유지 검증
-- [ ] OracleOwner 기본값: 빈 문자열 시 User 값 대문자로 대체 검증
+- [x] `WithSequences=true`: Sequence DDL이 CREATE TABLE 이전에 출력되는지 검증
+- [x] `WithIndexes=true`: Index DDL이 CREATE TABLE 이후에 출력되는지 검증
+- [x] `WithSequences=false, WithIndexes=false`: 기존 동작 완전 유지 검증
+- [x] OracleOwner 기본값: 빈 문자열 시 User 값 대문자로 대체 검증
 
 ### 7-3. 프론트엔드 수동 테스트
 - [ ] `withDdl` 미체크 시 `withSequences`, `withIndexes` 비활성화 확인

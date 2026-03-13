@@ -177,3 +177,152 @@ func TestGetTableMetadata_TableNameUppercased(t *testing.T) {
 		t.Errorf("unfulfilled expectations (table name not uppercased): %v", err)
 	}
 }
+
+// ── GenerateSequenceDDL ────────────────────────────────────────────────────────
+
+func TestGenerateSequenceDDL_Basic(t *testing.T) {
+	seq := SequenceMetadata{
+		Name:        "USERS_SEQ",
+		MinValue:    1,
+		MaxValue:    "100000",
+		IncrementBy: 1,
+		CycleFlag:   "N",
+		LastNumber:  42,
+	}
+	ddl := GenerateSequenceDDL(seq, "")
+
+	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS users_seq") {
+		t.Errorf("expected sequence name in DDL, got:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "START WITH 42") {
+		t.Errorf("expected START WITH 42, got:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "INCREMENT BY 1") {
+		t.Errorf("expected INCREMENT BY 1, got:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "MINVALUE 1") {
+		t.Errorf("expected MINVALUE 1, got:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "MAXVALUE 100000") {
+		t.Errorf("expected MAXVALUE 100000, got:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "NO CYCLE") {
+		t.Errorf("expected NO CYCLE, got:\n%s", ddl)
+	}
+}
+
+func TestGenerateSequenceDDL_MaxValueOmit(t *testing.T) {
+	seq := SequenceMetadata{
+		Name:        "MY_SEQ",
+		MinValue:    1,
+		MaxValue:    "9999999999999999999999999999", // Oracle 기본값
+		IncrementBy: 1,
+		CycleFlag:   "N",
+		LastNumber:  1,
+	}
+	ddl := GenerateSequenceDDL(seq, "")
+
+	if strings.Contains(ddl, "MAXVALUE") {
+		t.Errorf("Oracle 기본 MAXVALUE는 생략되어야 하는데 포함됨:\n%s", ddl)
+	}
+}
+
+func TestGenerateSequenceDDL_Cycle(t *testing.T) {
+	seq := SequenceMetadata{
+		Name:        "CYCLE_SEQ",
+		MinValue:    1,
+		MaxValue:    "1000",
+		IncrementBy: 1,
+		CycleFlag:   "Y",
+		LastNumber:  1,
+	}
+	ddl := GenerateSequenceDDL(seq, "")
+
+	if strings.Contains(ddl, "NO CYCLE") {
+		t.Errorf("CycleFlag=Y 이면 NO CYCLE이 아닌 CYCLE이어야 함:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "CYCLE") {
+		t.Errorf("CycleFlag=Y 이면 CYCLE이 포함되어야 함:\n%s", ddl)
+	}
+}
+
+func TestGenerateSequenceDDL_WithSchema(t *testing.T) {
+	seq := SequenceMetadata{
+		Name:        "ORDER_SEQ",
+		MinValue:    1,
+		MaxValue:    "9999999999999999999999999999",
+		IncrementBy: 1,
+		CycleFlag:   "N",
+		LastNumber:  100,
+	}
+	ddl := GenerateSequenceDDL(seq, "myschema")
+
+	if !strings.Contains(ddl, "CREATE SEQUENCE IF NOT EXISTS myschema.order_seq") {
+		t.Errorf("스키마 접두사가 포함되어야 함, got:\n%s", ddl)
+	}
+}
+
+// ── GenerateIndexDDL ───────────────────────────────────────────────────────────
+
+func TestGenerateIndexDDL_Normal(t *testing.T) {
+	idx := IndexMetadata{
+		Name:       "IDX_USERS_EMAIL",
+		Uniqueness: "NONUNIQUE",
+		IndexType:  "NORMAL",
+		IsPK:       false,
+		Columns:    []IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
+	}
+	ddl := GenerateIndexDDL(idx, "USERS", "")
+
+	if !strings.Contains(ddl, "CREATE INDEX IF NOT EXISTS idx_users_email ON users (email)") {
+		t.Errorf("일반 인덱스 DDL 불일치:\n%s", ddl)
+	}
+}
+
+func TestGenerateIndexDDL_Unique(t *testing.T) {
+	idx := IndexMetadata{
+		Name:       "UQ_USERS_EMAIL",
+		Uniqueness: "UNIQUE",
+		IndexType:  "NORMAL",
+		IsPK:       false,
+		Columns:    []IndexColumn{{Name: "EMAIL", Position: 1, Descend: "ASC"}},
+	}
+	ddl := GenerateIndexDDL(idx, "USERS", "")
+
+	if !strings.Contains(ddl, "CREATE UNIQUE INDEX IF NOT EXISTS") {
+		t.Errorf("UNIQUE INDEX 키워드가 없음:\n%s", ddl)
+	}
+	if !strings.Contains(ddl, "uq_users_email") {
+		t.Errorf("인덱스 이름(소문자)이 없음:\n%s", ddl)
+	}
+}
+
+func TestGenerateIndexDDL_PrimaryKey(t *testing.T) {
+	idx := IndexMetadata{
+		Name:       "SYS_C001234",
+		Uniqueness: "UNIQUE",
+		IndexType:  "NORMAL",
+		IsPK:       true,
+		Columns:    []IndexColumn{{Name: "ID", Position: 1, Descend: "ASC"}},
+	}
+	ddl := GenerateIndexDDL(idx, "USERS", "")
+
+	if !strings.Contains(ddl, "ALTER TABLE users ADD PRIMARY KEY (id)") {
+		t.Errorf("PK는 ALTER TABLE ... ADD PRIMARY KEY 형태여야 함:\n%s", ddl)
+	}
+}
+
+func TestGenerateIndexDDL_Descend(t *testing.T) {
+	idx := IndexMetadata{
+		Name:       "IDX_USERS_CREATED",
+		Uniqueness: "NONUNIQUE",
+		IndexType:  "NORMAL",
+		IsPK:       false,
+		Columns:    []IndexColumn{{Name: "CREATED_AT", Position: 1, Descend: "DESC"}},
+	}
+	ddl := GenerateIndexDDL(idx, "USERS", "")
+
+	if !strings.Contains(ddl, "created_at DESC") {
+		t.Errorf("DESC 컬럼 표현식이 없음:\n%s", ddl)
+	}
+}
