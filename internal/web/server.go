@@ -1,6 +1,8 @@
 package web
 
 import (
+	"embed"
+	"html/template"
 	"log"
 	"net/http"
 
@@ -17,13 +19,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+//go:embed templates/*
+var templateFS embed.FS
+
 var tracker = ws.NewWebSocketTracker()
 
 func RunServer(port string) {
 	r := gin.Default()
 
-	r.Static("/static", "./web/static")
-	r.LoadHTMLGlob("web/templates/*")
+	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
+	r.SetHTMLTemplate(tmpl)
 
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "index.html", gin.H{

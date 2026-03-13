@@ -38,12 +38,15 @@ func main() {
 		slog.Error("failed to connect to postgres", "error", err)
 		os.Exit(1)
 	}
+
+	var pool db.PGPool
 	if pgPool != nil {
+		pool = pgPool
 		defer pgPool.Close()
 		slog.Info("connected to postgres successfully")
 	}
 
-	if err := migration.Run(oracleDB, pgPool, cfg, nil); err != nil {
+	if err := migration.Run(oracleDB, pool, cfg, nil); err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
