@@ -7,63 +7,51 @@ import (
 	"time"
 )
 
-// MySQLDialect implements Dialect for MySQL.
-type MySQLDialect struct{}
+// PostgresDialect implements Dialect for PostgreSQL.
+type PostgresDialect struct{}
 
-func (d *MySQLDialect) Name() string {
-	return "mysql"
+func (d *PostgresDialect) Name() string {
+	return "postgres"
 }
 
-func (d *MySQLDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf("`%s`", name)
+func (d *PostgresDialect) QuoteIdentifier(name string) string {
+	return fmt.Sprintf("\"%s\"", name)
 }
 
-func (d *MySQLDialect) MapOracleType(oracleType string, precision, scale int) string {
+func (d *PostgresDialect) MapOracleType(oracleType string, precision, scale int) string {
 	oracleType = strings.ToUpper(oracleType)
 
 	switch {
-	case strings.Contains(oracleType, "VARCHAR2"):
-		if precision > 0 {
-			if precision > 16383 {
-				return "LONGTEXT"
-			}
-			return fmt.Sprintf("VARCHAR(%d)", precision)
-		}
-		return "VARCHAR(255)"
-
-	case strings.Contains(oracleType, "CHAR"):
-		if precision > 0 {
-			return fmt.Sprintf("CHAR(%d)", precision)
-		}
-		return "CHAR(255)"
+	case strings.Contains(oracleType, "VARCHAR2") || strings.Contains(oracleType, "CHAR"):
+		return "text"
 	case oracleType == "NUMBER":
 		if precision > 0 {
 			if scale > 0 {
-				return fmt.Sprintf("DECIMAL(%d, %d)", precision, scale)
+				return fmt.Sprintf("numeric(%d, %d)", precision, scale)
 			}
 			if precision <= 4 {
-				return "SMALLINT"
+				return "smallint"
 			}
 			if precision <= 9 {
-				return "INT"
+				return "integer"
 			}
-			return "BIGINT"
+			return "bigint"
 		}
-		return "DOUBLE"
+		return "numeric"
 	case oracleType == "DATE" || strings.Contains(oracleType, "TIMESTAMP"):
-		return "DATETIME"
+		return "timestamp"
 	case oracleType == "CLOB":
-		return "LONGTEXT"
+		return "text"
 	case oracleType == "BLOB" || oracleType == "RAW":
-		return "LONGBLOB"
+		return "bytea"
 	case oracleType == "FLOAT":
-		return "DOUBLE"
+		return "double precision"
 	default:
-		return "TEXT"
+		return "text"
 	}
 }
 
-func (d *MySQLDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef) string {
+func (d *PostgresDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef) string {
 	fullTableName := d.QuoteIdentifier(strings.ToLower(tableName))
 	if schema != "" {
 		fullTableName = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), fullTableName)
@@ -82,8 +70,8 @@ func (d *MySQLDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef
 			s = int(col.Scale.Int64)
 		}
 
-		myType := d.MapOracleType(col.Type, prec, s)
-		sb.WriteString(fmt.Sprintf("    %s %s", d.QuoteIdentifier(strings.ToLower(col.Name)), myType))
+		pgType := d.MapOracleType(col.Type, prec, s)
+		sb.WriteString(fmt.Sprintf("    %s %s", d.QuoteIdentifier(strings.ToLower(col.Name)), pgType))
 		if col.Nullable == "N" {
 			sb.WriteString(" NOT NULL")
 		}
@@ -97,12 +85,38 @@ func (d *MySQLDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef
 	return sb.String()
 }
 
-func (d *MySQLDialect) CreateSequenceDDL(seq SequenceMetadata, schema string) (string, bool) {
-	// MySQL doesn't support sequences like Oracle/Postgres. AUTO_INCREMENT is used on columns.
-	return "", false
+// Oracle 기본 MAXVALUE (28자리 9)
+const oracleDefaultMaxValue = "9999999999999999999999999999"
+
+func (d *PostgresDialect) CreateSequenceDDL(seq SequenceMetadata, schema string) (string, bool) {
+	name := strings.ToLower(seq.Name)
+	if schema != "" {
+		name = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), d.QuoteIdentifier(name))
+	} else {
+		name = d.QuoteIdentifier(name)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s\n", name))
+	sb.WriteString(fmt.Sprintf("    START WITH %d\n", seq.LastNumber))
+	sb.WriteString(fmt.Sprintf("    INCREMENT BY %d\n", seq.IncrementBy))
+	sb.WriteString(fmt.Sprintf("    MINVALUE %d\n", seq.MinValue))
+
+	if strings.TrimSpace(seq.MaxValue) != oracleDefaultMaxValue {
+		sb.WriteString(fmt.Sprintf("    MAXVALUE %s\n", strings.TrimSpace(seq.MaxValue)))
+	}
+
+	if seq.CycleFlag == "Y" {
+		sb.WriteString("    CYCLE\n")
+	} else {
+		sb.WriteString("    NO CYCLE\n")
+	}
+
+	sb.WriteString(";\n")
+	return sb.String(), true
 }
 
-func (d *MySQLDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema string) string {
+func (d *PostgresDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema string) string {
 	table := strings.ToLower(tableName)
 	if schema != "" {
 		table = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), d.QuoteIdentifier(table))
@@ -125,15 +139,13 @@ func (d *MySQLDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema strin
 	}
 
 	indexName := d.QuoteIdentifier(strings.ToLower(idx.Name))
-	// MySQL 8+ supports IF NOT EXISTS for indexes in CREATE INDEX, but we can just use normal syntax.
-	// We'll use IF NOT EXISTS since spec implies MySQL 8+.
 	if idx.Uniqueness == "UNIQUE" {
-		return fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s);\n", indexName, table, colList)
+		return fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s);\n", indexName, table, colList)
 	}
-	return fmt.Sprintf("CREATE INDEX %s ON %s (%s);\n", indexName, table, colList)
+	return fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s);\n", indexName, table, colList)
 }
 
-func (d *MySQLDialect) InsertStatement(tableName, schema string, cols []string, rows [][]any, batchSize int) []string {
+func (d *PostgresDialect) InsertStatement(tableName, schema string, cols []string, rows [][]any, batchSize int) []string {
 	var stmts []string
 
 	fullTableName := d.QuoteIdentifier(strings.ToLower(tableName))
@@ -170,20 +182,20 @@ func (d *MySQLDialect) InsertStatement(tableName, schema string, cols []string, 
 	return stmts
 }
 
-func (d *MySQLDialect) formatValue(val any) string {
+func (d *PostgresDialect) formatValue(val any) string {
 	if val == nil {
 		return "NULL"
 	}
 
 	switch v := val.(type) {
 	case []byte:
-		return fmt.Sprintf("X'%s'", hex.EncodeToString(v))
+		// BLOB/RAW to hex
+		return fmt.Sprintf("'\\x%s'", hex.EncodeToString(v))
 	case string:
 		escaped := strings.ReplaceAll(v, "'", "''")
-		escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
 		return fmt.Sprintf("'%s'", escaped)
 	case time.Time:
-		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.999999"))
+		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.999999999"))
 	case int, int64, float64:
 		return fmt.Sprintf("%v", v)
 	case bool:
@@ -194,16 +206,14 @@ func (d *MySQLDialect) formatValue(val any) string {
 	default:
 		str := fmt.Sprintf("%v", v)
 		escaped := strings.ReplaceAll(str, "'", "''")
-		escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
 		return fmt.Sprintf("'%s'", escaped)
 	}
 }
 
-func (d *MySQLDialect) DriverName() string {
-	return "mysql"
+func (d *PostgresDialect) DriverName() string {
+	return "pgx"
 }
 
-func (d *MySQLDialect) NormalizeURL(url string) string {
-	// target url typically user:pass@tcp(host:port)/db
+func (d *PostgresDialect) NormalizeURL(url string) string {
 	return url
 }

@@ -7,67 +7,46 @@ import (
 	"time"
 )
 
-// MySQLDialect implements Dialect for MySQL.
-type MySQLDialect struct{}
+// SQLiteDialect implements Dialect for SQLite.
+type SQLiteDialect struct{}
 
-func (d *MySQLDialect) Name() string {
-	return "mysql"
+func (d *SQLiteDialect) Name() string {
+	return "sqlite"
 }
 
-func (d *MySQLDialect) QuoteIdentifier(name string) string {
-	return fmt.Sprintf("`%s`", name)
+func (d *SQLiteDialect) QuoteIdentifier(name string) string {
+	return fmt.Sprintf("\"%s\"", name)
 }
 
-func (d *MySQLDialect) MapOracleType(oracleType string, precision, scale int) string {
+func (d *SQLiteDialect) MapOracleType(oracleType string, precision, scale int) string {
 	oracleType = strings.ToUpper(oracleType)
 
 	switch {
-	case strings.Contains(oracleType, "VARCHAR2"):
-		if precision > 0 {
-			if precision > 16383 {
-				return "LONGTEXT"
-			}
-			return fmt.Sprintf("VARCHAR(%d)", precision)
-		}
-		return "VARCHAR(255)"
-
-	case strings.Contains(oracleType, "CHAR"):
-		if precision > 0 {
-			return fmt.Sprintf("CHAR(%d)", precision)
-		}
-		return "CHAR(255)"
+	case strings.Contains(oracleType, "VARCHAR2") || strings.Contains(oracleType, "CHAR"):
+		return "TEXT"
 	case oracleType == "NUMBER":
 		if precision > 0 {
 			if scale > 0 {
-				return fmt.Sprintf("DECIMAL(%d, %d)", precision, scale)
+				return "REAL"
 			}
-			if precision <= 4 {
-				return "SMALLINT"
-			}
-			if precision <= 9 {
-				return "INT"
-			}
-			return "BIGINT"
+			return "INTEGER"
 		}
-		return "DOUBLE"
+		return "REAL"
 	case oracleType == "DATE" || strings.Contains(oracleType, "TIMESTAMP"):
-		return "DATETIME"
+		return "TEXT"
 	case oracleType == "CLOB":
-		return "LONGTEXT"
+		return "TEXT"
 	case oracleType == "BLOB" || oracleType == "RAW":
-		return "LONGBLOB"
+		return "BLOB"
 	case oracleType == "FLOAT":
-		return "DOUBLE"
+		return "REAL"
 	default:
 		return "TEXT"
 	}
 }
 
-func (d *MySQLDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef) string {
+func (d *SQLiteDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef) string {
 	fullTableName := d.QuoteIdentifier(strings.ToLower(tableName))
-	if schema != "" {
-		fullTableName = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), fullTableName)
-	}
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n", fullTableName))
@@ -97,18 +76,13 @@ func (d *MySQLDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef
 	return sb.String()
 }
 
-func (d *MySQLDialect) CreateSequenceDDL(seq SequenceMetadata, schema string) (string, bool) {
-	// MySQL doesn't support sequences like Oracle/Postgres. AUTO_INCREMENT is used on columns.
+func (d *SQLiteDialect) CreateSequenceDDL(seq SequenceMetadata, schema string) (string, bool) {
+	// SQLite uses AUTOINCREMENT keywords, no sequences
 	return "", false
 }
 
-func (d *MySQLDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema string) string {
-	table := strings.ToLower(tableName)
-	if schema != "" {
-		table = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), d.QuoteIdentifier(table))
-	} else {
-		table = d.QuoteIdentifier(table)
-	}
+func (d *SQLiteDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema string) string {
+	table := d.QuoteIdentifier(strings.ToLower(tableName))
 
 	colExprs := make([]string, len(idx.Columns))
 	for i, col := range idx.Columns {
@@ -121,25 +95,22 @@ func (d *MySQLDialect) CreateIndexDDL(idx IndexMetadata, tableName, schema strin
 	colList := strings.Join(colExprs, ", ")
 
 	if idx.IsPK {
-		return fmt.Sprintf("ALTER TABLE %s ADD PRIMARY KEY (%s);\n", table, colList)
+		// SQLite generally handles PK in CREATE TABLE, but we can't easily alter here. We skip or use CREATE UNIQUE INDEX
+		return ""
 	}
 
 	indexName := d.QuoteIdentifier(strings.ToLower(idx.Name))
-	// MySQL 8+ supports IF NOT EXISTS for indexes in CREATE INDEX, but we can just use normal syntax.
-	// We'll use IF NOT EXISTS since spec implies MySQL 8+.
+
 	if idx.Uniqueness == "UNIQUE" {
-		return fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s);\n", indexName, table, colList)
+		return fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s);\n", indexName, table, colList)
 	}
-	return fmt.Sprintf("CREATE INDEX %s ON %s (%s);\n", indexName, table, colList)
+	return fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s);\n", indexName, table, colList)
 }
 
-func (d *MySQLDialect) InsertStatement(tableName, schema string, cols []string, rows [][]any, batchSize int) []string {
+func (d *SQLiteDialect) InsertStatement(tableName, schema string, cols []string, rows [][]any, batchSize int) []string {
 	var stmts []string
 
 	fullTableName := d.QuoteIdentifier(strings.ToLower(tableName))
-	if schema != "" {
-		fullTableName = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), fullTableName)
-	}
 
 	quotedCols := make([]string, len(cols))
 	for i, c := range cols {
@@ -170,40 +141,37 @@ func (d *MySQLDialect) InsertStatement(tableName, schema string, cols []string, 
 	return stmts
 }
 
-func (d *MySQLDialect) formatValue(val any) string {
+func (d *SQLiteDialect) formatValue(val any) string {
 	if val == nil {
 		return "NULL"
 	}
 
 	switch v := val.(type) {
 	case []byte:
-		return fmt.Sprintf("X'%s'", hex.EncodeToString(v))
+		return fmt.Sprintf("x'%s'", hex.EncodeToString(v))
 	case string:
 		escaped := strings.ReplaceAll(v, "'", "''")
-		escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
 		return fmt.Sprintf("'%s'", escaped)
 	case time.Time:
-		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.999999"))
+		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05"))
 	case int, int64, float64:
 		return fmt.Sprintf("%v", v)
 	case bool:
 		if v {
-			return "TRUE"
+			return "1"
 		}
-		return "FALSE"
+		return "0"
 	default:
 		str := fmt.Sprintf("%v", v)
 		escaped := strings.ReplaceAll(str, "'", "''")
-		escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
 		return fmt.Sprintf("'%s'", escaped)
 	}
 }
 
-func (d *MySQLDialect) DriverName() string {
-	return "mysql"
+func (d *SQLiteDialect) DriverName() string {
+	return "sqlite3"
 }
 
-func (d *MySQLDialect) NormalizeURL(url string) string {
-	// target url typically user:pass@tcp(host:port)/db
+func (d *SQLiteDialect) NormalizeURL(url string) string {
 	return url
 }
