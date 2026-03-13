@@ -157,21 +157,21 @@
 - [x] OracleOwner 기본값: 빈 문자열 시 User 값 대문자로 대체 검증
 
 ### 7-3. 프론트엔드 수동 테스트
-- [ ] `withDdl` 미체크 시 `withSequences`, `withIndexes` 비활성화 확인
-- [ ] `ddl_progress` 메시지 UI 렌더링 확인
+- [x] `withDdl` 미체크 시 `withSequences`, `withIndexes` 비활성화 확인
+- [x] `ddl_progress` 메시지 UI 렌더링 확인
 
 ---
 
 ## Phase 8: 동기화 및 마무리
 
 ### 8-1. 템플릿 동기화
-- [ ] `internal/web/templates/index.html` 변경사항을 `web/templates/index.html`에 동기화
+- [x] `internal/web/templates/index.html` 변경사항을 `web/templates/index.html`에 동기화
 
 ### 8-2. 빌드 및 검증
-- [ ] `go build` 성공 확인
-- [ ] `go test ./...` 전체 테스트 통과 확인
-- [ ] `go vet ./...` 정적 분석 통과 확인
+- [x] `go build` 성공 확인
+- [x] `go test ./...` 전체 테스트 통과 확인
+- [x] `go vet ./...` 정적 분석 통과 확인
 
 ### 8-3. 문서 정리
-- [ ] `docs/v5/prd.md` 최종 확인
-- [ ] `docs/v5/task.md` 완료 항목 체크
+- [x] `docs/v5/prd.md` 최종 확인
+- [x] `docs/v5/task.md` 완료 항목 체크
