@@ -2,9 +2,12 @@ package web
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"os"
 	"path/filepath"
@@ -12,6 +15,7 @@ import (
 
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
+	"dbmigrator/internal/logger"
 	"dbmigrator/internal/migration"
 	"dbmigrator/internal/web/ws"
 	"dbmigrator/internal/web/ziputil"
@@ -90,6 +94,34 @@ type startMigrationRequest struct {
 	WithDDL   bool     `json:"withDdl"`
 	BatchSize int      `json:"batchSize"`
 	Workers   int      `json:"workers"`
+	// v4 추가 필드
+	OutFile  string `json:"outFile"`
+	PerTable bool   `json:"perTable"`
+	Schema   string `json:"schema"`
+	DryRun   bool   `json:"dryRun"`
+	LogJSON  bool   `json:"logJson"`
+	// v5 추가 필드
+	WithSequences bool   `json:"withSequences"`
+	WithIndexes   bool   `json:"withIndexes"`
+	OracleOwner   string `json:"oracleOwner"`
+}
+
+var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+func validateMigrationRequest(req *startMigrationRequest) error {
+	if strings.ContainsAny(req.OutFile, `/\`) {
+		return fmt.Errorf("outFile must not contain path separators")
+	}
+	if req.Schema != "" && !schemaPattern.MatchString(req.Schema) {
+		return fmt.Errorf("schema name contains invalid characters")
+	}
+	if req.BatchSize < 0 {
+		return fmt.Errorf("batchSize must be non-negative")
+	}
+	if req.Workers < 0 {
+		return fmt.Errorf("workers must be non-negative")
+	}
+	return nil
 }
 
 func startMigration(c *gin.Context) {
@@ -99,11 +131,22 @@ func startMigration(c *gin.Context) {
 		return
 	}
 
+	if err := validateMigrationRequest(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	go func() {
+		if req.LogJSON {
+			logger.SetJSONMode(true)
+			defer logger.SetJSONMode(false)
+		}
+
 		// Start migration process in background
 		oracleDB, err := db.ConnectOracle(req.OracleURL, req.Username, req.Password)
 		if err != nil {
 			log.Printf("Failed to connect to Oracle: %v", err)
+			tracker.AllDone("")
 			return
 		}
 		defer oracleDB.Close()
@@ -113,19 +156,10 @@ func startMigration(c *gin.Context) {
 			pgPool, err = db.ConnectPostgres(req.PGURL)
 			if err != nil {
 				log.Printf("Failed to connect to Postgres: %v", err)
-				tracker.AllDone("") // Send empty to signal end but with error log elsewhere
+				tracker.AllDone("")
 				return
 			}
 			defer pgPool.Close()
-		}
-
-		jobID := time.Now().Format("20060102150405")
-		outDir := filepath.Join(os.TempDir(), "dbmigrator_"+jobID)
-		if !req.Direct {
-			if err := os.MkdirAll(outDir, 0755); err != nil {
-				log.Printf("Failed to create temp directory: %v", err)
-				return
-			}
 		}
 
 		workers := req.Workers
@@ -136,38 +170,58 @@ func startMigration(c *gin.Context) {
 		if batchSize <= 0 {
 			batchSize = 1000
 		}
+		outFile := req.OutFile
+		if outFile == "" {
+			outFile = "migration.sql"
+		}
+
+		jobID := time.Now().Format("20060102150405")
+		outDir := filepath.Join(os.TempDir(), "dbmigrator_"+jobID)
+		if !req.Direct && !req.DryRun {
+			if err := os.MkdirAll(outDir, 0755); err != nil {
+				log.Printf("Failed to create temp directory: %v", err)
+				return
+			}
+		}
 
 		cfg := &config.Config{
-			Tables:    req.Tables,
-			Parallel:  true,
-			Workers:   workers,
-			BatchSize: batchSize,
-			PerTable:  true,
-			OutputDir: outDir,
-			PGURL:     req.PGURL,
-			WithDDL:   req.WithDDL,
+			Tables:        req.Tables,
+			Parallel:      true,
+			Workers:       workers,
+			BatchSize:     batchSize,
+			PerTable:      req.PerTable,
+			OutFile:       outFile,
+			Schema:        req.Schema,
+			DryRun:        req.DryRun,
+			OutputDir:     outDir,
+			PGURL:         req.PGURL,
+			WithDDL:       req.WithDDL,
+			WithSequences: req.WithSequences,
+			WithIndexes:   req.WithIndexes,
+			OracleOwner:   req.OracleOwner,
 		}
 
 		err = migration.Run(oracleDB, pgPool, cfg, tracker)
 		if err != nil {
 			log.Printf("Migration failed: %v", err)
-			tracker.AllDone("") // Reset UI
+			tracker.AllDone("")
+		} else if req.DryRun {
+			tracker.AllDone("")
 		} else if !req.Direct {
 			// Create ZIP
 			zipFilePath := filepath.Join(os.TempDir(), "migration_"+jobID+".zip")
 			if err := ziputil.ZipDirectory(outDir, zipFilePath); err != nil {
 				log.Printf("Failed to create zip: %v", err)
-				tracker.AllDone("") // Reset UI even if zip fails
+				tracker.AllDone("")
 			} else {
 				tracker.AllDone("migration_" + jobID + ".zip")
 			}
 		} else {
-			// Direct migration completed
 			tracker.AllDone("")
 		}
 
 		// Clean up the temporary SQL files folder (keep zip)
-		if !req.Direct {
+		if !req.Direct && !req.DryRun {
 			os.RemoveAll(outDir)
 		}
 	}()

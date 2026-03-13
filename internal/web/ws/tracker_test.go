@@ -312,6 +312,52 @@ func TestHandleConnection_ReceivesAllDoneMessage(t *testing.T) {
 	}
 }
 
+func TestHandleConnection_ReceivesDryRunResultMessage(t *testing.T) {
+	tr := NewWebSocketTracker()
+	conn, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.DryRunResult("ORDERS", 1234, true)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg ProgressMsg
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("failed to read dry_run_result message: %v", err)
+	}
+	if msg.Type != MsgDryRunResult {
+		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDryRunResult)
+	}
+	if msg.Table != "ORDERS" {
+		t.Errorf("msg.Table = %q, want %q", msg.Table, "ORDERS")
+	}
+	if msg.Total != 1234 {
+		t.Errorf("msg.Total = %d, want 1234", msg.Total)
+	}
+	if !msg.ConnectionOk {
+		t.Error("msg.ConnectionOk should be true")
+	}
+}
+
+func TestHandleConnection_DryRunResult_ConnectionFailed(t *testing.T) {
+	tr := NewWebSocketTracker()
+	conn, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.DryRunResult("BAD_TABLE", 0, false)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg ProgressMsg
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("failed to read message: %v", err)
+	}
+	if msg.Type != MsgDryRunResult {
+		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDryRunResult)
+	}
+	if msg.ConnectionOk {
+		t.Error("msg.ConnectionOk should be false")
+	}
+}
+
 func TestBroadcast_RemovesDeadClient(t *testing.T) {
 	tr := NewWebSocketTracker()
 	conn, cleanup := dialTestServer(t, tr)

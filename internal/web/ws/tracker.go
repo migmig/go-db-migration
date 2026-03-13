@@ -19,20 +19,26 @@ var upgrader = websocket.Upgrader{
 type MsgType string
 
 const (
-	MsgInit    MsgType = "init"
-	MsgUpdate  MsgType = "update"
-	MsgDone    MsgType = "done"
-	MsgError   MsgType = "error"
-	MsgAllDone MsgType = "all_done"
+	MsgInit         MsgType = "init"
+	MsgUpdate       MsgType = "update"
+	MsgDone         MsgType = "done"
+	MsgError        MsgType = "error"
+	MsgAllDone      MsgType = "all_done"
+	MsgDryRunResult MsgType = "dry_run_result"
+	MsgDDLProgress  MsgType = "ddl_progress"
 )
 
 type ProgressMsg struct {
-	Type      MsgType `json:"type"`
-	Table     string  `json:"table,omitempty"`
-	Count     int     `json:"count,omitempty"`
-	Total     int     `json:"total,omitempty"`
-	ErrorMsg  string  `json:"error,omitempty"`
-	ZipFileID string  `json:"zip_file_id,omitempty"`
+	Type         MsgType `json:"type"`
+	Table        string  `json:"table,omitempty"`
+	Count        int     `json:"count,omitempty"`
+	Total        int     `json:"total,omitempty"`
+	ErrorMsg     string  `json:"error,omitempty"`
+	ZipFileID    string  `json:"zip_file_id,omitempty"`
+	ConnectionOk bool    `json:"connection_ok,omitempty"`
+	Object       string  `json:"object,omitempty"`
+	ObjectName   string  `json:"object_name,omitempty"`
+	Status       string  `json:"status,omitempty"`
 }
 
 type tableState struct {
@@ -174,4 +180,26 @@ func (t *WebSocketTracker) AllDone(zipFileID string) {
 		Type:      MsgAllDone,
 		ZipFileID: zipFileID,
 	})
+}
+
+func (t *WebSocketTracker) DryRunResult(table string, totalRows int, connectionOk bool) {
+	t.broadcast(ProgressMsg{
+		Type:         MsgDryRunResult,
+		Table:        table,
+		Total:        totalRows,
+		ConnectionOk: connectionOk,
+	})
+}
+
+func (t *WebSocketTracker) DDLProgress(object, name, status string, err error) {
+	msg := ProgressMsg{
+		Type:       MsgDDLProgress,
+		Object:     object,
+		ObjectName: name,
+		Status:     status,
+	}
+	if err != nil {
+		msg.ErrorMsg = err.Error()
+	}
+	t.broadcast(msg)
 }

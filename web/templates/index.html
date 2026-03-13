@@ -307,14 +307,39 @@
         <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
             <details style="margin-bottom: 1rem; cursor: pointer;">
                 <summary style="font-weight: 600; font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Advanced Settings</summary>
-                <div style="display: flex; gap: 1rem; margin-top: 0.75rem; padding: 1rem; background: var(--bg-color); border-radius: var(--radius-md);">
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="batchSize">Batch Size</label>
-                        <input type="text" id="batchSize" value="1000">
+                <div style="padding: 1rem; background: var(--bg-color); border-radius: var(--radius-md);">
+                    <div style="display: flex; gap: 1rem; margin-top: 0.75rem;">
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="batchSize">Batch Size</label>
+                            <input type="text" id="batchSize" value="1000">
+                        </div>
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="workers">Parallel Workers</label>
+                            <input type="text" id="workers" value="4">
+                        </div>
                     </div>
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="workers">Parallel Workers</label>
-                        <input type="text" id="workers" value="4">
+                    <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid var(--border-color);">
+                    <div id="sql-only-controls">
+                        <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="outFile">Output Filename</label>
+                                <input type="text" id="outFile" value="migration.sql">
+                            </div>
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="schema">PG Schema</label>
+                                <input type="text" id="schema" placeholder="public">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 2rem;">
+                            <div class="checkbox-container" style="margin-bottom: 0;">
+                                <input type="checkbox" id="perTable" checked>
+                                <label for="perTable">Per-Table File Output</label>
+                            </div>
+                            <div class="checkbox-container" style="margin-bottom: 0;">
+                                <input type="checkbox" id="logJson">
+                                <label for="logJson">JSON Logging</label>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </details>
@@ -333,15 +358,33 @@
                     <input type="checkbox" id="withDdl" checked>
                     <label for="withDdl">Generate/Execute CREATE TABLE (DDL)</label>
                 </div>
+                <div style="padding-left: 1.5rem;">
+                    <div class="checkbox-container" style="margin-bottom: 0.5rem;">
+                        <input type="checkbox" id="withSequences" disabled>
+                        <label for="withSequences" style="color: var(--text-muted);">Sequence DDL 포함 (--with-sequences)</label>
+                    </div>
+                    <div class="checkbox-container" style="margin-bottom: 0.75rem;">
+                        <input type="checkbox" id="withIndexes" disabled>
+                        <label for="withIndexes" style="color: var(--text-muted);">Index DDL 포함 (--with-indexes)</label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0.75rem;">
+                        <label for="oracleOwner">Oracle 소유자</label>
+                        <input type="text" id="oracleOwner" placeholder="접속 계정과 동일" style="font-size:0.9rem;">
+                    </div>
+                </div>
             </div>
         </div>
 
-        <button id="btn-migrate" class="btn-success" style="margin-top: 1.5rem;">Start Migration</button>
+        <div class="checkbox-container" style="margin-top: 1.5rem; margin-bottom: 0;">
+            <input type="checkbox" id="dryRun">
+            <label for="dryRun">Dry-Run (Verify connectivity &amp; estimate row counts only)</label>
+        </div>
+        <button id="btn-migrate" class="btn-success" style="margin-top: 1rem;">Start Migration</button>
         <div id="migrate-error" class="error-msg"></div>
     </div>
 
     <div id="progress-section" class="card">
-        <h2>3. Migration Progress</h2>
+        <h2 id="progress-title">3. Migration Progress</h2>
         <div id="progress-container">
             <!-- Progress bars will be injected here -->
         </div>
@@ -359,11 +402,39 @@
     const directMigration = document.getElementById('directMigration');
     const pgConfig = document.getElementById('pg-config');
     const downloadBtn = document.getElementById('download-btn');
+    const dryRunCb = document.getElementById('dryRun');
+    const sqlOnlyControls = document.getElementById('sql-only-controls');
     let ws;
     let currentZipId = '';
+    let isDryRunMode = false;
 
     directMigration.addEventListener('change', (e) => {
         pgConfig.style.display = e.target.checked ? 'block' : 'none';
+        sqlOnlyControls.style.display = e.target.checked ? 'none' : 'block';
+    });
+
+    document.getElementById('withDdl').addEventListener('change', (e) => {
+        const withSeq = document.getElementById('withSequences');
+        const withIdx = document.getElementById('withIndexes');
+        const seqLabel = document.querySelector('label[for="withSequences"]');
+        const idxLabel = document.querySelector('label[for="withIndexes"]');
+        if (e.target.checked) {
+            withSeq.disabled = false;
+            withIdx.disabled = false;
+            seqLabel.style.color = '';
+            idxLabel.style.color = '';
+        } else {
+            withSeq.checked = false;
+            withIdx.checked = false;
+            withSeq.disabled = true;
+            withIdx.disabled = true;
+            seqLabel.style.color = 'var(--text-muted)';
+            idxLabel.style.color = 'var(--text-muted)';
+        }
+    });
+
+    dryRunCb.addEventListener('change', (e) => {
+        btnMigrate.innerText = e.target.checked ? 'Run Verification' : 'Start Migration';
     });
 
     btnConnect.addEventListener('click', async () => {
@@ -455,6 +526,16 @@
         const withDdl = document.getElementById('withDdl').checked;
         const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
         const workers = parseInt(document.getElementById('workers').value) || 4;
+        const outFile = document.getElementById('outFile').value || 'migration.sql';
+        const perTable = document.getElementById('perTable').checked;
+        const schema = document.getElementById('schema').value;
+        const dryRun = dryRunCb.checked;
+        const logJson = document.getElementById('logJson').checked;
+        const withSequences = document.getElementById('withSequences').checked;
+        const withIndexes = document.getElementById('withIndexes').checked;
+        const oracleOwner = document.getElementById('oracleOwner').value;
+
+        isDryRunMode = dryRun;
 
         if (isDirect && !pgUrl) {
             errorDiv.innerText = 'Please provide a PostgreSQL connection URL for direct migration.';
@@ -467,9 +548,12 @@
         // Clear previous progress
         document.getElementById('progress-container').innerHTML = '';
         document.getElementById('progress-section').style.display = 'block';
+        document.getElementById('progress-title').innerText = dryRun
+            ? '3. Verification Results (Dry-Run)'
+            : '3. Migration Progress';
         downloadBtn.style.display = 'none';
         btnMigrate.disabled = true;
-        btnMigrate.innerHTML = '<span style="opacity:0.8;">Migration Running...</span>';
+        btnMigrate.innerHTML = `<span style="opacity:0.8;">${dryRun ? 'Verifying...' : 'Migration Running...'}</span>`;
 
         document.getElementById('progress-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
@@ -477,16 +561,24 @@
             const res = await fetch('/api/migrate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    oracleUrl, 
-                    username, 
-                    password, 
+                body: JSON.stringify({
+                    oracleUrl,
+                    username,
+                    password,
                     tables: selectedTables,
                     direct: isDirect,
                     pgUrl: pgUrl,
                     withDdl: withDdl,
                     batchSize: batchSize,
-                    workers: workers
+                    workers: workers,
+                    outFile: outFile,
+                    perTable: perTable,
+                    schema: schema,
+                    dryRun: dryRun,
+                    logJson: logJson,
+                    withSequences: withSequences,
+                    withIndexes: withIndexes,
+                    oracleOwner: oracleOwner
                 })
             });
 
@@ -526,13 +618,56 @@
 
         if (msg.type === 'all_done') {
             currentZipId = msg.zip_file_id;
-            if (currentZipId) {
+            if (currentZipId && !isDryRunMode) {
                 downloadBtn.style.display = 'flex';
             } else {
                 downloadBtn.style.display = 'none';
             }
             btnMigrate.disabled = false;
-            btnMigrate.innerText = 'Start Migration';
+            btnMigrate.innerText = isDryRunMode ? 'Run Verification' : 'Start Migration';
+            return;
+        }
+
+        if (msg.type === 'ddl_progress') {
+            const itemId = `ddl-${msg.object}-${msg.object_name}`;
+            let item = document.getElementById(itemId);
+            if (!item) {
+                item = document.createElement('div');
+                item.id = itemId;
+                item.style.cssText = 'padding:0.4rem 0.75rem; font-size:0.875rem; font-family:monospace; border-radius:4px; margin-bottom:4px; background:var(--bg-color);';
+                container.appendChild(item);
+            }
+            const okIcon = `<svg style="width:13px;height:13px;vertical-align:middle;margin-right:4px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+            const errIcon = `<svg style="width:13px;height:13px;vertical-align:middle;margin-right:4px" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+            if (msg.status === 'ok') {
+                item.style.color = 'var(--success-color)';
+                item.innerHTML = `${okIcon}[${msg.object}] ${msg.object_name}`;
+            } else {
+                item.style.color = 'var(--danger-color)';
+                item.innerHTML = `${errIcon}[${msg.object}] ${msg.object_name} — ${msg.error || 'error'}`;
+            }
+            return;
+        }
+
+        if (msg.type === 'dry_run_result') {
+            let wrapper = document.getElementById(`prog-${msg.table}`);
+            if (!wrapper) {
+                wrapper = document.createElement('div');
+                wrapper.id = `prog-${msg.table}`;
+                wrapper.className = 'progress-container';
+                container.appendChild(wrapper);
+            }
+            const okIcon = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+            const errIcon = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+            const color = msg.connection_ok ? 'var(--success-color)' : 'var(--danger-color)';
+            const icon = msg.connection_ok ? okIcon : errIcon;
+            const status = msg.connection_ok ? 'OK' : 'FAILED';
+            wrapper.innerHTML = `
+                <div class="progress-header">
+                    <span class="progress-title">${msg.table}</span>
+                    <span style="color:${color};font-weight:600;font-size:0.875rem">${icon} ${status} — ~${msg.total.toLocaleString()} rows</span>
+                </div>
+            `;
             return;
         }
 

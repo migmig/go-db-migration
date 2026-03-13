@@ -24,6 +24,102 @@ func setupTestRouter() *gin.Engine {
 	return r
 }
 
+// ── validateMigrationRequest ─────────────────────────────────────────────────
+
+func TestValidateMigrationRequest_ValidInput(t *testing.T) {
+	req := &startMigrationRequest{
+		OutFile:   "output.sql",
+		Schema:    "myschema",
+		BatchSize: 1000,
+		Workers:   4,
+	}
+	if err := validateMigrationRequest(req); err != nil {
+		t.Errorf("expected no error for valid input, got: %v", err)
+	}
+}
+
+func TestValidateMigrationRequest_PathTraversal(t *testing.T) {
+	cases := []string{"../etc/passwd", "sub/file.sql", `C:\Windows\file.sql`}
+	for _, outFile := range cases {
+		req := &startMigrationRequest{OutFile: outFile}
+		if err := validateMigrationRequest(req); err == nil {
+			t.Errorf("expected error for outFile=%q containing path separator, got nil", outFile)
+		}
+	}
+}
+
+func TestValidateMigrationRequest_InvalidSchema(t *testing.T) {
+	cases := []string{"my schema", "schema-name", "schema;DROP", "123bad"}
+	for _, schema := range cases {
+		req := &startMigrationRequest{Schema: schema}
+		if err := validateMigrationRequest(req); err == nil {
+			t.Errorf("expected error for schema=%q, got nil", schema)
+		}
+	}
+}
+
+func TestValidateMigrationRequest_NegativeBatchSize(t *testing.T) {
+	req := &startMigrationRequest{BatchSize: -1}
+	if err := validateMigrationRequest(req); err == nil {
+		t.Error("expected error for negative batchSize, got nil")
+	}
+}
+
+func TestValidateMigrationRequest_NegativeWorkers(t *testing.T) {
+	req := &startMigrationRequest{Workers: -1}
+	if err := validateMigrationRequest(req); err == nil {
+		t.Error("expected error for negative workers, got nil")
+	}
+}
+
+// ── /api/migrate validation ───────────────────────────────────────────────────
+
+func TestStartMigration_PathTraversal_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["T"],"outFile":"../evil.sql"}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for path traversal in outFile, got %d", w.Code)
+	}
+}
+
+func TestStartMigration_InvalidSchema_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["T"],"schema":"bad schema!"}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid schema, got %d", w.Code)
+	}
+}
+
+// ── 6-2 하위 호환성: 새 필드 미포함 요청 정상 동작 ────────────────────────────────
+
+func TestStartMigration_BackwardCompat_NoNewFields(t *testing.T) {
+	r := setupTestRouter()
+
+	// 기존 형식: v4 새 필드(outFile, perTable, schema, dryRun, logJson) 없이 요청
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"host/svc","username":"u","password":"p","tables":["T1"],"batchSize":500,"workers":2}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	// 400이 아닌 200을 반환해야 함 (validation 통과, 백그라운드 고루틴에서 DB 연결 시도)
+	if w.Code != http.StatusOK {
+		t.Errorf("backward-compat request should return 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
 // ── /api/tables ──────────────────────────────────────────────────────────────
 
 func TestGetTables_InvalidJSON(t *testing.T) {

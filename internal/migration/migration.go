@@ -26,8 +26,42 @@ type ProgressTracker interface {
 	Error(table string, err error)
 }
 
+// DryRunTracker extends ProgressTracker with dry-run result reporting
+type DryRunTracker interface {
+	DryRunResult(table string, totalRows int, connectionOk bool)
+}
+
+// DDLProgressTracker extends ProgressTracker with DDL object progress reporting
+type DDLProgressTracker interface {
+	DDLProgress(object, name, status string, err error)
+}
+
 type job struct {
 	tableName string
+}
+
+// resolveOwner returns the effective Oracle schema owner.
+// Falls back to uppercase User when OracleOwner is not set.
+func resolveOwner(cfg *config.Config) string {
+	if cfg.OracleOwner != "" {
+		return strings.ToUpper(cfg.OracleOwner)
+	}
+	return strings.ToUpper(cfg.User)
+}
+
+// splitNames splits a comma-separated string into a trimmed slice.
+func splitNames(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressTracker) error {
@@ -39,14 +73,21 @@ func Run(dbConn *sql.DB, pgPool db.PGPool, cfg *config.Config, tracker ProgressT
 
 	if cfg.DryRun {
 		slog.Info("Dry run mode enabled. Verifying connectivity and estimating row counts.")
+		dryTracker, hasDryTracker := tracker.(DryRunTracker)
 		for _, table := range cfg.Tables {
 			var count int
 			err := dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 			if err != nil {
 				slog.Error("failed to get row count for table", "table", table, "error", err)
+				if tracker != nil {
+					tracker.Error(table, err)
+				}
 				continue
 			}
 			slog.Info("table estimation", "table", table, "estimated_rows", count)
+			if hasDryTracker {
+				dryTracker.DryRunResult(table, count, true)
+			}
 		}
 		slog.Info("Dry run completed successfully.")
 		return nil
@@ -133,7 +174,33 @@ func MigrateTable(dbConn *sql.DB, pgPool db.PGPool, tableName string, mainBuf *b
 func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg *config.Config, tracker ProgressTracker) error {
 	slog.Info("direct migration started", "table", tableName)
 
+	ddlTracker, hasDDLTracker := tracker.(DDLProgressTracker)
+	owner := resolveOwner(cfg)
+
 	if cfg.WithDDL {
+		// Sequence DDLs — executed before CREATE TABLE
+		if cfg.WithSequences {
+			seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
+			if err != nil {
+				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
+			} else {
+				for _, seq := range seqs {
+					ddl := GenerateSequenceDDL(seq, cfg.Schema)
+					if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
+						slog.Warn("failed to execute sequence DDL", "sequence", seq.Name, "error", err)
+						if hasDDLTracker {
+							ddlTracker.DDLProgress("sequence", seq.Name, "error", err)
+						}
+					} else {
+						slog.Info("sequence DDL executed", "sequence", seq.Name)
+						if hasDDLTracker {
+							ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
+						}
+					}
+				}
+			}
+		}
+
 		colsMeta, err := GetTableMetadata(dbConn, tableName)
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
@@ -200,6 +267,30 @@ func MigrateTableDirect(dbConn *sql.DB, pgPool db.PGPool, tableName string, cfg 
 	}
 
 	rowCount = int(n)
+
+	// Index DDLs — executed after COPY for performance
+	if cfg.WithDDL && cfg.WithIndexes {
+		indexes, err := GetIndexMetadata(dbConn, tableName, owner)
+		if err != nil {
+			slog.Warn("failed to get index metadata", "table", tableName, "error", err)
+		} else {
+			for _, idx := range indexes {
+				ddl := GenerateIndexDDL(idx, tableName, cfg.Schema)
+				if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
+					slog.Warn("failed to execute index DDL", "index", idx.Name, "error", err)
+					if hasDDLTracker {
+						ddlTracker.DDLProgress("index", idx.Name, "error", err)
+					}
+				} else {
+					slog.Info("index DDL executed", "index", idx.Name)
+					if hasDDLTracker {
+						ddlTracker.DDLProgress("index", idx.Name, "ok", nil)
+					}
+				}
+			}
+		}
+	}
+
 	slog.Info("direct migration finished", "table", tableName, "rows", rowCount)
 	return nil
 }
@@ -255,18 +346,51 @@ func MigrateTableToFile(dbConn *sql.DB, tableName string, mainBuf *bufio.Writer,
 		tableBuf = mainBuf
 	}
 
+	ddlTracker, hasDDLTracker := tracker.(DDLProgressTracker)
+
 	if cfg.WithDDL {
+		owner := resolveOwner(cfg)
+
+		// Sequence DDLs — written before CREATE TABLE
+		if cfg.WithSequences {
+			seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
+			if err != nil {
+				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
+			} else {
+				for _, seq := range seqs {
+					ddl := GenerateSequenceDDL(seq, cfg.Schema)
+					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
+					if hasDDLTracker {
+						ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
+					}
+					slog.Info("sequence DDL written", "sequence", seq.Name)
+				}
+			}
+		}
+
+		// CREATE TABLE DDL
 		colsMeta, err := GetTableMetadata(dbConn, tableName)
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
 		} else {
 			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta)
-			if !cfg.PerTable {
-				outMutex.Lock()
-			}
-			tableBuf.WriteString(ddl + "\n")
-			if !cfg.PerTable {
-				outMutex.Unlock()
+			writeToBuf(tableBuf, ddl+"\n", cfg.PerTable, outMutex)
+		}
+
+		// Index DDLs — written after CREATE TABLE, before INSERT
+		if cfg.WithIndexes {
+			indexes, err := GetIndexMetadata(dbConn, tableName, owner)
+			if err != nil {
+				slog.Warn("failed to get index metadata", "table", tableName, "error", err)
+			} else {
+				for _, idx := range indexes {
+					ddl := GenerateIndexDDL(idx, tableName, cfg.Schema)
+					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
+					if hasDDLTracker {
+						ddlTracker.DDLProgress("index", idx.Name, "ok", nil)
+					}
+					slog.Info("index DDL written", "index", idx.Name)
+				}
 			}
 		}
 	}
@@ -372,6 +496,14 @@ func ProcessRow(values []interface{}, typeNames []string) string {
 	}
 
 	return strings.Join(row, ", ")
+}
+
+func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex) {
+	if !perTable {
+		outMutex.Lock()
+		defer outMutex.Unlock()
+	}
+	buf.WriteString(s)
 }
 
 func WriteBatch(out *bufio.Writer, tableName string, cols []string, batch []string, cfg *config.Config, outMutex *sync.Mutex) {
