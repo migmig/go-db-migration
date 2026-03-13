@@ -28,7 +28,7 @@ import (
 //go:embed templates/*
 var templateFS embed.FS
 
-var tracker = ws.NewWebSocketTracker()
+var sessionManager = ws.NewSessionManager()
 
 func RunServer(port string) {
 	r := gin.Default()
@@ -37,8 +37,10 @@ func RunServer(port string) {
 	r.SetHTMLTemplate(tmpl)
 
 	r.GET("/", func(c *gin.Context) {
+		sessionID := sessionManager.CreateSession()
 		c.HTML(http.StatusOK, "index.html", gin.H{
-			"title": "Oracle DB Migrator",
+			"title":     "Oracle DB Migrator",
+			"sessionId": sessionID,
 		})
 	})
 
@@ -46,7 +48,7 @@ func RunServer(port string) {
 	{
 		api.POST("/tables", getTables)
 		api.POST("/migrate", startMigration)
-		api.GET("/progress", tracker.HandleConnection)
+		api.GET("/progress", sessionManager.HandleConnection)
 		api.GET("/download/:id", downloadZip)
 	}
 
@@ -87,6 +89,7 @@ func getTables(c *gin.Context) {
 }
 
 type startMigrationRequest struct {
+	SessionID string   `json:"sessionId" binding:"required"`
 	OracleURL string   `json:"oracleUrl" binding:"required"`
 	Username  string   `json:"username" binding:"required"`
 	Password  string   `json:"password" binding:"required"`
@@ -109,6 +112,11 @@ type startMigrationRequest struct {
 	// v6 추가 필드
 	TargetDB  string `json:"targetDb"`
 	TargetURL string `json:"targetUrl"`
+	// v8 추가 필드
+	WithConstraints bool `json:"withConstraints"`
+	DBMaxOpen       int  `json:"dbMaxOpen"`
+	DBMaxIdle       int  `json:"dbMaxIdle"`
+	DBMaxLife       int  `json:"dbMaxLife"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -126,11 +134,23 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 	if req.Workers < 0 {
 		return fmt.Errorf("workers must be non-negative")
 	}
+	if req.DBMaxOpen < 0 {
+		return fmt.Errorf("dbMaxOpen must be non-negative")
+	}
+	if req.DBMaxIdle < 0 {
+		return fmt.Errorf("dbMaxIdle must be non-negative")
+	}
+	if req.DBMaxLife < 0 {
+		return fmt.Errorf("dbMaxLife must be non-negative")
+	}
 	return nil
 }
 
 func startMigration(c *gin.Context) {
 	var req startMigrationRequest
+	// set defaults for db max idle to be safe
+	req.DBMaxIdle = 2
+
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 		return
@@ -138,6 +158,12 @@ func startMigration(c *gin.Context) {
 
 	if err := validateMigrationRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tracker := sessionManager.GetTracker(req.SessionID)
+	if tracker == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or expired session ID"})
 		return
 	}
 
@@ -155,6 +181,16 @@ func startMigration(c *gin.Context) {
 			return
 		}
 		defer oracleDB.Close()
+
+		if req.DBMaxOpen > 0 {
+			oracleDB.SetMaxOpenConns(req.DBMaxOpen)
+		}
+		if req.DBMaxIdle > 0 {
+			oracleDB.SetMaxIdleConns(req.DBMaxIdle)
+		}
+		if req.DBMaxLife > 0 {
+			oracleDB.SetConnMaxLifetime(time.Duration(req.DBMaxLife) * time.Second)
+		}
 
 		targetDBName := req.TargetDB
 		if targetDBName == "" {
@@ -178,7 +214,9 @@ func startMigration(c *gin.Context) {
 
 		if req.Direct && targetURL != "" {
 			if targetDBName == "postgres" {
-				pgPool, err = db.ConnectPostgres(targetURL)
+				// Wait, pgxpool config needs DBMaxOpen etc.
+				// The db.ConnectPostgres doesn't take these parameters yet, so I will update ConnectPostgres in db.go as well.
+				pgPool, err = db.ConnectPostgres(targetURL, req.DBMaxOpen, req.DBMaxIdle, req.DBMaxLife)
 				if err != nil {
 					log.Printf("Failed to connect to Postgres: %v", err)
 					tracker.AllDone("")
@@ -193,6 +231,16 @@ func startMigration(c *gin.Context) {
 					return
 				}
 				defer targetDB.Close()
+
+				if req.DBMaxOpen > 0 {
+					targetDB.SetMaxOpenConns(req.DBMaxOpen)
+				}
+				if req.DBMaxIdle > 0 {
+					targetDB.SetMaxIdleConns(req.DBMaxIdle)
+				}
+				if req.DBMaxLife > 0 {
+					targetDB.SetConnMaxLifetime(time.Duration(req.DBMaxLife) * time.Second)
+				}
 			}
 		}
 
@@ -219,21 +267,25 @@ func startMigration(c *gin.Context) {
 		}
 
 		cfg := &config.Config{
-			Tables:        req.Tables,
-			Parallel:      true,
-			Workers:       workers,
-			BatchSize:     batchSize,
-			PerTable:      req.PerTable,
-			OutFile:       outFile,
-			Schema:        req.Schema,
-			DryRun:        req.DryRun,
-			OutputDir:     outDir,
-			TargetDB:      targetDBName,
-			TargetURL:     targetURL,
-			WithDDL:       req.WithDDL,
-			WithSequences: req.WithSequences,
-			WithIndexes:   req.WithIndexes,
-			OracleOwner:   req.OracleOwner,
+			Tables:          req.Tables,
+			Parallel:        true,
+			Workers:         workers,
+			BatchSize:       batchSize,
+			PerTable:        req.PerTable,
+			OutFile:         outFile,
+			Schema:          req.Schema,
+			DryRun:          req.DryRun,
+			OutputDir:       outDir,
+			TargetDB:        targetDBName,
+			TargetURL:       targetURL,
+			WithDDL:         req.WithDDL,
+			WithSequences:   req.WithSequences,
+			WithIndexes:     req.WithIndexes,
+			WithConstraints: req.WithConstraints,
+			OracleOwner:     req.OracleOwner,
+			DBMaxOpen:       req.DBMaxOpen,
+			DBMaxIdle:       req.DBMaxIdle,
+			DBMaxLife:       req.DBMaxLife,
 		}
 
 		err = migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)

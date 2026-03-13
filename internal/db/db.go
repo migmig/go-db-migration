@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -59,7 +60,7 @@ func ConnectOracle(url, user, password string) (*sql.DB, error) {
 	return db, nil
 }
 
-func ConnectPostgres(url string) (*pgxpool.Pool, error) {
+func ConnectPostgres(url string, maxOpen int, maxIdle int, maxLife int) (*pgxpool.Pool, error) {
 	if url == "" {
 		return nil, nil
 	}
@@ -67,6 +68,17 @@ func ConnectPostgres(url string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if maxOpen > 0 {
+		config.MaxConns = int32(maxOpen)
+	}
+	if maxIdle > 0 {
+		config.MinConns = int32(maxIdle)
+	}
+	if maxLife > 0 {
+		config.MaxConnLifetime = time.Duration(maxLife) * time.Second
+	}
+
 	return pgxpool.NewWithConfig(context.Background(), config)
 }
 

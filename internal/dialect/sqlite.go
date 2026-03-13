@@ -63,6 +63,11 @@ func (d *SQLiteDialect) CreateTableDDL(tableName, schema string, cols []ColumnDe
 
 		myType := d.MapOracleType(col.Type, prec, s)
 		sb.WriteString(fmt.Sprintf("    %s %s", d.QuoteIdentifier(strings.ToLower(col.Name)), myType))
+
+		if col.DefaultValue.Valid && col.DefaultValue.String != "" {
+			sb.WriteString(fmt.Sprintf(" DEFAULT %s", col.DefaultValue.String))
+		}
+
 		if col.Nullable == "N" {
 			sb.WriteString(" NOT NULL")
 		}
@@ -74,6 +79,13 @@ func (d *SQLiteDialect) CreateTableDDL(tableName, schema string, cols []ColumnDe
 
 	sb.WriteString(");\n")
 	return sb.String()
+}
+
+func (d *SQLiteDialect) CreateConstraintDDL(constraint ConstraintMetadata, schema string) string {
+	// SQLite does not support ALTER TABLE ADD CONSTRAINT.
+	// Constraints must be defined in CREATE TABLE or by recreating the table.
+	// For this tool, we will just return an empty string or a comment, as we cannot add it post-creation.
+	return fmt.Sprintf("-- SQLite does not support ALTER TABLE ADD CONSTRAINT for %s\n", constraint.Name)
 }
 
 func (d *SQLiteDialect) CreateSequenceDDL(seq SequenceMetadata, schema string) (string, bool) {

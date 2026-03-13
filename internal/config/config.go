@@ -32,6 +32,12 @@ type Config struct {
 	// v6 flags
 	TargetDB  string
 	TargetURL string
+	// v8 flags
+	WithConstraints bool
+	DBMaxOpen       int
+	DBMaxIdle       int
+	DBMaxLife       int
+	ResumeJobID     string
 	// internal use for zip generation
 	OutputDir string
 }
@@ -70,6 +76,12 @@ func ParseFlags() (*Config, error) {
   dbmigrator -url localhost:1521/ORCL -user scott -password tiger -tables USERS \
     -with-ddl -with-sequences -oracle-owner HR -sequences SEQ_USERS,SEQ_ORDERS
 
+  # 제약조건(Default, FK, Check) 포함
+  dbmigrator -url localhost:1521/ORCL -user scott -password tiger -tables USERS -with-ddl -with-constraints
+  
+  # 재개 기능 (실패한 마이그레이션 이어하기)
+  dbmigrator -url localhost:1521/ORCL -user scott -password tiger -resume 20260313150405
+
   # Web UI 모드
   dbmigrator -web
 `)
@@ -99,6 +111,12 @@ func ParseFlags() (*Config, error) {
 	// v6 flags
 	flag.StringVar(&cfg.TargetDB, "target-db", "postgres", "출력 대상 DB 종류 (postgres/mysql/mariadb/sqlite/mssql)")
 	flag.StringVar(&cfg.TargetURL, "target-url", "", "대상 DB 연결 URL (PostgreSQL 외 Direct 마이그레이션 시)")
+	// v8 flags
+	flag.BoolVar(&cfg.WithConstraints, "with-constraints", false, "제약조건(Default, FK, Check) 마이그레이션 포함")
+	flag.IntVar(&cfg.DBMaxOpen, "db-max-open", 0, "DB 커넥션 풀 최대 활성 연결 수 (기본값: 0, 무제한)")
+	flag.IntVar(&cfg.DBMaxIdle, "db-max-idle", 2, "DB 커넥션 풀 최대 유휴 연결 수 (기본값: 2)")
+	flag.IntVar(&cfg.DBMaxLife, "db-max-life", 0, "DB 커넥션 풀 최대 유지 시간(초) (기본값: 0, 무제한)")
+	flag.StringVar(&cfg.ResumeJobID, "resume", "", "재개할 Job ID")
 
 	flag.Parse()
 
@@ -113,14 +131,21 @@ func ParseFlags() (*Config, error) {
 		return cfg, nil
 	}
 
-	if cfg.OracleURL == "" || cfg.User == "" || cfg.Password == "" || *tablesFlag == "" {
+	if cfg.OracleURL == "" || cfg.User == "" || cfg.Password == "" {
 		flag.Usage()
 		return nil, fmt.Errorf("missing required flags")
 	}
 
-	t := strings.Split(*tablesFlag, ",")
-	for i := range t {
-		cfg.Tables = append(cfg.Tables, strings.TrimSpace(t[i]))
+	if *tablesFlag == "" && cfg.ResumeJobID == "" {
+		flag.Usage()
+		return nil, fmt.Errorf("missing required flags: -tables or -resume must be provided")
+	}
+
+	if *tablesFlag != "" {
+		t := strings.Split(*tablesFlag, ",")
+		for i := range t {
+			cfg.Tables = append(cfg.Tables, strings.TrimSpace(t[i]))
+		}
 	}
 
 	return cfg, nil

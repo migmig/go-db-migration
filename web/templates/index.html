@@ -269,6 +269,12 @@
 <body>
 <div class="container">
     <h1>{{ .title }}</h1>
+    <div style="text-align: center; margin-bottom: 2rem; color: var(--text-muted); font-size: 0.9rem;">
+        Session ID: <span id="display-session-id" style="font-family: monospace; background: var(--border-color); padding: 0.2rem 0.5rem; border-radius: 4px;">{{ .sessionId }}</span>
+    </div>
+    <script>
+        const SESSION_ID = "{{ .sessionId }}";
+    </script>
 
     <div id="conn-section" class="card">
         <h2>1. Oracle DB Connection</h2>
@@ -316,6 +322,21 @@
                         <div class="form-group" style="flex: 1; margin-bottom: 0;">
                             <label for="workers">Parallel Workers</label>
                             <input type="text" id="workers" value="4">
+                        </div>
+                    </div>
+                    <div style="margin-top: 1.5rem; font-weight: 600; font-size: 0.9rem; color: var(--text-muted); border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.75rem;">DB Connection Pool Tuning</div>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="dbMaxOpen">Max Open Conns</label>
+                            <input type="number" id="dbMaxOpen" value="0" placeholder="0 (unlimited)">
+                        </div>
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="dbMaxIdle">Max Idle Conns</label>
+                            <input type="number" id="dbMaxIdle" value="2" placeholder="2">
+                        </div>
+                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                            <label for="dbMaxLife">Max Conn Life (s)</label>
+                            <input type="number" id="dbMaxLife" value="0" placeholder="0 (unlimited)">
                         </div>
                     </div>
                     <hr style="margin: 0.75rem 0; border: none; border-top: 1px solid var(--border-color);">
@@ -373,9 +394,13 @@
                         <input type="checkbox" id="withSequences" disabled>
                         <label for="withSequences" style="color: var(--text-muted);">Sequence DDL 포함 (--with-sequences)</label>
                     </div>
-                    <div class="checkbox-container" style="margin-bottom: 0.75rem;">
+                    <div class="checkbox-container" style="margin-bottom: 0.5rem;">
                         <input type="checkbox" id="withIndexes" disabled>
                         <label for="withIndexes" style="color: var(--text-muted);">Index DDL 포함 (--with-indexes)</label>
+                    </div>
+                    <div class="checkbox-container" style="margin-bottom: 0.75rem;">
+                        <input type="checkbox" id="withConstraints" disabled>
+                        <label for="withConstraints" style="color: var(--text-muted);">Include Constraints (--with-constraints)</label>
                     </div>
                     <div class="form-group" style="margin-bottom: 0.75rem;">
                         <label for="oracleOwner">Oracle 소유자</label>
@@ -441,20 +466,27 @@
     document.getElementById('withDdl').addEventListener('change', (e) => {
         const withSeq = document.getElementById('withSequences');
         const withIdx = document.getElementById('withIndexes');
+        const withConst = document.getElementById('withConstraints');
         const seqLabel = document.querySelector('label[for="withSequences"]');
         const idxLabel = document.querySelector('label[for="withIndexes"]');
+        const constLabel = document.querySelector('label[for="withConstraints"]');
         if (e.target.checked) {
             withSeq.disabled = false;
             withIdx.disabled = false;
+            withConst.disabled = false;
             seqLabel.style.color = '';
             idxLabel.style.color = '';
+            constLabel.style.color = '';
         } else {
             withSeq.checked = false;
             withIdx.checked = false;
+            withConst.checked = false;
             withSeq.disabled = true;
             withIdx.disabled = true;
+            withConst.disabled = true;
             seqLabel.style.color = 'var(--text-muted)';
             idxLabel.style.color = 'var(--text-muted)';
+            constLabel.style.color = 'var(--text-muted)';
         }
     });
 
@@ -552,6 +584,9 @@
         const withDdl = document.getElementById('withDdl').checked;
         const batchSize = parseInt(document.getElementById('batchSize').value) || 1000;
         const workers = parseInt(document.getElementById('workers').value) || 4;
+        const dbMaxOpen = parseInt(document.getElementById('dbMaxOpen').value) || 0;
+        const dbMaxIdle = parseInt(document.getElementById('dbMaxIdle').value) || 2;
+        const dbMaxLife = parseInt(document.getElementById('dbMaxLife').value) || 0;
         const outFile = document.getElementById('outFile').value || 'migration.sql';
         const perTable = document.getElementById('perTable').checked;
         const schema = document.getElementById('schema').value;
@@ -559,6 +594,7 @@
         const logJson = document.getElementById('logJson').checked;
         const withSequences = document.getElementById('withSequences').checked;
         const withIndexes = document.getElementById('withIndexes').checked;
+        const withConstraints = document.getElementById('withConstraints').checked;
         const oracleOwner = document.getElementById('oracleOwner').value;
 
         isDryRunMode = dryRun;
@@ -588,6 +624,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    sessionId: SESSION_ID,
                     oracleUrl,
                     username,
                     password,
@@ -599,6 +636,9 @@
                     withDdl: withDdl,
                     batchSize: batchSize,
                     workers: workers,
+                    dbMaxOpen: dbMaxOpen,
+                    dbMaxIdle: dbMaxIdle,
+                    dbMaxLife: dbMaxLife,
                     outFile: outFile,
                     perTable: perTable,
                     schema: schema,
@@ -606,6 +646,7 @@
                     logJson: logJson,
                     withSequences: withSequences,
                     withIndexes: withIndexes,
+                    withConstraints: withConstraints,
                     oracleOwner: oracleOwner
                 })
             });
@@ -627,7 +668,7 @@
         }
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        ws = new WebSocket(`${protocol}//${host}/api/progress`);
+        ws = new WebSocket(`${protocol}//${host}/api/progress?sessionId=${SESSION_ID}`);
 
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data);

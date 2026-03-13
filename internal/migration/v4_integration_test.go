@@ -126,7 +126,7 @@ func TestMigrateTableToFile_Schema_InsertsHaveSchemaPrefix(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil); err != nil {
+	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()

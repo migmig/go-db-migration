@@ -10,7 +10,7 @@ import (
 
 func GetTableMetadata(db *sql.DB, tableName string) ([]dialect.ColumnDef, error) {
 	query := `
-		SELECT column_name, data_type, data_precision, data_scale, nullable
+		SELECT column_name, data_type, data_precision, data_scale, nullable, data_default
 		FROM all_tab_columns
 		WHERE table_name = :1
 		ORDER BY column_id
@@ -24,16 +24,112 @@ func GetTableMetadata(db *sql.DB, tableName string) ([]dialect.ColumnDef, error)
 	var cols []dialect.ColumnDef
 	for rows.Next() {
 		var c dialect.ColumnDef
-		if err := rows.Scan(&c.Name, &c.Type, &c.Precision, &c.Scale, &c.Nullable); err != nil {
+		if err := rows.Scan(&c.Name, &c.Type, &c.Precision, &c.Scale, &c.Nullable, &c.DefaultValue); err != nil {
 			return nil, err
+		}
+		// Clean up default value (Oracle includes newline at the end)
+		if c.DefaultValue.Valid {
+			c.DefaultValue.String = strings.TrimSpace(c.DefaultValue.String)
 		}
 		cols = append(cols, c)
 	}
 	return cols, nil
 }
 
+// GetConstraintMetadata returns constraint metadata (FK, CHECK) for the given table.
+func GetConstraintMetadata(db *sql.DB, tableName, owner string) ([]dialect.ConstraintMetadata, error) {
+	tableUpper := strings.ToUpper(tableName)
+	ownerUpper := strings.ToUpper(owner)
+
+	query := `
+		SELECT c.constraint_name, c.constraint_type, c.search_condition,
+		       c.r_constraint_name, c.delete_rule
+		FROM all_constraints c
+		WHERE c.owner = :1
+		  AND c.table_name = :2
+		  AND c.constraint_type IN ('R', 'C')
+		  AND c.generated = 'USER NAME'
+		ORDER BY c.constraint_name
+	`
+	rows, err := db.Query(query, ownerUpper, tableUpper)
+	if err != nil {
+		return nil, fmt.Errorf("constraint query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var constraints []dialect.ConstraintMetadata
+	for rows.Next() {
+		var c dialect.ConstraintMetadata
+		var searchCondition, rConstraintName, deleteRule sql.NullString
+		if err := rows.Scan(&c.Name, &c.Type, &searchCondition, &rConstraintName, &deleteRule); err != nil {
+			return nil, err
+		}
+		c.TableName = tableUpper
+		if searchCondition.Valid {
+			c.SearchCondition = searchCondition.String
+		}
+		if deleteRule.Valid {
+			c.DeleteRule = deleteRule.String
+		}
+
+		// For FK, we need ref table and columns
+		if c.Type == "R" && rConstraintName.Valid {
+			refQuery := `
+				SELECT table_name, column_name
+				FROM all_cons_columns
+				WHERE owner = :1 AND constraint_name = :2
+				ORDER BY position
+			`
+			refRows, err := db.Query(refQuery, ownerUpper, rConstraintName.String)
+			if err != nil {
+				return nil, err
+			}
+			for refRows.Next() {
+				var rTable, rCol string
+				if err := refRows.Scan(&rTable, &rCol); err != nil {
+					refRows.Close()
+					return nil, err
+				}
+				c.RefTableName = rTable
+				c.RefColumns = append(c.RefColumns, rCol)
+			}
+			refRows.Close()
+		}
+
+		// Get local columns
+		colQuery := `
+			SELECT column_name
+			FROM all_cons_columns
+			WHERE owner = :1 AND constraint_name = :2
+			ORDER BY position
+		`
+		colRows, err := db.Query(colQuery, ownerUpper, c.Name)
+		if err != nil {
+			return nil, err
+		}
+		for colRows.Next() {
+			var col string
+			if err := colRows.Scan(&col); err != nil {
+				colRows.Close()
+				return nil, err
+			}
+			c.Columns = append(c.Columns, col)
+		}
+		colRows.Close()
+
+		constraints = append(constraints, c)
+	}
+
+	return constraints, nil
+}
+
 func GenerateCreateTableDDL(tableName string, schema string, cols []dialect.ColumnDef, dia dialect.Dialect) string {
 	return dia.CreateTableDDL(tableName, schema, cols)
+}
+
+// GenerateConstraintDDL converts an Oracle ConstraintMetadata into an ALTER TABLE statement.
+func GenerateConstraintDDL(constraint dialect.ConstraintMetadata, schema string, dia dialect.Dialect) string {
+	return dia.CreateConstraintDDL(constraint, schema)
 }
 
 // GetSequenceMetadata returns sequence metadata associated with the given table.

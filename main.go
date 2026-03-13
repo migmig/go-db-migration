@@ -46,7 +46,7 @@ func main() {
 
 	if cfg.TargetURL != "" {
 		if cfg.TargetDB == "postgres" {
-			pgPool, err := db.ConnectPostgres(cfg.TargetURL)
+			pgPool, err := db.ConnectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
 			if err != nil {
 				slog.Error("failed to connect to postgres", "error", err)
 				os.Exit(1)

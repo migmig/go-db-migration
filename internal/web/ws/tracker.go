@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -50,15 +51,81 @@ type tableState struct {
 }
 
 type WebSocketTracker struct {
-	clients map[*websocket.Conn]bool
-	states  map[string]*tableState
-	mu      sync.Mutex
+	clients      map[*websocket.Conn]bool
+	states       map[string]*tableState
+	mu           sync.Mutex
+	lastAccessed time.Time
 }
 
 func NewWebSocketTracker() *WebSocketTracker {
 	return &WebSocketTracker{
-		clients: make(map[*websocket.Conn]bool),
-		states:  make(map[string]*tableState),
+		clients:      make(map[*websocket.Conn]bool),
+		states:       make(map[string]*tableState),
+		lastAccessed: time.Now(),
+	}
+}
+
+type SessionManager struct {
+	trackers map[string]*WebSocketTracker
+	mu       sync.Mutex
+}
+
+func NewSessionManager() *SessionManager {
+	sm := &SessionManager{
+		trackers: make(map[string]*WebSocketTracker),
+	}
+	go sm.cleanupLoop()
+	return sm
+}
+
+func (sm *SessionManager) CreateSession() string {
+	id := uuid.New().String()
+	sm.mu.Lock()
+	sm.trackers[id] = NewWebSocketTracker()
+	sm.mu.Unlock()
+	return id
+}
+
+func (sm *SessionManager) GetTracker(id string) *WebSocketTracker {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.trackers[id]
+}
+
+func (sm *SessionManager) HandleConnection(c *gin.Context) {
+	sessionID := c.Query("sessionId")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing sessionId"})
+		return
+	}
+
+	sm.mu.Lock()
+	tracker, exists := sm.trackers[sessionID]
+	if !exists {
+		tracker = NewWebSocketTracker()
+		sm.trackers[sessionID] = tracker
+	}
+	sm.mu.Unlock()
+
+	tracker.HandleConnection(c)
+}
+
+func (sm *SessionManager) cleanupLoop() {
+	for {
+		time.Sleep(5 * time.Minute)
+		sm.mu.Lock()
+		now := time.Now()
+		for id, tracker := range sm.trackers {
+			tracker.mu.Lock()
+			clientsCount := len(tracker.clients)
+			lastAcc := tracker.lastAccessed
+			tracker.mu.Unlock()
+
+			if clientsCount == 0 && now.Sub(lastAcc) > 30*time.Minute {
+				delete(sm.trackers, id)
+			}
+		}
+		sm.mu.Unlock()
 	}
 }
 
@@ -71,11 +138,13 @@ func (t *WebSocketTracker) HandleConnection(c *gin.Context) {
 
 	t.mu.Lock()
 	t.clients[ws] = true
+	t.lastAccessed = time.Now()
 	t.mu.Unlock()
 
 	defer func() {
 		t.mu.Lock()
 		delete(t.clients, ws)
+		t.lastAccessed = time.Now()
 		t.mu.Unlock()
 		ws.Close()
 	}()

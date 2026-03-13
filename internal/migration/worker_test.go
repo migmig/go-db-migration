@@ -101,7 +101,7 @@ func TestWorkerSingleFile(t *testing.T) {
 	dia := &dialect.PostgresDialect{}
 	for w := 1; w <= cfg.Workers; w++ {
 		wg.Add(1)
-		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil)
+		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil, NewMigrationState("test"))
 	}
 
 	for _, table := range cfg.Tables {

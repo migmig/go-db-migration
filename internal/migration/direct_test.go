@@ -50,7 +50,7 @@ func TestMigrateTableDirect(t *testing.T) {
 	}
 	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil)
+	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestMigrateTableDirect_WithDDL(t *testing.T) {
 	}
 	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil)
+	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}

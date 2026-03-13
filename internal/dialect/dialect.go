@@ -7,11 +7,24 @@ import (
 
 // ColumnDef represents an Oracle column definition.
 type ColumnDef struct {
-	Name      string
-	Type      string
-	Precision sql.NullInt64
-	Scale     sql.NullInt64
-	Nullable  string
+	Name         string
+	Type         string
+	Precision    sql.NullInt64
+	Scale        sql.NullInt64
+	Nullable     string
+	DefaultValue sql.NullString
+}
+
+// ConstraintMetadata holds Oracle constraint information.
+type ConstraintMetadata struct {
+	Name            string
+	Type            string // 'R' for Foreign Key, 'C' for Check
+	TableName       string
+	Columns         []string
+	SearchCondition string   // For Check constraint
+	RefTableName    string   // For Foreign Key reference table
+	RefColumns      []string // For Foreign Key reference columns
+	DeleteRule      string   // CASCADE, SET NULL, NO ACTION
 }
 
 // SequenceMetadata holds Oracle sequence information.
@@ -60,6 +73,9 @@ type Dialect interface {
 
 	// CreateIndexDDL generates the CREATE INDEX DDL.
 	CreateIndexDDL(idx IndexMetadata, tableName, schema string) string
+
+	// CreateConstraintDDL generates the ALTER TABLE ADD CONSTRAINT DDL.
+	CreateConstraintDDL(constraint ConstraintMetadata, schema string) string
 
 	// InsertStatement generates batch INSERT statements.
 	InsertStatement(tableName, schema string, cols []string, rows [][]any, batchSize int) []string

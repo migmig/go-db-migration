@@ -77,7 +77,7 @@ func TestWithSequences_DDLOutputBeforeCreateTable(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil); err != nil {
+	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
@@ -139,7 +139,7 @@ func TestWithIndexes_DDLOutputAfterCreateTable(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil); err != nil {
+	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
@@ -183,7 +183,7 @@ func TestWithoutSequencesAndIndexes_NoExtraDDL(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil); err != nil {
+	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()

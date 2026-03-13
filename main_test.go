@@ -43,7 +43,7 @@ func TestMigrateTable(t *testing.T) {
 	cfg := &config.Config{BatchSize: 1000}
 	dia := &dialect.PostgresDialect{}
 
-	err = migration.MigrateTable(db, nil, nil, dia, "MOCK_TABLE", mainBuf, cfg, &outMutex, nil)
+	err = migration.MigrateTable(db, nil, nil, dia, "MOCK_TABLE", mainBuf, cfg, &outMutex, nil, migration.NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTable returned error: %v", err)
 	}

@@ -72,6 +72,11 @@ func (d *PostgresDialect) CreateTableDDL(tableName, schema string, cols []Column
 
 		pgType := d.MapOracleType(col.Type, prec, s)
 		sb.WriteString(fmt.Sprintf("    %s %s", d.QuoteIdentifier(strings.ToLower(col.Name)), pgType))
+
+		if col.DefaultValue.Valid && col.DefaultValue.String != "" {
+			sb.WriteString(fmt.Sprintf(" DEFAULT %s", col.DefaultValue.String))
+		}
+
 		if col.Nullable == "N" {
 			sb.WriteString(" NOT NULL")
 		}
@@ -82,6 +87,50 @@ func (d *PostgresDialect) CreateTableDDL(tableName, schema string, cols []Column
 	}
 
 	sb.WriteString(");\n")
+	return sb.String()
+}
+
+func (d *PostgresDialect) CreateConstraintDDL(constraint ConstraintMetadata, schema string) string {
+	table := strings.ToLower(constraint.TableName)
+	if schema != "" {
+		table = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), d.QuoteIdentifier(table))
+	} else {
+		table = d.QuoteIdentifier(table)
+	}
+
+	name := d.QuoteIdentifier(strings.ToLower(constraint.Name))
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s ", table, name))
+
+	if constraint.Type == "R" {
+		refTable := strings.ToLower(constraint.RefTableName)
+		if schema != "" {
+			refTable = fmt.Sprintf("%s.%s", d.QuoteIdentifier(strings.ToLower(schema)), d.QuoteIdentifier(refTable))
+		} else {
+			refTable = d.QuoteIdentifier(refTable)
+		}
+
+		localCols := make([]string, len(constraint.Columns))
+		for i, c := range constraint.Columns {
+			localCols[i] = d.QuoteIdentifier(strings.ToLower(c))
+		}
+
+		refCols := make([]string, len(constraint.RefColumns))
+		for i, c := range constraint.RefColumns {
+			refCols[i] = d.QuoteIdentifier(strings.ToLower(c))
+		}
+
+		sb.WriteString(fmt.Sprintf("FOREIGN KEY (%s) REFERENCES %s (%s)",
+			strings.Join(localCols, ", "), refTable, strings.Join(refCols, ", ")))
+
+		if constraint.DeleteRule != "" {
+			sb.WriteString(fmt.Sprintf(" ON DELETE %s", constraint.DeleteRule))
+		}
+	} else if constraint.Type == "C" {
+		sb.WriteString(fmt.Sprintf("CHECK (%s)", constraint.SearchCondition))
+	}
+	sb.WriteString(";\n")
 	return sb.String()
 }
 
