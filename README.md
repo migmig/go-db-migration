@@ -1,17 +1,20 @@
-# Oracle to Multi-Target Data Migration CLI (v6)
+# Oracle to Multi-Target Data Migration CLI (v11)
 
-A high-performance Go-based CLI application designed to migrate data from Oracle databases to multiple target databases (PostgreSQL, MySQL, MariaDB, SQLite, MSSQL). Now features a Web UI for easier table selection and progress tracking.
+A high-performance Go-based CLI application designed to migrate data from Oracle databases to multiple target databases (PostgreSQL, MySQL, MariaDB, SQLite, MSSQL). Features an advanced Web UI for real-time monitoring, auto-healing, and chunk-based large table migration.
 
 ## Features
 
 - **Pure Go Drivers:** No Oracle Instant Client or CGO required.
-- **Multi-Target Database Support (v6):** Migrate data directly to PostgreSQL, MySQL, MariaDB, SQLite, or MSSQL.
-- **Web UI Mode:** Interactive web interface for table browsing, selection, and migration monitoring.
+- **Multi-Target Database Support:** Migrate data directly to PostgreSQL, MySQL, MariaDB, SQLite, or MSSQL.
+- **Advanced Web UI (v11):** Interactive web interface with WebSocket-based real-time progress tracking, dashboard monitoring, and topology viewing.
+- **Table Chunking (v11):** Automatic partitioning of large tables for intra-table parallel migration, significantly boosting performance for massive datasets.
+- **Auto-Healing (v11):** Smart auto-retry mechanisms for network timeouts and temporary failures to ensure seamless and resilient migration.
 - **Direct Migration:** Stream data directly from Oracle to the target database. Uses high-performance `COPY` protocol for PostgreSQL.
 - **Bulk SQL Generation:** Generate target-compatible `INSERT` SQL scripts as an alternative.
 - **DDL Generation:** Automatically generate and execute `CREATE TABLE` statements on the target database based on Oracle metadata.
 - **Worker Pool Parallelism (v2):** Configurable worker pool for efficient concurrent table processing.
-- **Dry Run Mode (v2):** Verify connectivity and estimate data volumes without performing actual migration.
+- **Dry Run Mode:** Verify connectivity and estimate data volumes without performing actual migration.
+- **Migration History (v11):** Local SQLite-based persistence of migration sessions and logs for easy auditing and resuming.
 - **Structured Logging:** JSON or Text-based structured logging using `log/slog`.
 - **Data Type Mapping:** Handles VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, and NUMBER (with precision/scale).
 
@@ -56,7 +59,7 @@ Run the migrator in web mode to use the browser-based interface:
 
 ### Direct Migration
 
-**PostgreSQL (v2+):**
+**PostgreSQL:**
 ```bash
 ./dbmigrator -url "host:port/service" \
              -user "oracle_user" \
@@ -67,7 +70,7 @@ Run the migrator in web mode to use the browser-based interface:
              -parallel -workers 4
 ```
 
-**MySQL/MariaDB (v6):**
+**MySQL/MariaDB:**
 ```bash
 ./dbmigrator -url "host:port/service" \
              -user "oracle_user" \
@@ -79,7 +82,7 @@ Run the migrator in web mode to use the browser-based interface:
              -parallel -workers 4
 ```
 
-**SQLite (v6):**
+**SQLite:**
 ```bash
 ./dbmigrator -url "host:port/service" \
              -user "oracle_user" \
@@ -128,6 +131,9 @@ Run the migrator in web mode to use the browser-based interface:
 | `-schema` | PostgreSQL target schema name | None | No |
 | `-per-table` | Output to separate files per table | `false` | No |
 | `-parallel` | Process tables concurrently | `false` | No |
+| `-chunk` | (v11) Enable auto-chunking for large tables | `false` | No |
+| `-chunk-size`| (v11) Chunk size limit in rows for partitioning | `1000000` | No |
+| `-auto-retry`| (v11) Enable automatic retry on failure | `true` | No |
 
 \* *Required for CLI mode only. In Web mode, these are provided through the UI.*
 
