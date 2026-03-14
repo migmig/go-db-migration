@@ -50,6 +50,7 @@ func RunServer(port string) {
 		api.POST("/migrate", startMigration)
 		api.GET("/progress", sessionManager.HandleConnection)
 		api.GET("/download/:id", downloadZip)
+		api.GET("/report/:id", downloadReport)
 	}
 
 	log.Printf("Starting web server on port %s...", port)
@@ -89,7 +90,7 @@ func getTables(c *gin.Context) {
 }
 
 type startMigrationRequest struct {
-	SessionID string   `json:"sessionId" binding:"required"`
+	SessionID string   `json:"sessionId"`
 	OracleURL string   `json:"oracleUrl" binding:"required"`
 	Username  string   `json:"username" binding:"required"`
 	Password  string   `json:"password" binding:"required"`
@@ -117,6 +118,9 @@ type startMigrationRequest struct {
 	DBMaxOpen       int  `json:"dbMaxOpen"`
 	DBMaxIdle       int  `json:"dbMaxIdle"`
 	DBMaxLife       int  `json:"dbMaxLife"`
+	// v9 추가 필드
+	Validate  bool `json:"validate"`
+	CopyBatch int  `json:"copyBatch"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -143,6 +147,17 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 	if req.DBMaxLife < 0 {
 		return fmt.Errorf("dbMaxLife must be non-negative")
 	}
+	// v9: 테이블명 및 Oracle 소유자 식별자 검증 (SQL Injection 방어)
+	for _, table := range req.Tables {
+		if err := dialect.ValidateOracleIdentifier(table); err != nil {
+			return fmt.Errorf("invalid table name %q: %w", table, err)
+		}
+	}
+	if req.OracleOwner != "" {
+		if err := dialect.ValidateOracleIdentifier(req.OracleOwner); err != nil {
+			return fmt.Errorf("invalid oracle owner %q: %w", req.OracleOwner, err)
+		}
+	}
 	return nil
 }
 
@@ -162,9 +177,12 @@ func startMigration(c *gin.Context) {
 	}
 
 	tracker := sessionManager.GetTracker(req.SessionID)
-	if tracker == nil {
+	if tracker == nil && req.SessionID != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid or expired session ID"})
 		return
+	}
+	if tracker == nil {
+		tracker = ws.NewWebSocketTracker()
 	}
 
 	go func() {
@@ -177,7 +195,7 @@ func startMigration(c *gin.Context) {
 		oracleDB, err := db.ConnectOracle(req.OracleURL, req.Username, req.Password)
 		if err != nil {
 			log.Printf("Failed to connect to Oracle: %v", err)
-			tracker.AllDone("")
+			tracker.AllDone("", nil)
 			return
 		}
 		defer oracleDB.Close()
@@ -200,7 +218,7 @@ func startMigration(c *gin.Context) {
 		dia, err := dialect.GetDialect(targetDBName)
 		if err != nil {
 			log.Printf("Failed to get dialect: %v", err)
-			tracker.AllDone("")
+			tracker.AllDone("", nil)
 			return
 		}
 
@@ -219,7 +237,7 @@ func startMigration(c *gin.Context) {
 				pgPool, err = db.ConnectPostgres(targetURL, req.DBMaxOpen, req.DBMaxIdle, req.DBMaxLife)
 				if err != nil {
 					log.Printf("Failed to connect to Postgres: %v", err)
-					tracker.AllDone("")
+					tracker.AllDone("", nil)
 					return
 				}
 				defer pgPool.Close()
@@ -227,7 +245,7 @@ func startMigration(c *gin.Context) {
 				targetDB, err = db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(targetURL))
 				if err != nil {
 					log.Printf("Failed to connect to Target DB: %v", err)
-					tracker.AllDone("")
+					tracker.AllDone("", nil)
 					return
 				}
 				defer targetDB.Close()
@@ -286,25 +304,42 @@ func startMigration(c *gin.Context) {
 			DBMaxOpen:       req.DBMaxOpen,
 			DBMaxIdle:       req.DBMaxIdle,
 			DBMaxLife:       req.DBMaxLife,
+			Validate:        req.Validate,
+			CopyBatch:       req.CopyBatch,
 		}
 
-		err = migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
+		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
+
+		buildSummary := func() *ws.ReportSummary {
+			if report == nil {
+				return nil
+			}
+			totalRows, successCount, errorCount, duration, reportID := report.ToSummary()
+			return &ws.ReportSummary{
+				TotalRows:    totalRows,
+				SuccessCount: successCount,
+				ErrorCount:   errorCount,
+				Duration:     duration,
+				ReportID:     reportID,
+			}
+		}
+
 		if err != nil {
 			log.Printf("Migration failed: %v", err)
-			tracker.AllDone("")
+			tracker.AllDone("", buildSummary())
 		} else if req.DryRun {
-			tracker.AllDone("")
+			tracker.AllDone("", nil)
 		} else if !req.Direct {
 			// Create ZIP
 			zipFilePath := filepath.Join(os.TempDir(), "migration_"+jobID+".zip")
 			if err := ziputil.ZipDirectory(outDir, zipFilePath); err != nil {
 				log.Printf("Failed to create zip: %v", err)
-				tracker.AllDone("")
+				tracker.AllDone("", buildSummary())
 			} else {
-				tracker.AllDone("migration_" + jobID + ".zip")
+				tracker.AllDone("migration_"+jobID+".zip", buildSummary())
 			}
 		} else {
-			tracker.AllDone("")
+			tracker.AllDone("", buildSummary())
 		}
 
 		// Clean up the temporary SQL files folder (keep zip)
@@ -314,6 +349,24 @@ func startMigration(c *gin.Context) {
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Migration started"})
+}
+
+func downloadReport(c *gin.Context) {
+	id := filepath.Base(c.Param("id"))
+	if id == "" || id == "." || id == "/" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing report ID"})
+		return
+	}
+
+	reportPath := filepath.Join(".migration_state", id+"_report.json")
+	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Report not found"})
+		return
+	}
+
+	c.Header("Content-Disposition", "attachment; filename="+id+"_report.json")
+	c.Header("Content-Type", "application/json")
+	c.File(reportPath)
 }
 
 func downloadZip(c *gin.Context) {

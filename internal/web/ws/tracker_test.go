@@ -297,7 +297,7 @@ func TestHandleConnection_ReceivesAllDoneMessage(t *testing.T) {
 	conn, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
-	tr.AllDone("migration_20240101.zip")
+	tr.AllDone("migration_20240101.zip", nil)
 
 	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var msg ProgressMsg
@@ -444,7 +444,7 @@ func TestBroadcast_RemovesDeadClient(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// broadcast should not panic and should clean up the dead client
-	tr.AllDone("")
+	tr.AllDone("", nil)
 
 	tr.mu.Lock()
 	n := len(tr.clients)

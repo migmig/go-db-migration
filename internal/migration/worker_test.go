@@ -13,6 +13,11 @@ import (
 )
 
 func TestWorkerPool(t *testing.T) {
+	tmp := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmp)
+	defer os.Chdir(origDir)
+
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("Failed to open mock sql connection: %v", err)
@@ -25,7 +30,7 @@ func TestWorkerPool(t *testing.T) {
 	tables := []string{"T1", "T2"}
 	for _, table := range tables {
 		rows := sqlmock.NewRows([]string{"ID"}).AddRow(1)
-		mock.ExpectQuery("SELECT \\* FROM " + table).WillReturnRows(rows)
+		mock.ExpectQuery("SELECT \\* FROM \"" + table + "\"").WillReturnRows(rows)
 	}
 
 	cfg := &config.Config{
@@ -33,24 +38,17 @@ func TestWorkerPool(t *testing.T) {
 		Workers:   2,
 		Tables:    tables,
 		BatchSize: 100,
-		PerTable:  true, // To avoid shared buffer complexity in this test
+		PerTable:  true,
+		OutputDir: tmp,
 	}
-
-	// We'll call worker directly or use Run
-	// Run will cleanup files so we might want to use a temp dir or just verify mock calls.
 
 	// Setup row counts for progress tracker queries
 	for _, table := range tables {
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + table).WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"" + table + "\"").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
 	}
 
-	// Temporarily redirect os.Create for perTable if needed, but let's just use Run
-	// and clean up the .sql files created.
-	defer os.Remove("T1.sql")
-	defer os.Remove("T2.sql")
-
 	dia := &dialect.PostgresDialect{}
-	err = Run(db, nil, nil, dia, cfg, nil)
+	_, err = Run(db, nil, nil, dia, cfg, nil)
 	if err != nil {
 		t.Errorf("Run failed: %v", err)
 	}
@@ -71,9 +69,9 @@ func TestWorkerSingleFile(t *testing.T) {
 
 	tables := []string{"T1", "T2"}
 	for _, table := range tables {
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + table).WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"" + table + "\"").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(1))
 		rows := sqlmock.NewRows([]string{"ID"}).AddRow(1)
-		mock.ExpectQuery("SELECT \\* FROM " + table).WillReturnRows(rows)
+		mock.ExpectQuery("SELECT \\* FROM \"" + table + "\"").WillReturnRows(rows)
 	}
 
 	tmpFile, err := os.CreateTemp("", "worker_test_*.sql")
@@ -99,9 +97,10 @@ func TestWorkerSingleFile(t *testing.T) {
 	mainBuf := bufio.NewWriter(tmpFile)
 
 	dia := &dialect.PostgresDialect{}
+	report := NewMigrationReport("test", "oracle://user:pass@host/SID", "postgres", "")
 	for w := 1; w <= cfg.Workers; w++ {
 		wg.Add(1)
-		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil, NewMigrationState("test"))
+		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil, NewMigrationState("test"), report)
 	}
 
 	for _, table := range cfg.Tables {

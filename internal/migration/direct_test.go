@@ -22,7 +22,7 @@ func TestMigrateTableDirect(t *testing.T) {
 	rows := sqlmock.NewRows([]string{"ID", "NAME"}).
 		AddRow(1, "Alice").
 		AddRow(2, "Bob")
-	mock.ExpectQuery("SELECT \\* FROM " + tableName).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\"").WillReturnRows(rows)
 
 	// Mock Postgres
 	pgMock, err := pgxmock.NewPool()
@@ -50,7 +50,7 @@ func TestMigrateTableDirect(t *testing.T) {
 	}
 	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
+	_, err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}
@@ -74,14 +74,14 @@ func TestMigrateTableDirect_WithDDL(t *testing.T) {
 	tableName := "MOCK_TABLE"
 
 	// Mock GetTableMetadata
-	metaRows := sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable"}).
-		AddRow("ID", "NUMBER", 10, 0, "N").
-		AddRow("NAME", "VARCHAR2", nil, nil, "Y")
+	metaRows := sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default"}).
+		AddRow("ID", "NUMBER", 10, 0, "N", nil).
+		AddRow("NAME", "VARCHAR2", nil, nil, "Y", nil)
 	mock.ExpectQuery("SELECT column_name, data_type").WillReturnRows(metaRows)
 
 	// Mock Data Select
 	rows := sqlmock.NewRows([]string{"ID", "NAME"}).AddRow(1, "Alice")
-	mock.ExpectQuery("SELECT \\* FROM " + tableName).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\"").WillReturnRows(rows)
 
 	// Mock Postgres
 	pgMock, err := pgxmock.NewPool()
@@ -107,7 +107,7 @@ func TestMigrateTableDirect_WithDDL(t *testing.T) {
 	}
 	dia := &dialect.PostgresDialect{}
 
-	err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
+	_, err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
 	}

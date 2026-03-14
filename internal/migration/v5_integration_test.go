@@ -58,11 +58,11 @@ func TestWithSequences_DDLOutputBeforeCreateTable(t *testing.T) {
 	mock.ExpectQuery("SELECT column_name, data_type").
 		WithArgs("USERS").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"column_name", "data_type", "data_precision", "data_scale", "nullable",
-		}).AddRow("ID", "NUMBER", int64(10), nil, "N"))
+			"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default",
+		}).AddRow("ID", "NUMBER", int64(10), nil, "N", nil))
 
 	// 4) SELECT * FROM USERS — 행 없음
-	mock.ExpectQuery("SELECT \\* FROM USERS").
+	mock.ExpectQuery("SELECT \\* FROM \"USERS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
 
 	buf, w := newFileBuf()
@@ -77,7 +77,7 @@ func TestWithSequences_DDLOutputBeforeCreateTable(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
+	if _, err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
@@ -110,8 +110,8 @@ func TestWithIndexes_DDLOutputAfterCreateTable(t *testing.T) {
 	mock.ExpectQuery("SELECT column_name, data_type").
 		WithArgs("USERS").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"column_name", "data_type", "data_precision", "data_scale", "nullable",
-		}).AddRow("ID", "NUMBER", int64(10), nil, "N"))
+			"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default",
+		}).AddRow("ID", "NUMBER", int64(10), nil, "N", nil))
 
 	// 2) GetIndexMetadata: indexQuery — 인덱스 한 개
 	mock.ExpectQuery("all_indexes").
@@ -124,7 +124,7 @@ func TestWithIndexes_DDLOutputAfterCreateTable(t *testing.T) {
 			AddRow("EMAIL", 1, "ASC"))
 
 	// 4) SELECT * FROM USERS — 행 없음
-	mock.ExpectQuery("SELECT \\* FROM USERS").
+	mock.ExpectQuery("SELECT \\* FROM \"USERS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
 
 	buf, w := newFileBuf()
@@ -139,7 +139,7 @@ func TestWithIndexes_DDLOutputAfterCreateTable(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
+	if _, err := MigrateTableToFile(db, dia, "USERS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
@@ -169,7 +169,7 @@ func TestWithoutSequencesAndIndexes_NoExtraDDL(t *testing.T) {
 	defer db.Close()
 
 	// WithDDL=false → sequence/index 쿼리 없이 바로 데이터 쿼리만
-	mock.ExpectQuery("SELECT \\* FROM ITEMS").
+	mock.ExpectQuery("SELECT \\* FROM \"ITEMS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(1))
 
 	buf, w := newFileBuf()
@@ -183,7 +183,7 @@ func TestWithoutSequencesAndIndexes_NoExtraDDL(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
+	if _, err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()

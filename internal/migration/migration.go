@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
@@ -92,26 +93,25 @@ func splitNames(s string) []string {
 	return out
 }
 
-func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, tracker ProgressTracker) error {
+func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, tracker ProgressTracker) (*MigrationReport, error) {
 	if cfg.OutputDir != "" {
 		if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
-			return fmt.Errorf("failed to create output directory: %v", err)
+			return nil, fmt.Errorf("failed to create output directory: %v", err)
 		}
 	}
 
 	jobID := cfg.ResumeJobID
 	if jobID == "" {
-		jobID = fmt.Sprintf("job_%s", os.Getenv("SESSION_ID")) // or just a timestamp from config? We don't have it in config. Let's just use a fixed or passed one.
-		// Actually config doesn't have JobID. We can just use "default" if empty.
-		if jobID == "" {
-			jobID = "default"
-		}
+		jobID = "job_" + time.Now().Format("20060102150405")
 	}
 	mState, err := LoadState(jobID)
 	if err != nil {
 		slog.Warn("Failed to load state, starting fresh", "error", err)
 		mState = NewMigrationState(jobID)
 	}
+
+	sourceURL := fmt.Sprintf("oracle://%s:%s@%s", cfg.User, cfg.Password, cfg.OracleURL)
+	report := NewMigrationReport(jobID, sourceURL, cfg.TargetDB, cfg.TargetURL)
 
 	if len(cfg.Tables) == 0 && cfg.ResumeJobID != "" {
 		for tableName := range mState.Tables {
@@ -138,7 +138,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 
 		for _, table := range cfg.Tables {
 			var count int
-			err := dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+			err := dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(table))).Scan(&count)
 			if err != nil {
 				slog.Error("failed to get row count for table", "table", table, "error", err)
 				if tracker != nil {
@@ -152,7 +152,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 			}
 		}
 		slog.Info("Dry run completed successfully.")
-		return nil
+		return report, nil
 	}
 
 	var mainOut *os.File
@@ -173,7 +173,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		}
 		mainOut, err = os.OpenFile(outFile, flag, 0644)
 		if err != nil {
-			return fmt.Errorf("error creating/opening output file: %v", err)
+			return nil, fmt.Errorf("error creating/opening output file: %v", err)
 		}
 		defer mainOut.Close()
 		mainBuf = bufio.NewWriter(mainOut)
@@ -192,7 +192,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 	// Start workers
 	for w := 1; w <= numWorkers; w++ {
 		wg.Add(1)
-		go worker(w, dbConn, targetDB, pgPool, dia, jobs, &wg, mainBuf, cfg, &outMutex, tracker, mState)
+		go worker(w, dbConn, targetDB, pgPool, dia, jobs, &wg, mainBuf, cfg, &outMutex, tracker, mState, report)
 	}
 
 	// Send jobs
@@ -264,14 +264,25 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		}
 	}
 
-	return nil
+	if cfg.Validate && (pgPool != nil || targetDB != nil) {
+		slog.Info("Starting post-migration validation")
+		runValidation(dbConn, targetDB, pgPool, dia, cfg, tracker, report)
+	}
+
+	if err := report.Finalize(); err != nil {
+		slog.Warn("failed to save migration report", "error", err)
+	}
+	report.PrintSummary()
+	return report, nil
 }
 
-func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState) {
+func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState, report *MigrationReport) {
 	defer wg.Done()
 	for j := range jobs {
 		slog.Info("worker processing table", "worker_id", id, "table", j.tableName)
-		err := MigrateTable(dbConn, targetDB, pgPool, dia, j.tableName, mainBuf, cfg, outMutex, tracker, mState)
+		finishTable := report.StartTable(j.tableName, cfg.WithDDL)
+		rowCount, err := MigrateTable(dbConn, targetDB, pgPool, dia, j.tableName, mainBuf, cfg, outMutex, tracker, mState)
+		finishTable(rowCount, err)
 		if err != nil {
 			slog.Error("error migrating table", "table", j.tableName, "error", err)
 			if tracker != nil {
@@ -281,32 +292,34 @@ func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dial
 	}
 }
 
-func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState) error {
+func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState) (int, error) {
 	tState := mState.GetState(tableName)
 	if tState.Completed {
 		slog.Info("table already completed, skipping", "table", tableName)
+		var totalRows int
+		_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(tableName))).Scan(&totalRows)
 		if tracker != nil {
-			// Fake init and done
-			var totalRows int
-			_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&totalRows)
 			tracker.Init(tableName, totalRows)
 			tracker.Update(tableName, totalRows)
 			tracker.Done(tableName)
 		}
-		return nil
+		return totalRows, nil
 	}
 
 	var totalRows int
-	_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)).Scan(&totalRows)
+	_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(tableName))).Scan(&totalRows)
 	if tracker != nil {
 		tracker.Init(tableName, totalRows)
 	}
 
-	var err error
+	var (
+		err      error
+		rowCount int
+	)
 	if pgPool != nil || targetDB != nil {
-		err = MigrateTableDirect(dbConn, targetDB, pgPool, dia, tableName, cfg, tracker, mState)
+		rowCount, err = MigrateTableDirect(dbConn, targetDB, pgPool, dia, tableName, cfg, tracker, mState)
 	} else {
-		err = MigrateTableToFile(dbConn, dia, tableName, mainBuf, cfg, outMutex, tracker, mState)
+		rowCount, err = MigrateTableToFile(dbConn, dia, tableName, mainBuf, cfg, outMutex, tracker, mState)
 	}
 
 	if err == nil {
@@ -315,10 +328,10 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 			tracker.Done(tableName)
 		}
 	}
-	return err
+	return rowCount, err
 }
 
-func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, cfg *config.Config, tracker ProgressTracker, mState *MigrationState) error {
+func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, tableName string, cfg *config.Config, tracker ProgressTracker, mState *MigrationState) (int, error) {
 	slog.Info("direct migration started", "table", tableName)
 
 	ddlTracker, hasDDLTracker := tracker.(DDLProgressTracker)
@@ -374,7 +387,10 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 				_, err = targetDB.Exec(ddl)
 			}
 			if err != nil {
-				return fmt.Errorf("failed to execute DDL for %s: %v", tableName, err)
+				return 0, &MigrationError{
+					Table: tableName, Phase: "ddl", Category: classifyError(err),
+					RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
+				}
 			}
 			slog.Info("DDL executed successfully", "table", tableName)
 		}
@@ -387,82 +403,81 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			}
 			exists, err := db.TableExists(context.Background(), pgPool, schema, tableName)
 			if err != nil {
-				return fmt.Errorf("failed to check table existence for %s: %v", tableName, err)
+				return 0, fmt.Errorf("failed to check table existence for %s: %v", tableName, err)
 			}
 			if !exists {
-				return fmt.Errorf("target table %s.%s does not exist. Use --with-ddl to create it automatically", schema, tableName)
+				return 0, fmt.Errorf("target table %s.%s does not exist. Use --with-ddl to create it automatically", schema, tableName)
 			}
 		} else if targetDB != nil {
-			// For non-postgres, we can try to query 1 row to check existence
-			// This is a naive check but works for most DBs
 			qTableName := dia.QuoteIdentifier(strings.ToLower(tableName))
 			if cfg.Schema != "" {
 				qTableName = fmt.Sprintf("%s.%s", dia.QuoteIdentifier(strings.ToLower(cfg.Schema)), qTableName)
 			}
 			rows, err := targetDB.Query(fmt.Sprintf("SELECT 1 FROM %s WHERE 1=0", qTableName))
 			if err != nil {
-				return fmt.Errorf("target table %s does not exist or cannot be accessed. Use --with-ddl to create it automatically. err: %v", qTableName, err)
+				return 0, fmt.Errorf("target table %s does not exist or cannot be accessed. Use --with-ddl to create it automatically. err: %v", qTableName, err)
 			}
 			rows.Close()
 		}
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
+	query := fmt.Sprintf("SELECT * FROM %s", dialect.QuoteOracleIdentifier(tableName))
 	if tState.Offset > 0 {
 		query += fmt.Sprintf(" OFFSET %d ROWS", tState.Offset)
 	}
 	rows, err := dbConn.Query(query)
 	if err != nil {
-		return fmt.Errorf("failed to execute query on Oracle table %s: %v", tableName, err)
+		return 0, fmt.Errorf("failed to execute query on Oracle table %s: %v", tableName, err)
 	}
 	defer rows.Close()
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	rowCount := tState.Offset
 
 	if pgPool != nil {
-		// Use COPY for high performance (Postgres only)
-		ctx := context.Background()
+		if cfg.CopyBatch > 0 {
+			rows.Close()
+			return migrateTablePgBatchCopy(dbConn, pgPool, tableName, cols, cfg, tracker, mState)
+		}
 
-		// Transaction per table
+		// 기존 단일 COPY 모드
+		ctx := context.Background()
 		tx, err := pgPool.Begin(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to start pg transaction: %v", err)
+			return 0, fmt.Errorf("failed to start pg transaction: %v", err)
 		}
 		defer tx.Rollback(ctx)
 
-		source := &oracleCopySource{
-			rows: rows,
-			cols: cols,
-			err:  nil,
-		}
-
+		source := &oracleCopySource{rows: rows, cols: cols}
 		n, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, cols, source)
 		if err != nil {
-			return fmt.Errorf("COPY failed for %s: %v", tableName, err)
+			return 0, &MigrationError{
+				Table: tableName, Phase: "data", Category: classifyError(err),
+				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+			}
 		}
-
 		if err := tx.Commit(ctx); err != nil {
-			return fmt.Errorf("failed to commit transaction for %s: %v", tableName, err)
+			return 0, &MigrationError{
+				Table: tableName, Phase: "data", Category: classifyError(err),
+				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+			}
 		}
-
 		rowCount += int(n)
 		mState.UpdateOffset(tableName, rowCount)
 	} else if targetDB != nil {
-		// Non-postgres direct migration via batch INSERT
 		tx, err := targetDB.Begin()
 		if err != nil {
-			return fmt.Errorf("failed to start target transaction: %v", err)
+			return 0, fmt.Errorf("failed to start target transaction: %v", err)
 		}
 		defer tx.Rollback()
 
 		colTypes, err := rows.ColumnTypes()
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		values := make([]interface{}, len(cols))
@@ -472,17 +487,20 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 		}
 
 		var currentBatch [][]any
+		batchNum := 0
 
 		for rows.Next() {
 			err := rows.Scan(valuePtrs...)
 			if err != nil {
-				return fmt.Errorf("failed to scan row: %v", err)
+				return rowCount, &MigrationError{
+					Table: tableName, Phase: "data", Category: classifyError(err),
+					RowOffset: rowCount, RootCause: err,
+					Suggestion: suggestFix(classifyError(err), dia.Name()),
+				}
 			}
 
-			// We need to copy values because valuePtrs points to the same underlying slice memory
 			rowCopy := make([]any, len(cols))
 			for i, v := range values {
-				// Handle some basic driver specific parsing if needed, but mostly pass through
 				if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "BLOB") {
 					rowCopy[i] = append([]byte(nil), b...)
 				} else if b, ok := v.([]byte); ok && strings.Contains(strings.ToUpper(colTypes[i].DatabaseTypeName()), "RAW") {
@@ -496,10 +514,17 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			rowCount++
 
 			if len(currentBatch) >= cfg.BatchSize {
+				batchNum++
 				stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
 				for _, stmt := range stmts {
 					if _, err := tx.Exec(stmt); err != nil {
-						return fmt.Errorf("failed to execute batch insert: %v\nstmt: %s", err, stmt)
+						cat := classifyError(err)
+						return rowCount, &MigrationError{
+							Table: tableName, Phase: "data", Category: cat,
+							BatchNum: batchNum, RowOffset: rowCount,
+							RootCause: err, Recoverable: cat != ErrConnectionLost,
+							Suggestion: suggestFix(cat, dia.Name()),
+						}
 					}
 				}
 				currentBatch = currentBatch[:0]
@@ -511,10 +536,17 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 		}
 
 		if len(currentBatch) > 0 {
+			batchNum++
 			stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
 			for _, stmt := range stmts {
 				if _, err := tx.Exec(stmt); err != nil {
-					return fmt.Errorf("failed to execute batch insert: %v\nstmt: %s", err, stmt)
+					cat := classifyError(err)
+					return rowCount, &MigrationError{
+						Table: tableName, Phase: "data", Category: cat,
+						BatchNum: batchNum, RowOffset: rowCount,
+						RootCause: err, Recoverable: cat != ErrConnectionLost,
+						Suggestion: suggestFix(cat, dia.Name()),
+					}
 				}
 			}
 			mState.UpdateOffset(tableName, rowCount)
@@ -524,7 +556,10 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 		}
 
 		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction for %s: %v", tableName, err)
+			return rowCount, &MigrationError{
+				Table: tableName, Phase: "data", Category: classifyError(err),
+				RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
+			}
 		}
 	}
 
@@ -561,7 +596,7 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 	}
 
 	slog.Info("direct migration finished", "table", tableName, "rows", rowCount)
-	return nil
+	return rowCount, nil
 }
 
 type oracleCopySource struct {
@@ -595,7 +630,7 @@ func (s *oracleCopySource) Err() error {
 	return s.rows.Err()
 }
 
-func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState) error {
+func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState) (int, error) {
 	slog.Info("file-based migration started", "table", tableName)
 
 	tState := mState.GetState(tableName)
@@ -616,7 +651,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 
 		f, err := os.OpenFile(fileName, flag, 0644)
 		if err != nil {
-			return fmt.Errorf("failed to create output file for %s: %v", tableName, err)
+			return 0, fmt.Errorf("failed to create output file for %s: %v", tableName, err)
 		}
 		defer f.Close()
 		tableBuf = bufio.NewWriter(f)
@@ -684,24 +719,24 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 		}
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s", tableName)
+	query := fmt.Sprintf("SELECT * FROM %s", dialect.QuoteOracleIdentifier(tableName))
 	if tState.Offset > 0 {
 		query += fmt.Sprintf(" OFFSET %d ROWS", tState.Offset)
 	}
 	rows, err := dbConn.Query(query)
 	if err != nil {
-		return fmt.Errorf("failed to execute query on %s: %v", tableName, err)
+		return 0, fmt.Errorf("failed to execute query on %s: %v", tableName, err)
 	}
 	defer rows.Close()
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return fmt.Errorf("failed to get columns for %s: %v", tableName, err)
+		return 0, fmt.Errorf("failed to get columns for %s: %v", tableName, err)
 	}
 
 	colTypes, err := rows.ColumnTypes()
 	if err != nil {
-		return fmt.Errorf("failed to get column types for %s: %v", tableName, err)
+		return 0, fmt.Errorf("failed to get column types for %s: %v", tableName, err)
 	}
 
 	values := make([]interface{}, len(cols))
@@ -716,7 +751,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 	for rows.Next() {
 		err := rows.Scan(valuePtrs...)
 		if err != nil {
-			return fmt.Errorf("failed to scan row: %v", err)
+			return rowCount, fmt.Errorf("failed to scan row: %v", err)
 		}
 
 		// We need to copy values because valuePtrs points to the same underlying slice memory
@@ -758,7 +793,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 	}
 
 	slog.Info("file-based migration finished", "table", tableName, "rows", rowCount)
-	return nil
+	return rowCount, nil
 }
 
 func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex) {
@@ -767,4 +802,95 @@ func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex
 		defer outMutex.Unlock()
 	}
 	buf.WriteString(s)
+}
+
+// migrateTablePgBatchCopy는 PostgreSQL 대상으로 Oracle 데이터를 배치 단위로 분할하여 COPY한다.
+// 각 배치마다 체크포인트를 저장하므로 중단 후 재개가 가능하고, 진행률을 실시간으로 업데이트한다.
+func migrateTablePgBatchCopy(
+	dbConn *sql.DB,
+	pgPool db.PGPool,
+	tableName string,
+	cols []string,
+	cfg *config.Config,
+	tracker ProgressTracker,
+	mState *MigrationState,
+) (int, error) {
+	tState := mState.GetState(tableName)
+	offset := tState.Offset
+	batchSize := cfg.CopyBatch
+	quotedTable := dialect.QuoteOracleIdentifier(tableName)
+
+	for batchNum := (offset/batchSize) + 1; ; batchNum++ {
+		query := fmt.Sprintf(
+			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+			quotedTable, offset, batchSize,
+		)
+		rows, err := dbConn.Query(query)
+		if err != nil {
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: classifyError(err),
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+			}
+		}
+
+		batchCols, err := rows.Columns()
+		if err != nil {
+			rows.Close()
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: ErrUnknown,
+				RootCause: err,
+			}
+		}
+		if len(cols) == 0 {
+			cols = batchCols
+		}
+
+		ctx := context.Background()
+		tx, err := pgPool.Begin(ctx)
+		if err != nil {
+			rows.Close()
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: ErrConnectionLost,
+				RootCause: err, Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+			}
+		}
+
+		source := &oracleCopySource{rows: rows, cols: batchCols}
+		n, copyErr := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, batchCols, source)
+		rows.Close()
+
+		if copyErr != nil {
+			tx.Rollback(ctx)
+			cat := classifyError(copyErr)
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: cat,
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: copyErr, Recoverable: cat != ErrConnectionLost,
+				Suggestion: suggestFix(cat, "postgres"),
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			cat := classifyError(err)
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: cat,
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: err, Suggestion: suggestFix(cat, "postgres"),
+			}
+		}
+
+		offset += int(n)
+		mState.UpdateOffset(tableName, offset)
+		if tracker != nil {
+			tracker.Update(tableName, offset)
+		}
+
+		if int(n) < batchSize {
+			break
+		}
+	}
+
+	slog.Info("batched COPY migration finished", "table", tableName, "rows", offset)
+	return offset, nil
 }

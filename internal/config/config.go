@@ -40,6 +40,9 @@ type Config struct {
 	ResumeJobID     string
 	// internal use for zip generation
 	OutputDir string
+	// v9 flags
+	Validate  bool
+	CopyBatch int
 }
 
 func ParseFlags() (*Config, error) {
@@ -117,6 +120,9 @@ func ParseFlags() (*Config, error) {
 	flag.IntVar(&cfg.DBMaxIdle, "db-max-idle", 2, "DB 커넥션 풀 최대 유휴 연결 수 (기본값: 2)")
 	flag.IntVar(&cfg.DBMaxLife, "db-max-life", 0, "DB 커넥션 풀 최대 유지 시간(초) (기본값: 0, 무제한)")
 	flag.StringVar(&cfg.ResumeJobID, "resume", "", "재개할 Job ID")
+	// v9 flags
+	flag.BoolVar(&cfg.Validate, "validate", false, "마이그레이션 후 소스-타겟 행 수 검증 수행")
+	flag.IntVar(&cfg.CopyBatch, "copy-batch", 10000, "PostgreSQL COPY 배치 크기 (0: 단일 COPY 모드)")
 
 	flag.Parse()
 

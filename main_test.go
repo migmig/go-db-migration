@@ -23,13 +23,13 @@ func TestMigrateTable(t *testing.T) {
 
 	tableName := "MOCK_TABLE"
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM MOCK_TABLE").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(2))
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"MOCK_TABLE\"").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(2))
 
 	rows := sqlmock.NewRows([]string{"ID", "NAME"}).
 		AddRow(1, "Alice").
 		AddRow(2, "Bob")
 
-	mock.ExpectQuery("SELECT \\* FROM " + tableName).WillReturnRows(rows)
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\"").WillReturnRows(rows)
 
 	tmpFile, err := os.CreateTemp("", "migrate_test_*.sql")
 	if err != nil {
@@ -43,7 +43,7 @@ func TestMigrateTable(t *testing.T) {
 	cfg := &config.Config{BatchSize: 1000}
 	dia := &dialect.PostgresDialect{}
 
-	err = migration.MigrateTable(db, nil, nil, dia, "MOCK_TABLE", mainBuf, cfg, &outMutex, nil, migration.NewMigrationState("test"))
+	_, err = migration.MigrateTable(db, nil, nil, dia, "MOCK_TABLE", mainBuf, cfg, &outMutex, nil, migration.NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTable returned error: %v", err)
 	}

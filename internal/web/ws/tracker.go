@@ -20,15 +20,34 @@ var upgrader = websocket.Upgrader{
 type MsgType string
 
 const (
-	MsgInit         MsgType = "init"
-	MsgUpdate       MsgType = "update"
-	MsgDone         MsgType = "done"
-	MsgError        MsgType = "error"
-	MsgAllDone      MsgType = "all_done"
-	MsgDryRunResult MsgType = "dry_run_result"
-	MsgDDLProgress  MsgType = "ddl_progress"
-	MsgWarning      MsgType = "warning"
+	MsgInit             MsgType = "init"
+	MsgUpdate           MsgType = "update"
+	MsgDone             MsgType = "done"
+	MsgError            MsgType = "error"
+	MsgAllDone          MsgType = "all_done"
+	MsgDryRunResult     MsgType = "dry_run_result"
+	MsgDDLProgress      MsgType = "ddl_progress"
+	MsgWarning          MsgType = "warning"
+	MsgValidationStart  MsgType = "validation_start"
+	MsgValidationResult MsgType = "validation_result"
 )
+
+// DetailedError는 migration 패키지의 순환 의존 없이 구조화 에러 필드를 읽기 위한 인터페이스이다.
+type DetailedError interface {
+	ErrorPhase() string
+	ErrorCategory() string
+	ErrorSuggestion() string
+	IsRecoverable() bool
+}
+
+// ReportSummary는 마이그레이션 완료 시 all_done 메시지에 포함되는 요약 정보이다.
+type ReportSummary struct {
+	TotalRows    int    `json:"total_rows"`
+	SuccessCount int    `json:"success_count"`
+	ErrorCount   int    `json:"error_count"`
+	Duration     string `json:"duration"`
+	ReportID     string `json:"report_id"`
+}
 
 type ProgressMsg struct {
 	Type         MsgType `json:"type"`
@@ -42,6 +61,13 @@ type ProgressMsg struct {
 	Object       string  `json:"object,omitempty"`
 	ObjectName   string  `json:"object_name,omitempty"`
 	Status       string  `json:"status,omitempty"`
+	// v9: 구조화 에러 필드
+	Phase         string         `json:"phase,omitempty"`
+	Category      string         `json:"category,omitempty"`
+	Suggestion    string         `json:"suggestion,omitempty"`
+	Recoverable   *bool          `json:"recoverable,omitempty"`
+	// v9: 리포트 요약
+	ReportSummary *ReportSummary `json:"report_summary,omitempty"`
 }
 
 type tableState struct {
@@ -239,17 +265,29 @@ func (t *WebSocketTracker) Error(table string, err error) {
 	delete(t.states, table)
 	t.mu.Unlock()
 
-	t.broadcast(ProgressMsg{
+	msg := ProgressMsg{
 		Type:     MsgError,
 		Table:    table,
 		ErrorMsg: err.Error(),
-	})
+	}
+
+	// MigrationError 등 DetailedError 구현체이면 상세 필드 추가
+	if de, ok := err.(DetailedError); ok {
+		msg.Phase = de.ErrorPhase()
+		msg.Category = de.ErrorCategory()
+		msg.Suggestion = de.ErrorSuggestion()
+		recoverable := de.IsRecoverable()
+		msg.Recoverable = &recoverable
+	}
+
+	t.broadcast(msg)
 }
 
-func (t *WebSocketTracker) AllDone(zipFileID string) {
+func (t *WebSocketTracker) AllDone(zipFileID string, summary *ReportSummary) {
 	t.broadcast(ProgressMsg{
-		Type:      MsgAllDone,
-		ZipFileID: zipFileID,
+		Type:          MsgAllDone,
+		ZipFileID:     zipFileID,
+		ReportSummary: summary,
 	})
 }
 
@@ -279,5 +317,23 @@ func (t *WebSocketTracker) Warning(message string) {
 	t.broadcast(ProgressMsg{
 		Type:    MsgWarning,
 		Message: message,
+	})
+}
+
+func (t *WebSocketTracker) ValidationStart(table string) {
+	t.broadcast(ProgressMsg{
+		Type:  MsgValidationStart,
+		Table: table,
+	})
+}
+
+func (t *WebSocketTracker) ValidationResult(table string, sourceCount, targetCount int, status, detail string) {
+	t.broadcast(ProgressMsg{
+		Type:    MsgValidationResult,
+		Table:   table,
+		Total:   sourceCount,
+		Count:   targetCount,
+		Status:  status,
+		Message: detail,
 	})
 }

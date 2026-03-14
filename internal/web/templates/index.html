@@ -1293,31 +1293,41 @@
             const elapsedStr = mins > 0 ? `${mins}분 ${secs}초` : `${secs}초`;
             const summaryCard = document.getElementById('summary-card');
             summaryCard.style.display = 'block';
+            const rpt = msg.report_summary;
+            const totalRows = rpt ? rpt.total_rows : 0;
+            const duration  = rpt ? rpt.duration : elapsedStr;
+            const reportId  = rpt ? rpt.report_id : '';
             summaryCard.innerHTML = `
                 <div class="summary-stats">
                     <div class="summary-stat">
                         <span class="summary-stat__label">성공</span>
-                        <span class="summary-stat__value stat--success">${successCount}</span>
+                        <span class="summary-stat__value stat--success">${rpt ? rpt.success_count : successCount}</span>
                     </div>
                     <div class="summary-stat">
                         <span class="summary-stat__label">실패</span>
-                        <span class="summary-stat__value ${failCount > 0 ? 'stat--danger' : 'stat--neutral'}">${failCount}</span>
+                        <span class="summary-stat__value ${failCount > 0 ? 'stat--danger' : 'stat--neutral'}">${rpt ? rpt.error_count : failCount}</span>
                     </div>
                     <div class="summary-stat">
-                        <span class="summary-stat__label">경고</span>
-                        <span class="summary-stat__value ${warnCount > 0 ? 'stat--warn' : 'stat--neutral'}">${warnCount}</span>
+                        <span class="summary-stat__label">총 행 수</span>
+                        <span class="summary-stat__value stat--neutral">${totalRows.toLocaleString()}</span>
                     </div>
                     <div class="summary-stat">
                         <span class="summary-stat__label">소요 시간</span>
-                        <span class="summary-stat__value stat--neutral">${elapsedStr}</span>
+                        <span class="summary-stat__value stat--neutral">${duration}</span>
                     </div>
                 </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">
                 ${currentZipId && !isDryRunMode ? `
-                <button class="btn-primary" onclick="downloadZipArchive()" style="margin-bottom: 0.75rem;" aria-label="ZIP 파일 다운로드">
+                <button class="btn-primary" onclick="downloadZipArchive()" aria-label="ZIP 파일 다운로드">
                     <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                     ZIP 다운로드
                 </button>` : ''}
+                ${reportId ? `
+                <button class="btn-secondary" onclick="window.location.href='/api/report/${reportId}'" aria-label="리포트 JSON 다운로드">
+                    📋 리포트 다운로드
+                </button>` : ''}
                 <button class="btn-secondary" onclick="goToStep(1)" aria-label="새 마이그레이션 시작">새 마이그레이션</button>
+                </div>
             `;
             return;
         }
@@ -1407,12 +1417,69 @@
             failCount++;
             doneTables++;
             const fill = document.getElementById(`prog-fill-${msg.table}`);
-            fill.style.backgroundColor = 'var(--danger-color)';
-            fill.style.width = '100%';
-            document.getElementById(`prog-text-${msg.table}`).innerHTML = `
-                <span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}
-            `;
+            if (fill) {
+                fill.style.backgroundColor = 'var(--danger-color)';
+                fill.style.width = '100%';
+            }
+            const textEl = document.getElementById(`prog-text-${msg.table}`);
+            if (textEl) {
+                let errorHtml = `<span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}`;
+                if (msg.phase || msg.category) {
+                    errorHtml += `
+                    <details style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted)">
+                        <summary style="cursor:pointer;color:var(--danger-color)">상세 정보</summary>
+                        <div style="padding:0.4rem 0.5rem;background:var(--bg-color);border-radius:4px;margin-top:0.25rem">
+                            ${msg.phase ? `<div><strong>Phase:</strong> ${msg.phase}</div>` : ''}
+                            ${msg.category ? `<div><strong>Category:</strong> ${msg.category}</div>` : ''}
+                            ${msg.suggestion ? `<div><strong>💡 Suggestion:</strong> ${msg.suggestion}</div>` : ''}
+                            ${msg.recoverable !== undefined ? `<div><strong>Recoverable:</strong> ${msg.recoverable ? 'Yes' : 'No'}</div>` : ''}
+                        </div>
+                    </details>`;
+                }
+                textEl.innerHTML = errorHtml;
+            }
             updateOverallProgress();
+        } else if (msg.type === 'validation_start') {
+            let valSection = document.getElementById('validation-section');
+            if (!valSection) {
+                valSection = document.createElement('div');
+                valSection.id = 'validation-section';
+                valSection.style.cssText = 'margin-top:1.5rem;';
+                valSection.innerHTML = `
+                    <h4 style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem;color:var(--text-muted)">데이터 검증</h4>
+                    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                        <thead><tr>
+                            <th style="text-align:left;padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-color)">테이블</th>
+                            <th style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-color)">소스</th>
+                            <th style="text-align:right;padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-color)">타겟</th>
+                            <th style="text-align:center;padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-color)">상태</th>
+                        </tr></thead>
+                        <tbody id="validation-tbody"></tbody>
+                    </table>`;
+                container.appendChild(valSection);
+            }
+            const tbody = document.getElementById('validation-tbody');
+            if (tbody && !document.getElementById(`val-${msg.table}`)) {
+                const row = document.createElement('tr');
+                row.id = `val-${msg.table}`;
+                row.innerHTML = `
+                    <td style="padding:0.3rem 0.5rem">${msg.table}</td>
+                    <td style="text-align:right;padding:0.3rem 0.5rem">…</td>
+                    <td style="text-align:right;padding:0.3rem 0.5rem">…</td>
+                    <td style="text-align:center;padding:0.3rem 0.5rem">⏳</td>`;
+                tbody.appendChild(row);
+            }
+        } else if (msg.type === 'validation_result') {
+            const row = document.getElementById(`val-${msg.table}`);
+            if (row) {
+                const statusIcon = msg.status === 'pass' ? '✅' : msg.status === 'mismatch' ? '⚠️' : '❌';
+                const detail = msg.message ? ` (${msg.message})` : '';
+                row.innerHTML = `
+                    <td style="padding:0.3rem 0.5rem">${msg.table}</td>
+                    <td style="text-align:right;padding:0.3rem 0.5rem">${(msg.total||0).toLocaleString()}</td>
+                    <td style="text-align:right;padding:0.3rem 0.5rem">${(msg.count||0).toLocaleString()}</td>
+                    <td style="text-align:center;padding:0.3rem 0.5rem" title="${detail}">${statusIcon}${detail}</td>`;
+            }
         }
     }
 

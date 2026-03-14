@@ -25,9 +25,9 @@ func TestRun_PerTableFalse_SingleFileWithOutFileName(t *testing.T) {
 
 	mock.MatchExpectationsInOrder(false)
 	for _, table := range []string{"T1", "T2"} {
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + table).
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"" + table + "\"").
 			WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(1))
-		mock.ExpectQuery("SELECT \\* FROM " + table).
+		mock.ExpectQuery("SELECT \\* FROM \"" + table + "\"").
 			WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(1))
 	}
 
@@ -44,7 +44,7 @@ func TestRun_PerTableFalse_SingleFileWithOutFileName(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := Run(db, nil, nil, dia, cfg, nil); err != nil {
+	if _, err := Run(db, nil, nil, dia, cfg, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -71,9 +71,9 @@ func TestRun_PerTableTrue_CreatesPerTableFiles(t *testing.T) {
 	mock.MatchExpectationsInOrder(false)
 	tables := []string{"ALPHA", "BETA"}
 	for _, tbl := range tables {
-		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM " + tbl).
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"" + tbl + "\"").
 			WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(5))
-		mock.ExpectQuery("SELECT \\* FROM " + tbl).
+		mock.ExpectQuery("SELECT \\* FROM \"" + tbl + "\"").
 			WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(1).AddRow(2))
 	}
 
@@ -88,7 +88,7 @@ func TestRun_PerTableTrue_CreatesPerTableFiles(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := Run(db, nil, nil, dia, cfg, nil); err != nil {
+	if _, err := Run(db, nil, nil, dia, cfg, nil); err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
@@ -113,7 +113,7 @@ func TestMigrateTableToFile_Schema_InsertsHaveSchemaPrefix(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery("SELECT \\* FROM ITEMS").
+	mock.ExpectQuery("SELECT \\* FROM \"ITEMS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(42))
 
 	var buf bytes.Buffer
@@ -126,7 +126,7 @@ func TestMigrateTableToFile_Schema_InsertsHaveSchemaPrefix(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
+	if _, err := MigrateTableToFile(db, dia, "ITEMS", w, cfg, &mu, nil, NewMigrationState("test")); err != nil {
 		t.Fatalf("MigrateTableToFile: %v", err)
 	}
 	w.Flush()
@@ -167,9 +167,9 @@ func TestRun_DryRun_CallsDryRunTracker(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM USERS").
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"USERS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(150))
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM ORDERS").
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"ORDERS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"c"}).AddRow(300))
 
 	tracker := &mockDryRunTracker{}
@@ -179,7 +179,7 @@ func TestRun_DryRun_CallsDryRunTracker(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
+	if _, err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -208,7 +208,7 @@ func TestRun_DryRun_ErrorCallsTrackerError(t *testing.T) {
 	}
 	defer db.Close()
 
-	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM BAD").
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM \"BAD\"").
 		WillReturnError(os.ErrNotExist)
 
 	tracker := &mockDryRunTracker{}
@@ -218,7 +218,7 @@ func TestRun_DryRun_ErrorCallsTrackerError(t *testing.T) {
 	}
 
 	dia := &dialect.PostgresDialect{}
-	if err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
+	if _, err := Run(db, nil, nil, dia, cfg, tracker); err != nil {
 		t.Fatalf("Run should not return error on per-table count failure: %v", err)
 	}
 

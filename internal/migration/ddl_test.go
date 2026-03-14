@@ -133,9 +133,9 @@ func TestGetTableMetadata_ReturnsColumns(t *testing.T) {
 
 	mock.ExpectQuery("SELECT column_name, data_type").
 		WithArgs("USERS").
-		WillReturnRows(sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable"}).
-			AddRow("ID", "NUMBER", 10, 0, "N").
-			AddRow("EMAIL", "VARCHAR2", nil, nil, "Y"))
+		WillReturnRows(sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default"}).
+			AddRow("ID", "NUMBER", 10, 0, "N", nil).
+			AddRow("EMAIL", "VARCHAR2", nil, nil, "Y", nil))
 
 	cols, err := GetTableMetadata(db, "USERS")
 	if err != nil {
@@ -181,7 +181,7 @@ func TestGetTableMetadata_TableNameUppercased(t *testing.T) {
 	// Expect the uppercase version of "users"
 	mock.ExpectQuery("SELECT column_name, data_type").
 		WithArgs("USERS").
-		WillReturnRows(sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable"}))
+		WillReturnRows(sqlmock.NewRows([]string{"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default"}))
 
 	_, err = GetTableMetadata(db, "users")
 	if err != nil {

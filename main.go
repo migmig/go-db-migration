@@ -70,10 +70,11 @@ func main() {
 		}
 	}
 
-	if err := migration.Run(oracleDB, targetDB, pool, dia, cfg, nil); err != nil {
+	report, err := migration.Run(oracleDB, targetDB, pool, dia, cfg, nil)
+	if err != nil {
 		slog.Error("migration failed", "error", err)
 		os.Exit(1)
 	}
-
+	_ = report // PrintSummary is called inside Run()
 	slog.Info("migration completed successfully")
 }
