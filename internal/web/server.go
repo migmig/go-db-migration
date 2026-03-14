@@ -48,6 +48,8 @@ func RunServer(port string) {
 	{
 		api.POST("/tables", getTables)
 		api.POST("/migrate", startMigration)
+		api.POST("/migrate/retry", retryMigration)
+		api.POST("/test-target", testTargetConnection)
 		api.GET("/progress", sessionManager.HandleConnection)
 		api.GET("/download/:id", downloadZip)
 		api.GET("/report/:id", downloadReport)
@@ -162,6 +164,14 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 }
 
 func startMigration(c *gin.Context) {
+	handleMigration(c, false)
+}
+
+func retryMigration(c *gin.Context) {
+	handleMigration(c, true)
+}
+
+func handleMigration(c *gin.Context, isRetry bool) {
 	var req startMigrationRequest
 	// set defaults for db max idle to be safe
 	req.DBMaxIdle = 2
@@ -195,7 +205,9 @@ func startMigration(c *gin.Context) {
 		oracleDB, err := db.ConnectOracle(req.OracleURL, req.Username, req.Password)
 		if err != nil {
 			log.Printf("Failed to connect to Oracle: %v", err)
-			tracker.AllDone("", nil)
+			if !isRetry {
+				tracker.AllDone("", nil)
+			}
 			return
 		}
 		defer oracleDB.Close()
@@ -218,7 +230,9 @@ func startMigration(c *gin.Context) {
 		dia, err := dialect.GetDialect(targetDBName)
 		if err != nil {
 			log.Printf("Failed to get dialect: %v", err)
-			tracker.AllDone("", nil)
+			if !isRetry {
+				tracker.AllDone("", nil)
+			}
 			return
 		}
 
@@ -237,7 +251,9 @@ func startMigration(c *gin.Context) {
 				pgPool, err = db.ConnectPostgres(targetURL, req.DBMaxOpen, req.DBMaxIdle, req.DBMaxLife)
 				if err != nil {
 					log.Printf("Failed to connect to Postgres: %v", err)
-					tracker.AllDone("", nil)
+					if !isRetry {
+						tracker.AllDone("", nil)
+					}
 					return
 				}
 				defer pgPool.Close()
@@ -245,7 +261,9 @@ func startMigration(c *gin.Context) {
 				targetDB, err = db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(targetURL))
 				if err != nil {
 					log.Printf("Failed to connect to Target DB: %v", err)
-					tracker.AllDone("", nil)
+					if !isRetry {
+						tracker.AllDone("", nil)
+					}
 					return
 				}
 				defer targetDB.Close()
@@ -326,20 +344,34 @@ func startMigration(c *gin.Context) {
 
 		if err != nil {
 			log.Printf("Migration failed: %v", err)
-			tracker.AllDone("", buildSummary())
+			if !isRetry {
+				tracker.AllDone("", buildSummary())
+			} else {
+				log.Printf("Retry migration finished with error")
+			}
 		} else if req.DryRun {
-			tracker.AllDone("", nil)
+			if !isRetry {
+				tracker.AllDone("", nil)
+			}
 		} else if !req.Direct {
 			// Create ZIP
 			zipFilePath := filepath.Join(os.TempDir(), "migration_"+jobID+".zip")
 			if err := ziputil.ZipDirectory(outDir, zipFilePath); err != nil {
 				log.Printf("Failed to create zip: %v", err)
-				tracker.AllDone("", buildSummary())
+				if !isRetry {
+					tracker.AllDone("", buildSummary())
+				}
 			} else {
-				tracker.AllDone("migration_"+jobID+".zip", buildSummary())
+				if !isRetry {
+					tracker.AllDone("migration_"+jobID+".zip", buildSummary())
+				}
 			}
 		} else {
-			tracker.AllDone("", buildSummary())
+			if !isRetry {
+				tracker.AllDone("", buildSummary())
+			} else {
+				log.Printf("Retry migration finished successfully")
+			}
 		}
 
 		// Clean up the temporary SQL files folder (keep zip)
@@ -392,4 +424,50 @@ func downloadZip(c *gin.Context) {
 		time.Sleep(5 * time.Minute)
 		os.Remove(zipPath)
 	}()
+}
+
+type testTargetRequest struct {
+	TargetDB  string `json:"targetDb" binding:"required"`
+	TargetURL string `json:"targetUrl" binding:"required"`
+}
+
+func testTargetConnection(c *gin.Context) {
+	var req testTargetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+
+	dia, err := dialect.GetDialect(req.TargetDB)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported target DB: " + req.TargetDB})
+		return
+	}
+
+	if req.TargetDB == "postgres" {
+		pgPool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 10)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
+			return
+		}
+		defer pgPool.Close()
+		// Ping to ensure connection is valid
+		if err := pgPool.Ping(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
+			return
+		}
+	} else {
+		targetDB, err := db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(req.TargetURL))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
+			return
+		}
+		defer targetDB.Close()
+		if err := targetDB.Ping(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }

@@ -350,35 +350,55 @@
         }
 
         /* ── Table list ── */
-        .table-list {
+        .table-list-container {
             max-height: 300px;
             overflow-y: auto;
             border: 1px solid var(--border-color);
             border-radius: var(--radius-md);
-            padding: 0.5rem;
             background-color: var(--bg-color);
             margin-bottom: 1rem;
+            position: relative;
         }
 
-        .table-item {
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .data-table thead th {
+            position: sticky;
+            top: 0;
+            background-color: var(--card-bg);
+            z-index: 1;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.75rem 0.5rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .data-table tbody td {
             padding: 0.5rem;
-            border-radius: 4px;
-            display: flex;
-            align-items: center;
+            border-bottom: 1px solid var(--border-color);
         }
-        .table-item:hover { background-color: var(--card-bg); }
 
-        .table-item input[type="checkbox"] {
-            margin-right: 0.75rem;
+        .data-table tbody tr:hover {
+            background-color: var(--card-bg);
+        }
+
+        .data-table input[type="checkbox"] {
             width: 1.1rem;
             height: 1.1rem;
             cursor: pointer;
             accent-color: var(--primary-color);
         }
-        .table-item label {
+
+        .table-item-row label {
             margin-bottom: 0;
             cursor: pointer;
             width: 100%;
+            display: block;
         }
 
         .checkbox-container {
@@ -557,10 +577,44 @@
             font-weight: 700;
         }
 
+        .stat--primary { color: var(--primary-color); }
         .stat--success { color: var(--success-color); }
         .stat--danger  { color: var(--danger-color); }
         .stat--warn    { color: #f59e0b; }
         .stat--neutral { color: var(--text-main); }
+
+        /* ── Status Tabs ── */
+        .status-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+            overflow-x: auto;
+        }
+        .status-tab {
+            background: none;
+            border: 1px solid transparent;
+            padding: 0.4rem 0.75rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+            width: auto;
+            display: inline-block;
+        }
+        .status-tab:hover {
+            background: var(--bg-color);
+            color: var(--text-main);
+        }
+        .status-tab.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
 
         /* ── Responsive 768px ── */
         @media (max-width: 768px) {
@@ -602,29 +656,78 @@
 
     <!-- ── Step 1: Connect ── -->
     <div class="step-content active" id="step-1">
-        <div id="conn-section" class="card">
-            <h2>Oracle DB Connection</h2>
-            <div class="form-group">
-                <label for="oracleUrl">Oracle URL</label>
-                <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
-            </div>
-            <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
-                <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" required aria-label="Oracle 사용자명">
+        <div class="step2-grid">
+            <!-- Source DB Panel -->
+            <div id="conn-section" class="card" style="margin-bottom: 0;">
+                <h2>1. Source DB Connection (Oracle)</h2>
+                <div class="form-group">
+                    <label for="oracleUrl">Oracle URL</label>
+                    <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
                 </div>
-                <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" required aria-label="Oracle 패스워드">
+                <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" required aria-label="Oracle 사용자명">
+                    </div>
+                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" required aria-label="Oracle 패스워드">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="likeQuery">Table Filter (LIKE)</label>
+                    <input type="text" id="likeQuery" placeholder="e.g. USERS_%" aria-label="테이블 필터 (LIKE 패턴)">
+                </div>
+                <button id="btn-connect" class="btn-primary" aria-label="Oracle 연결 및 테이블 조회">Connect &amp; Fetch Tables</button>
+                <div id="conn-error" class="error-msg" role="alert"></div>
+                <div id="conn-success" class="conn-success-banner" style="display:none" role="status"></div>
+            </div>
+
+            <!-- Target DB Panel -->
+            <div id="target-conn-section" class="card" style="margin-bottom: 0;">
+                <h2>2. Target DB Connection</h2>
+                
+                <h3 class="settings-section-title" style="margin-bottom:0.75rem;">출력 방식 (Migration Mode)</h3>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer;">
+                        <input type="radio" name="migrationMode" id="modeFile" value="file" checked aria-label="SQL 파일 생성 모드">
+                        SQL 파일 생성
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer; margin-top: 0.5rem;">
+                        <input type="radio" name="migrationMode" id="modeDirect" value="direct" aria-label="Direct Migration 모드">
+                        Direct Migration (SQL 파일 없이 직접 이관)
+                    </label>
+                </div>
+
+                <div id="target-db-controls" style="display: none; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.5rem;">
+                    <div class="form-group">
+                        <label for="targetDb">대상 DB</label>
+                        <select id="targetDb" onchange="handleTargetDbChange()" aria-label="대상 데이터베이스 선택">
+                            <option value="postgres" selected>PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="mariadb">MariaDB</option>
+                            <option value="sqlite">SQLite</option>
+                            <option value="mssql">MSSQL (SQL Server)</option>
+                        </select>
+                    </div>
+                    <div id="pg-config" style="animation: fadeIn 0.3s ease-in-out;">
+                        <div class="form-group">
+                            <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
+                            <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:5432/dbname" aria-label="대상 DB 연결 URL">
+                        </div>
+                    </div>
+                    <div class="form-group" id="schema-group">
+                        <label for="schema">스키마</label>
+                        <input type="text" id="schema" placeholder="public" aria-label="대상 스키마">
+                    </div>
+                    <button id="btn-test-target" class="btn-secondary" aria-label="타겟 DB 연결 테스트">Test Target Connection</button>
+                    <div id="target-error" class="error-msg" role="alert"></div>
+                    <div id="target-success" class="conn-success-banner" style="display:none" role="status"></div>
                 </div>
             </div>
-            <div class="form-group">
-                <label for="likeQuery">Table Filter (LIKE)</label>
-                <input type="text" id="likeQuery" placeholder="e.g. USERS_%" aria-label="테이블 필터 (LIKE 패턴)">
-            </div>
-            <button id="btn-connect" class="btn-primary" aria-label="Oracle 연결 및 테이블 조회">Connect &amp; Fetch Tables</button>
-            <div id="conn-error" class="error-msg" role="alert"></div>
-            <div id="conn-success" class="conn-success-banner" style="display:none" role="status"></div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem; margin-bottom: 2rem;">
+            <button id="btn-next-step1" class="btn-primary" style="width: auto; min-width: 120px;" disabled aria-label="다음 단계">Next &rarr;</button>
         </div>
     </div>
 
@@ -642,8 +745,18 @@
                     <button id="btn-select-all" type="button" class="btn-secondary" style="flex: 1; padding: 0.5rem 0.75rem; font-size: 0.85rem;" aria-label="전체 테이블 선택">전체 선택</button>
                     <button id="btn-deselect-all" type="button" class="btn-secondary" style="flex: 1; padding: 0.5rem 0.75rem; font-size: 0.85rem;" aria-label="전체 테이블 선택 해제">전체 해제</button>
                 </div>
-                <div class="table-list" id="tableList" role="listbox" aria-label="마이그레이션할 테이블 목록">
-                    <!-- Tables injected here -->
+                <div class="table-list-container">
+                    <table class="data-table" role="grid" aria-label="마이그레이션할 테이블 목록">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px; text-align: center;"><input type="checkbox" id="cb-all-table" title="전체 선택/해제" aria-label="전체 선택/해제"></th>
+                                <th>테이블명</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableList">
+                            <!-- Tables injected here -->
+                        </tbody>
+                    </table>
                 </div>
                 <div id="tableSearchEmpty" style="display: none; padding: 0.75rem; color: var(--text-muted); text-align: center; font-size: 0.875rem;">검색 결과가 없습니다.</div>
             </div>
@@ -652,19 +765,9 @@
             <div class="card">
                 <h2>마이그레이션 설정</h2>
 
-                <!-- Section A: Output mode -->
-                <h3 class="settings-section-title">A. 출력 방식</h3>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer;">
-                        <input type="radio" name="migrationMode" id="modeFile" value="file" checked aria-label="SQL 파일 생성 모드">
-                        SQL 파일 생성
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 400; cursor: pointer; margin-top: 0.5rem;">
-                        <input type="radio" name="migrationMode" id="modeDirect" value="direct" aria-label="Direct Migration 모드">
-                        Direct Migration (SQL 파일 없이 직접 이관)
-                    </label>
-                </div>
-                <div id="sql-only-controls" style="margin-top: 0.5rem;">
+                <!-- Section A: Output file -->
+                <h3 class="settings-section-title" id="title-a">A. 출력 파일 설정</h3>
+                <div id="sql-only-controls">
                     <div class="form-group" style="margin-bottom: 0.75rem;">
                         <label for="outFile">출력 파일명</label>
                         <input type="text" id="outFile" value="migration.sql" aria-label="출력 파일명">
@@ -674,42 +777,13 @@
                             <input type="checkbox" id="perTable" checked aria-label="테이블별 개별 파일 출력">
                             <label for="perTable">테이블별 개별 파일 출력</label>
                         </div>
-                        <div class="checkbox-container" style="margin-bottom: 0;">
-                            <input type="checkbox" id="logJson" aria-label="JSON 로깅 활성화">
-                            <label for="logJson">JSON 로깅</label>
-                        </div>
                     </div>
                 </div>
 
-                <hr class="settings-divider">
+                <hr class="settings-divider" id="divider-a">
 
-                <!-- Section B: Target DB -->
-                <h3 class="settings-section-title">B. 대상 데이터베이스</h3>
-                <div class="form-group">
-                    <label for="targetDb">대상 DB</label>
-                    <select id="targetDb" onchange="handleTargetDbChange()" aria-label="대상 데이터베이스 선택">
-                        <option value="postgres" selected>PostgreSQL</option>
-                        <option value="mysql">MySQL</option>
-                        <option value="mariadb">MariaDB</option>
-                        <option value="sqlite">SQLite</option>
-                        <option value="mssql">MSSQL (SQL Server)</option>
-                    </select>
-                </div>
-                <div id="pg-config" style="display: none; animation: fadeIn 0.3s ease-in-out;">
-                    <div class="form-group">
-                        <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
-                        <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:port/dbname" aria-label="대상 DB 연결 URL">
-                    </div>
-                </div>
-                <div class="form-group" id="schema-group">
-                    <label for="schema">스키마</label>
-                    <input type="text" id="schema" placeholder="public" aria-label="대상 스키마">
-                </div>
-
-                <hr class="settings-divider">
-
-                <!-- Section C: DDL options -->
-                <h3 class="settings-section-title">C. DDL 옵션</h3>
+                <!-- Section B: DDL options -->
+                <h3 class="settings-section-title">B. DDL 옵션</h3>
                 <div id="ddl-settings">
                     <div class="checkbox-container">
                         <input type="checkbox" id="withDdl" checked aria-label="CREATE TABLE DDL 생성/실행">
@@ -728,6 +802,10 @@
                             <input type="checkbox" id="withConstraints" disabled aria-label="제약조건(FK, Check, Default) 포함" aria-disabled="true">
                             <label for="withConstraints" style="color: var(--text-muted);">제약조건 포함 (FK, Check, Default)</label>
                         </div>
+                        <div class="checkbox-container" style="margin-bottom: 0.75rem;">
+                            <input type="checkbox" id="validate" aria-label="마이그레이션 후 데이터 검증 수행">
+                            <label for="validate">마이그레이션 후 데이터 검증 (행 수 비교)</label>
+                        </div>
                         <div class="form-group" style="margin-bottom: 0.75rem;">
                             <label for="oracleOwner">Oracle 소유자</label>
                             <input type="text" id="oracleOwner" placeholder="접속 계정과 동일" aria-label="Oracle 소유자 계정">
@@ -737,40 +815,53 @@
 
                 <hr class="settings-divider">
 
-                <!-- Section D: Advanced settings -->
-                <h3 class="settings-section-title">D. 고급 설정</h3>
-                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="batchSize">배치 크기</label>
-                        <input type="text" id="batchSize" value="1000" aria-label="배치 크기">
+                <!-- Section C: Advanced settings -->
+                <details style="margin-bottom: 1.5rem; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 0.75rem 1rem;">
+                    <summary style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.07em; cursor: pointer; outline: none; list-style: none;">
+                        <span style="display: flex; align-items: center; gap: 0.5rem;">C. 고급 설정 (Advanced Settings) <svg style="width:16px;height:16px;color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg></span>
+                    </summary>
+                    <div style="margin-top: 1.25rem;">
+                        <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="batchSize">배치 크기</label>
+                                <input type="text" id="batchSize" value="1000" aria-label="배치 크기">
+                            </div>
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="workers">병렬 워커 수</label>
+                                <input type="text" id="workers" value="4" aria-label="병렬 워커 수">
+                            </div>
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="copyBatch" title="PostgreSQL COPY 배치 크기 (0: 단일 COPY)">COPY 배치 크기</label>
+                                <input type="text" id="copyBatch" value="10000" aria-label="COPY 배치 크기">
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="dbMaxOpen" title="DB 최대 열린 연결 수 (0=무제한)">DB Max Open</label>
+                                <input type="text" id="dbMaxOpen" value="0" aria-label="DB 최대 열린 연결 수 (0=무제한)">
+                            </div>
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="dbMaxIdle" title="DB 최대 유휴 연결 수">DB Max Idle</label>
+                                <input type="text" id="dbMaxIdle" value="2" aria-label="DB 최대 유휴 연결 수">
+                            </div>
+                            <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                <label for="dbMaxLife" title="DB 연결 최대 수명 (초, 0=무제한)">DB Max Life (초)</label>
+                                <input type="text" id="dbMaxLife" value="0" aria-label="DB 연결 최대 수명 (초, 0=무제한)">
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 2rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                            <div class="checkbox-container" style="margin-bottom: 0; padding: 0;">
+                                <input type="checkbox" id="logJson" aria-label="JSON 로깅 활성화">
+                                <label for="logJson">JSON 로깅</label>
+                            </div>
+                            <div class="checkbox-container" style="margin-bottom: 0; padding: 0;">
+                                <input type="checkbox" id="dryRun" aria-label="Dry-Run 모드 - 연결 확인 및 행 수 추정만 실행">
+                                <label for="dryRun">Dry-Run (연결 확인 및 예상 행 수만 조회)</label>
+                            </div>
+                        </div>
                     </div>
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="workers">병렬 워커 수</label>
-                        <input type="text" id="workers" value="4" aria-label="병렬 워커 수">
-                    </div>
-                </div>
-                <div style="display: flex; gap: 1rem; margin-bottom: 0.75rem;">
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="dbMaxOpen" title="DB 최대 열린 연결 수 (0=무제한)">DB Max Open</label>
-                        <input type="text" id="dbMaxOpen" value="0" aria-label="DB 최대 열린 연결 수 (0=무제한)">
-                    </div>
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="dbMaxIdle" title="DB 최대 유휴 연결 수">DB Max Idle</label>
-                        <input type="text" id="dbMaxIdle" value="2" aria-label="DB 최대 유휴 연결 수">
-                    </div>
-                    <div class="form-group" style="flex: 1; margin-bottom: 0;">
-                        <label for="dbMaxLife" title="DB 연결 최대 수명 (초, 0=무제한)">DB Max Life (초)</label>
-                        <input type="text" id="dbMaxLife" value="0" aria-label="DB 연결 최대 수명 (초, 0=무제한)">
-                    </div>
-                </div>
-
-                <hr class="settings-divider">
-
-                <!-- Dry-run + Start -->
-                <div class="checkbox-container" style="margin-bottom: 1rem;">
-                    <input type="checkbox" id="dryRun" aria-label="Dry-Run 모드 - 연결 확인 및 행 수 추정만 실행">
-                    <label for="dryRun">Dry-Run (연결 확인 및 예상 행 수만 조회)</label>
-                </div>
+                </details>
                 <button id="btn-migrate" class="btn-success" aria-label="마이그레이션 시작">Start Migration</button>
                 <div id="migrate-error" class="error-msg" role="alert"></div>
             </div>
@@ -795,8 +886,49 @@
                 <div style="text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;"><span id="overall-pct">0%</span></div>
             </div>
 
-            <!-- Summary card (shown on all_done) -->
-            <div id="summary-card" class="summary-card" style="display: none;"></div>
+            <!-- Summary card (visible during migration) -->
+            <div id="summary-card" class="summary-card" style="display: none;">
+                <div class="summary-stats">
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">진행률</span>
+                        <span class="summary-stat__value stat--primary" id="summary-pct">0%</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">성공</span>
+                        <span class="summary-stat__value stat--success" id="summary-success">0</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">실패</span>
+                        <span class="summary-stat__value stat--neutral" id="summary-fail">0</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">총 처리 행 수</span>
+                        <span class="summary-stat__value stat--neutral" id="summary-total-rows">0</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">처리 속도</span>
+                        <span class="summary-stat__value stat--neutral" id="summary-speed">0 rows/s</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">남은 시간(ETA)</span>
+                        <span class="summary-stat__value stat--neutral" id="summary-eta">-</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="summary-stat__label">소요 시간</span>
+                        <span class="summary-stat__value stat--neutral" id="summary-duration">0초</span>
+                    </div>
+                </div>
+                <div id="summary-actions" style="display:none; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;"></div>
+            </div>
+
+            <!-- Status Tabs -->
+            <div class="status-tabs" id="status-tabs" style="display: none;">
+                <button class="status-tab active" data-filter="all">전체 (<span id="tab-cnt-all">0</span>)</button>
+                <button class="status-tab" data-filter="pending">대기 (<span id="tab-cnt-pending">0</span>)</button>
+                <button class="status-tab" data-filter="running">진행중 (<span id="tab-cnt-running">0</span>)</button>
+                <button class="status-tab" data-filter="completed">완료 (<span id="tab-cnt-completed">0</span>)</button>
+                <button class="status-tab" data-filter="error">에러 (<span id="tab-cnt-error">0</span>)</button>
+            </div>
 
             <div id="progress-container">
                 <!-- Progress bars injected here -->
@@ -816,6 +948,8 @@
 <script>
     // ── DOM refs ──
     const btnConnect      = document.getElementById('btn-connect');
+    const btnTestTarget   = document.getElementById('btn-test-target');
+    const btnNextStep1    = document.getElementById('btn-next-step1');
     const btnMigrate      = document.getElementById('btn-migrate');
     const pgConfig        = document.getElementById('pg-config');
     const downloadBtn     = document.getElementById('download-btn');
@@ -827,8 +961,13 @@
     let ws;
     let currentZipId  = '';
     let isDryRunMode  = false;
+    let sourceConnected = false;
+    let targetConnected = false;
+    let isDirectMode    = false;
     let totalTables   = 0;
     let doneTables    = 0;
+    let totalRowsProcessed = 0;
+    let totalExpectedRows = 0;
     const sessionId   = document.getElementById('currentSessionId').innerText;
 
     // ── Theme ──
@@ -898,6 +1037,7 @@
         document.getElementById('tableList').innerHTML = '';
         document.getElementById('progress-container').innerHTML = '';
         document.getElementById('summary-card').style.display = 'none';
+        document.getElementById('status-tabs').style.display = 'none';
         document.getElementById('overall-progress').style.display = 'none';
         document.getElementById('overall-fill').style.width = '0%';
         downloadBtn.style.display = 'none';
@@ -905,6 +1045,11 @@
         document.getElementById('conn-error').innerText = '';
         document.getElementById('migrate-error').innerText = '';
         connSuccess.style.display = 'none';
+        sourceConnected = false;
+        targetConnected = false;
+        document.getElementById('target-error').innerText = '';
+        document.getElementById('target-success').style.display = 'none';
+        updateNextButtonState();
         btnMigrate.disabled = false;
         btnMigrate.innerText = 'Start Migration';
         // Password cleared for security
@@ -915,22 +1060,98 @@
         migrationStartTime = 0;
         successCount = 0; failCount = 0; warnCount = 0;
         totalTables = 0; doneTables = 0;
+        totalRowsProcessed = 0; totalExpectedRows = 0;
         updateSelectedCount();
     }
+
+    // ── State management ──
+    function updateNextButtonState() {
+        if (sourceConnected && (!isDirectMode || targetConnected)) {
+            btnNextStep1.disabled = false;
+        } else {
+            btnNextStep1.disabled = true;
+        }
+    }
+
+    btnNextStep1.addEventListener('click', () => {
+        showStep(2);
+        document.querySelector('.container').scrollTo({ top: 0, behavior: 'smooth' });
+    });
 
     // ── Migration mode radio toggle ──
     document.querySelectorAll('input[name="migrationMode"]').forEach(radio => {
         radio.addEventListener('change', (e) => {
-            const isDirect = e.target.value === 'direct';
-            pgConfig.style.display        = isDirect ? 'block' : 'none';
-            sqlOnlyControls.style.display = isDirect ? 'none'  : 'block';
+            isDirectMode = e.target.value === 'direct';
+            const targetDbControls = document.getElementById('target-db-controls');
+            if (targetDbControls) targetDbControls.style.display = isDirectMode ? 'block' : 'none';
+            
+            const dividerA = document.getElementById('divider-a');
+            const titleA = document.getElementById('title-a');
+            if (sqlOnlyControls) sqlOnlyControls.style.display = isDirectMode ? 'none'  : 'block';
+            if (dividerA) dividerA.style.display = isDirectMode ? 'none' : 'block';
+            if (titleA) titleA.style.display = isDirectMode ? 'none' : 'block';
+
+            updateNextButtonState();
         });
+    });
+
+    document.getElementById('pgUrl').addEventListener('input', () => {
+        targetConnected = false;
+        document.getElementById('target-success').style.display = 'none';
+        updateNextButtonState();
+    });
+
+    document.getElementById('targetDb').addEventListener('change', () => {
+        targetConnected = false;
+        document.getElementById('target-success').style.display = 'none';
+        updateNextButtonState();
+    });
+
+    // ── Test Target Connection ──
+    btnTestTarget.addEventListener('click', async () => {
+        const targetDb  = document.getElementById('targetDb').value;
+        const targetUrl = document.getElementById('pgUrl').value.trim();
+        const errorDiv  = document.getElementById('target-error');
+        const successDiv= document.getElementById('target-success');
+        
+        errorDiv.innerText = '';
+        successDiv.style.display = 'none';
+
+        if (!targetUrl) {
+            errorDiv.innerText = 'Please provide a Target DB connection URL.';
+            return;
+        }
+
+        btnTestTarget.disabled = true;
+        btnTestTarget.innerHTML = '<span style="opacity:0.8;">Testing...</span>';
+
+        try {
+            const res = await fetch('/api/test-target', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetDb, targetUrl })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to connect to target DB');
+
+            targetConnected = true;
+            successDiv.innerHTML = `<svg style="width:16px;height:16px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg> Target DB Connected`;
+            successDiv.style.display = 'flex';
+            updateNextButtonState();
+        } catch (err) {
+            targetConnected = false;
+            errorDiv.innerText = err.message;
+            updateNextButtonState();
+        } finally {
+            btnTestTarget.disabled = false;
+            btnTestTarget.innerText = 'Test Target Connection';
+        }
     });
 
     // ── Table search ──
     document.getElementById('tableSearch').addEventListener('input', (e) => {
         const q = e.target.value.trim().toLowerCase();
-        const items = document.querySelectorAll('#tableList .table-item');
+        const items = document.querySelectorAll('#tableList .table-item-row');
         let visible = 0;
         items.forEach(item => {
             const label = item.querySelector('label');
@@ -944,7 +1165,7 @@
 
     // ── Select/deselect all buttons ──
     document.getElementById('btn-select-all').addEventListener('click', () => {
-        document.querySelectorAll('#tableList .table-item').forEach(item => {
+        document.querySelectorAll('#tableList .table-item-row').forEach(item => {
             if (item.style.display !== 'none') item.querySelector('.table-cb').checked = true;
         });
         updateSelectedCount();
@@ -1072,14 +1293,12 @@
             // Show success banner
             connSuccess.innerHTML = `<svg style="width:16px;height:16px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg> Connected: <strong>${oracleUrl}</strong> &mdash; ${tables.length} tables found`;
             connSuccess.style.display = 'flex';
-
-            // Advance to step 2 after brief pause
-            setTimeout(() => {
-                showStep(2);
-                document.querySelector('.container').scrollTo({ top: 0, behavior: 'smooth' });
-            }, 600);
+            sourceConnected = true;
+            updateNextButtonState();
 
         } catch (err) {
+            sourceConnected = false;
+            updateNextButtonState();
             errorDiv.innerText = classifyConnError(err.message);
         } finally {
             btnConnect.disabled = false;
@@ -1108,29 +1327,50 @@
         if (searchInput) searchInput.value = '';
         const searchEmpty = document.getElementById('tableSearchEmpty');
         if (searchEmpty) searchEmpty.style.display = 'none';
+        
+        // Reset all checkbox
+        const cbAll = document.getElementById('cb-all-table');
+        if (cbAll) cbAll.checked = false;
 
         if (tables.length === 0) {
-            listDiv.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center;">No tables found matching criteria.</div>';
+            listDiv.innerHTML = '<tr><td colspan="2" style="padding: 1rem; color: var(--text-muted); text-align: center;">No tables found matching criteria.</td></tr>';
             updateSelectedCount();
             return;
         }
 
+        const fragment = document.createDocumentFragment();
         tables.forEach(table => {
-            const div = document.createElement('div');
-            div.className = 'table-item';
-            div.setAttribute('role', 'option');
-            div.innerHTML = `
-                <input type="checkbox" class="table-cb" id="cb-${table}" value="${table}" aria-label="${table}">
-                <label for="cb-${table}">${table}</label>
+            const tr = document.createElement('tr');
+            tr.className = 'table-item-row';
+            tr.innerHTML = `
+                <td style="text-align: center;">
+                    <input type="checkbox" class="table-cb" id="cb-${table}" value="${table}" aria-label="${table}">
+                </td>
+                <td>
+                    <label for="cb-${table}">${table}</label>
+                </td>
             `;
-            listDiv.appendChild(div);
+            fragment.appendChild(tr);
         });
+        listDiv.appendChild(fragment);
 
         listDiv.querySelectorAll('.table-cb').forEach(cb => {
             cb.addEventListener('change', updateSelectedCount);
         });
 
         updateSelectedCount();
+    }
+
+    // Bind cb-all-table
+    const cbAllTable = document.getElementById('cb-all-table');
+    if (cbAllTable) {
+        cbAllTable.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('#tableList .table-item-row').forEach(tr => {
+                if (tr.style.display !== 'none') tr.querySelector('.table-cb').checked = checked;
+            });
+            updateSelectedCount();
+        });
     }
 
     // ── Migrate ──
@@ -1165,10 +1405,12 @@
         const withSequences   = document.getElementById('withSequences').checked;
         const withIndexes     = document.getElementById('withIndexes').checked;
         const withConstraints = document.getElementById('withConstraints').checked;
+        const validate        = document.getElementById('validate').checked;
         const oracleOwner     = document.getElementById('oracleOwner').value;
         const dbMaxOpen       = parseInt(document.getElementById('dbMaxOpen').value)  || 0;
         const dbMaxIdle       = parseInt(document.getElementById('dbMaxIdle').value)  || 2;
         const dbMaxLife       = parseInt(document.getElementById('dbMaxLife').value)  || 0;
+        const copyBatch       = parseInt(document.getElementById('copyBatch').value)  || 10000;
 
         isDryRunMode = dryRun;
 
@@ -1185,9 +1427,28 @@
         tableProgressData = {};
         shownWarnings.clear();
         document.getElementById('progress-container').innerHTML = '';
-        document.getElementById('summary-card').style.display = 'none';
         downloadBtn.style.display    = 'none';
         newMigrationBtn.style.display = 'none';
+
+        // Initialize progress items as pending
+        const container = document.getElementById('progress-container');
+        selectedTables.forEach(table => {
+            const wrapper = document.createElement('div');
+            wrapper.id = `prog-${table}`;
+            wrapper.className = 'progress-container progress-item';
+            wrapper.dataset.status = 'pending';
+            wrapper.innerHTML = `
+                <div class="progress-header">
+                    <span class="progress-title">${table}</span>
+                    <span id="prog-text-${table}" class="progress-text">Pending...</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div id="prog-fill-${table}" class="progress-bar-fill"></div>
+                </div>
+            `;
+            container.appendChild(wrapper);
+            tableProgressData[table] = { total: 0, count: 0, status: 'pending' };
+        });
 
         // Show overall progress bar
         const overallProg = document.getElementById('overall-progress');
@@ -1195,6 +1456,13 @@
             overallProg.style.display = 'block';
             updateOverallProgress();
         }
+
+        totalRowsProcessed = 0;
+        totalExpectedRows = 0;
+        document.getElementById('summary-card').style.display = 'block';
+        document.getElementById('status-tabs').style.display = 'flex';
+        updateSummaryWidget();
+        updateTabsCount();
 
         setupWebSocket();
 
@@ -1220,8 +1488,8 @@
                     pgUrl: targetUrl,
                     withDdl, batchSize, workers, outFile, perTable,
                     schema, dryRun, logJson, withSequences, withIndexes,
-                    withConstraints, oracleOwner,
-                    dbMaxOpen, dbMaxIdle, dbMaxLife
+                    withConstraints, validate, oracleOwner,
+                    dbMaxOpen, dbMaxIdle, dbMaxLife, copyBatch
                 })
             });
             const data = await res.json();
@@ -1254,6 +1522,80 @@
         ws.onerror   = (err)   => console.error('WebSocket error:', err);
     }
 
+    function updateItemStatus(tableName, status) {
+        const item = document.getElementById(`prog-${tableName}`);
+        if (item) {
+            item.dataset.status = status;
+            updateTabsCount();
+        }
+    }
+
+    function updateSummaryWidget() {
+        const pct = totalTables > 0 ? Math.floor((doneTables / totalTables) * 100) : 0;
+        document.getElementById('summary-pct').innerText = `${pct}%`;
+        document.getElementById('summary-success').innerText = successCount;
+        
+        const failEl = document.getElementById('summary-fail');
+        failEl.innerText = failCount;
+        if (failCount > 0) {
+            failEl.className = 'summary-stat__value stat--danger';
+        } else {
+            failEl.className = 'summary-stat__value stat--neutral';
+        }
+        
+        document.getElementById('summary-total-rows').innerText = totalRowsProcessed.toLocaleString();
+        
+        const elapsed = migrationStartTime ? Math.max(1, Math.floor((Date.now() - migrationStartTime) / 1000)) : 1;
+        const speed = Math.floor(totalRowsProcessed / elapsed);
+        document.getElementById('summary-speed').innerText = `${speed.toLocaleString()} rows/s`;
+        
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        document.getElementById('summary-duration').innerText = mins > 0 ? `${mins}분 ${secs}초` : `${secs}초`;
+
+        if (speed > 0 && totalExpectedRows > totalRowsProcessed) {
+            const remainingRows = totalExpectedRows - totalRowsProcessed;
+            const etaSecs = Math.floor(remainingRows / speed);
+            const eMins = Math.floor(etaSecs / 60);
+            const eSecs = etaSecs % 60;
+            document.getElementById('summary-eta').innerText = eMins > 0 ? `${eMins}분 ${eSecs}초` : `${eSecs}초`;
+        } else if (doneTables === totalTables && totalTables > 0) {
+            document.getElementById('summary-eta').innerText = '0초';
+        } else {
+            document.getElementById('summary-eta').innerText = '-';
+        }
+    }
+
+    function updateTabsCount() {
+        let cnt = { all: 0, pending: 0, running: 0, completed: 0, error: 0 };
+        document.querySelectorAll('#progress-container .progress-item').forEach(item => {
+            cnt.all++;
+            const status = item.dataset.status || 'pending';
+            if (cnt[status] !== undefined) cnt[status]++;
+        });
+        document.getElementById('tab-cnt-all').innerText = cnt.all;
+        document.getElementById('tab-cnt-pending').innerText = cnt.pending;
+        document.getElementById('tab-cnt-running').innerText = cnt.running;
+        document.getElementById('tab-cnt-completed').innerText = cnt.completed;
+        document.getElementById('tab-cnt-error').innerText = cnt.error;
+    }
+
+    document.querySelectorAll('.status-tab').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+            document.querySelectorAll('.status-tab').forEach(t => t.classList.remove('active'));
+            e.currentTarget.classList.add('active');
+            const filter = e.currentTarget.dataset.filter;
+            
+            document.querySelectorAll('#progress-container .progress-item').forEach(item => {
+                if (filter === 'all' || item.dataset.status === filter) {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    });
+
     let tableProgressData = {};
     const shownWarnings   = new Set();
 
@@ -1266,6 +1608,14 @@
         banner.className   = 'warning-banner';
         banner.textContent = '⚠ ' + message;
         container.insertBefore(banner, container.firstChild);
+    }
+
+    function updateTotalRows() {
+        let total = 0;
+        for (const key in tableProgressData) {
+            total += tableProgressData[key].count || 0;
+        }
+        totalRowsProcessed = total;
     }
 
     function handleProgressMessage(msg) {
@@ -1286,48 +1636,30 @@
             doneTables = totalTables;
             updateOverallProgress();
 
-            // Render summary card
-            const elapsed    = migrationStartTime ? Math.floor((Date.now() - migrationStartTime) / 1000) : 0;
-            const mins       = Math.floor(elapsed / 60);
-            const secs       = elapsed % 60;
-            const elapsedStr = mins > 0 ? `${mins}분 ${secs}초` : `${secs}초`;
-            const summaryCard = document.getElementById('summary-card');
-            summaryCard.style.display = 'block';
             const rpt = msg.report_summary;
-            const totalRows = rpt ? rpt.total_rows : 0;
-            const duration  = rpt ? rpt.duration : elapsedStr;
-            const reportId  = rpt ? rpt.report_id : '';
-            summaryCard.innerHTML = `
-                <div class="summary-stats">
-                    <div class="summary-stat">
-                        <span class="summary-stat__label">성공</span>
-                        <span class="summary-stat__value stat--success">${rpt ? rpt.success_count : successCount}</span>
-                    </div>
-                    <div class="summary-stat">
-                        <span class="summary-stat__label">실패</span>
-                        <span class="summary-stat__value ${failCount > 0 ? 'stat--danger' : 'stat--neutral'}">${rpt ? rpt.error_count : failCount}</span>
-                    </div>
-                    <div class="summary-stat">
-                        <span class="summary-stat__label">총 행 수</span>
-                        <span class="summary-stat__value stat--neutral">${totalRows.toLocaleString()}</span>
-                    </div>
-                    <div class="summary-stat">
-                        <span class="summary-stat__label">소요 시간</span>
-                        <span class="summary-stat__value stat--neutral">${duration}</span>
-                    </div>
-                </div>
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">
+            if (rpt) {
+                totalRowsProcessed = rpt.total_rows !== undefined ? rpt.total_rows : totalRowsProcessed;
+                successCount = rpt.success_count !== undefined ? rpt.success_count : successCount;
+                failCount = rpt.error_count !== undefined ? rpt.error_count : failCount;
+            }
+            updateSummaryWidget();
+            if (rpt && rpt.duration) {
+                document.getElementById('summary-duration').innerText = rpt.duration;
+            }
+
+            const actionsDiv = document.getElementById('summary-actions');
+            actionsDiv.style.display = 'flex';
+            actionsDiv.innerHTML = `
                 ${currentZipId && !isDryRunMode ? `
                 <button class="btn-primary" onclick="downloadZipArchive()" aria-label="ZIP 파일 다운로드">
                     <svg style="width:20px;height:20px;margin-right:8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                     ZIP 다운로드
                 </button>` : ''}
-                ${reportId ? `
-                <button class="btn-secondary" onclick="window.location.href='/api/report/${reportId}'" aria-label="리포트 JSON 다운로드">
+                ${rpt && rpt.report_id ? `
+                <button class="btn-secondary" onclick="window.location.href='/api/report/${rpt.report_id}'" aria-label="리포트 JSON 다운로드">
                     📋 리포트 다운로드
                 </button>` : ''}
                 <button class="btn-secondary" onclick="goToStep(1)" aria-label="새 마이그레이션 시작">새 마이그레이션</button>
-                </div>
             `;
             return;
         }
@@ -1358,7 +1690,8 @@
             if (!wrapper) {
                 wrapper = document.createElement('div');
                 wrapper.id        = `prog-${msg.table}`;
-                wrapper.className = 'progress-container';
+                wrapper.className = 'progress-container progress-item';
+                wrapper.dataset.status = 'completed';
                 container.appendChild(wrapper);
             }
             const okIcon  = `<svg style="width:14px;height:14px;vertical-align:middle" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
@@ -1380,7 +1713,8 @@
         if (!wrapper && msg.table) {
             wrapper = document.createElement('div');
             wrapper.id        = `prog-${msg.table}`;
-            wrapper.className = 'progress-container';
+            wrapper.className = 'progress-container progress-item';
+            wrapper.dataset.status = 'pending';
             wrapper.innerHTML = `
                 <div class="progress-header">
                     <span class="progress-title">${msg.table}</span>
@@ -1391,31 +1725,44 @@
                 </div>
             `;
             container.appendChild(wrapper);
-            tableProgressData[msg.table] = { total: 0, count: 0 };
+            tableProgressData[msg.table] = { total: 0, count: 0, status: 'pending' };
         }
 
         if (msg.type === 'init') {
             tableProgressData[msg.table].total = msg.total || 0;
+            totalExpectedRows += (msg.total || 0);
+            updateItemStatus(msg.table, 'running');
             updateProgressUI(msg.table);
+            updateSummaryWidget();
         } else if (msg.type === 'update') {
             tableProgressData[msg.table].count = msg.count || 0;
+            updateItemStatus(msg.table, 'running');
+            updateTotalRows();
             updateProgressUI(msg.table);
+            updateSummaryWidget();
         } else if (msg.type === 'done') {
             successCount++;
             doneTables++;
             const data = tableProgressData[msg.table];
             data.count = data.total;
+            updateItemStatus(msg.table, 'completed');
+            updateTotalRows();
             updateProgressUI(msg.table);
             const fill = document.getElementById(`prog-fill-${msg.table}`);
-            fill.style.backgroundColor = 'var(--success-color)';
-            document.getElementById(`prog-text-${msg.table}`).innerHTML = `
-                <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;color:var(--success-color)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
-                <span style="color:var(--success-color);font-weight:600">COMPLETED</span>
-            `;
+            if (fill) fill.style.backgroundColor = 'var(--success-color)';
+            const textEl = document.getElementById(`prog-text-${msg.table}`);
+            if (textEl) {
+                textEl.innerHTML = `
+                    <svg style="width:14px;height:14px;vertical-align:middle;margin-right:2px;color:var(--success-color)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    <span style="color:var(--success-color);font-weight:600">COMPLETED</span>
+                `;
+            }
             updateOverallProgress();
+            updateSummaryWidget();
         } else if (msg.type === 'error') {
             failCount++;
             doneTables++;
+            updateItemStatus(msg.table, 'error');
             const fill = document.getElementById(`prog-fill-${msg.table}`);
             if (fill) {
                 fill.style.backgroundColor = 'var(--danger-color)';
@@ -1423,22 +1770,32 @@
             }
             const textEl = document.getElementById(`prog-text-${msg.table}`);
             if (textEl) {
-                let errorHtml = `<span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error}`;
+                let errorHtml = `<span style="color:var(--danger-color);font-weight:600">ERROR</span>: ${msg.error} <button onclick="retryTableMigration('${msg.table}')" style="margin-left:8px; padding:2px 8px; font-size:0.75rem; width:auto; display:inline-block;" class="btn-secondary">[재시도] Retry</button>`;
                 if (msg.phase || msg.category) {
                     errorHtml += `
                     <details style="margin-top:0.4rem;font-size:0.8rem;color:var(--text-muted)">
                         <summary style="cursor:pointer;color:var(--danger-color)">상세 정보</summary>
-                        <div style="padding:0.4rem 0.5rem;background:var(--bg-color);border-radius:4px;margin-top:0.25rem">
-                            ${msg.phase ? `<div><strong>Phase:</strong> ${msg.phase}</div>` : ''}
-                            ${msg.category ? `<div><strong>Category:</strong> ${msg.category}</div>` : ''}
-                            ${msg.suggestion ? `<div><strong>💡 Suggestion:</strong> ${msg.suggestion}</div>` : ''}
-                            ${msg.recoverable !== undefined ? `<div><strong>Recoverable:</strong> ${msg.recoverable ? 'Yes' : 'No'}</div>` : ''}
+                        <div style="padding:0.4rem 0.5rem;background:var(--bg-color);border-radius:4px;margin-top:0.25rem;text-align:left;border:1px solid var(--border-color)">
+                            ${msg.phase ? `<div style="margin-bottom:2px"><strong>Phase:</strong> ${msg.phase}</div>` : ''}
+                            ${msg.category ? `<div style="margin-bottom:2px"><strong>Category:</strong> ${msg.category}</div>` : ''}
+                            ${msg.batch_num ? `<div style="margin-bottom:2px"><strong>Batch:</strong> #${msg.batch_num}</div>` : ''}
+                            ${msg.row_offset ? `<div style="margin-bottom:2px"><strong>Row Offset:</strong> ${msg.row_offset.toLocaleString()}</div>` : ''}
+                            ${msg.suggestion ? `<div style="margin-top:0.4rem;padding-top:0.4rem;border-top:1px dashed var(--border-color)"><strong>💡 Suggestion:</strong> ${msg.suggestion}</div>` : ''}
+                            ${msg.recoverable !== undefined ? `
+                            <div style="margin-top:0.4rem;display:flex;align-items:center;gap:0.4rem;">
+                                <strong>Status:</strong>
+                                ${msg.recoverable 
+                                    ? '<span style="color:var(--success-color);background:rgba(16,185,129,0.1);padding:1px 6px;border-radius:4px;font-size:0.75rem;">Recoverable (Retry possible)</span>'
+                                    : '<span style="color:var(--danger-color);background:rgba(239,68,68,0.1);padding:1px 6px;border-radius:4px;font-size:0.75rem;">Critical (Manual fix required)</span>'
+                                }
+                            </div>` : ''}
                         </div>
                     </details>`;
                 }
                 textEl.innerHTML = errorHtml;
             }
             updateOverallProgress();
+            updateSummaryWidget();
         } else if (msg.type === 'validation_start') {
             let valSection = document.getElementById('validation-section');
             if (!valSection) {
@@ -1503,6 +1860,90 @@
 
     function downloadZipArchive() {
         if (currentZipId) window.location.href = `/api/download/${currentZipId}`;
+    }
+
+    async function retryTableMigration(tableName) {
+        // Update UI immediately
+        if (failCount > 0) failCount--;
+        if (doneTables > 0) doneTables--;
+        
+        // Subtract the previous total so it doesn't get double counted on the next 'init'
+        if (tableProgressData[tableName] && tableProgressData[tableName].total) {
+            totalExpectedRows -= tableProgressData[tableName].total;
+        }
+        
+        tableProgressData[tableName] = { total: 0, count: 0, status: 'pending' };
+        
+        updateItemStatus(tableName, 'running');
+        
+        const fill = document.getElementById(`prog-fill-${tableName}`);
+        if (fill) {
+            fill.style.backgroundColor = 'var(--primary-color)';
+            fill.style.width = '0%';
+        }
+        
+        const textEl = document.getElementById(`prog-text-${tableName}`);
+        if (textEl) {
+            textEl.innerHTML = 'Retrying...';
+        }
+
+        updateOverallProgress();
+        updateSummaryWidget();
+
+        // Gather settings
+        const oracleUrl       = document.getElementById('oracleUrl').value;
+        const username        = document.getElementById('username').value;
+        const password        = document.getElementById('password').value;
+        const isDirect        = document.getElementById('modeDirect').checked;
+        const targetDb        = document.getElementById('targetDb').value;
+        const targetUrl       = document.getElementById('pgUrl').value.trim();
+        const withDdl         = document.getElementById('withDdl').checked;
+        const batchSize       = parseInt(document.getElementById('batchSize').value)  || 1000;
+        const workers         = parseInt(document.getElementById('workers').value)    || 4;
+        const outFile         = document.getElementById('outFile').value              || 'migration.sql';
+        const perTable        = document.getElementById('perTable').checked;
+        const schema          = document.getElementById('schema').value;
+        const dryRun          = dryRunCb.checked;
+        const logJson         = document.getElementById('logJson').checked;
+        const withSequences   = document.getElementById('withSequences').checked;
+        const withIndexes     = document.getElementById('withIndexes').checked;
+        const withConstraints = document.getElementById('withConstraints').checked;
+        const validate        = document.getElementById('validate').checked;
+        const oracleOwner     = document.getElementById('oracleOwner').value;
+        const dbMaxOpen       = parseInt(document.getElementById('dbMaxOpen').value)  || 0;
+        const dbMaxIdle       = parseInt(document.getElementById('dbMaxIdle').value)  || 2;
+        const dbMaxLife       = parseInt(document.getElementById('dbMaxLife').value)  || 0;
+        const copyBatch       = parseInt(document.getElementById('copyBatch').value)  || 10000;
+
+        try {
+            const res = await fetch('/api/migrate/retry', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                    sessionId, oracleUrl, username, password,
+                    tables: [tableName],
+                    direct: isDirect, targetDb, targetUrl,
+                    pgUrl: targetUrl,
+                    withDdl, batchSize, workers, outFile, perTable,
+                    schema, dryRun, logJson, withSequences, withIndexes,
+                    withConstraints, validate, oracleOwner,
+                    dbMaxOpen, dbMaxIdle, dbMaxLife, copyBatch
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to retry migration');
+        } catch (err) {
+            console.error('Retry failed:', err);
+            if (textEl) {
+                 textEl.innerHTML = `<span style="color:var(--danger-color);font-weight:600">RETRY ERROR</span>: ${err.message}`;
+            }
+            failCount++;
+            doneTables++;
+            updateItemStatus(tableName, 'error');
+            if (fill) fill.style.backgroundColor = 'var(--danger-color)';
+            updateOverallProgress();
+            updateSummaryWidget();
+        }
     }
 
     // ── New Migration button ──
