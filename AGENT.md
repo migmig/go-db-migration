@@ -1,17 +1,17 @@
-# Agent Guide
+# 에이전트 가이드
 
-This file provides instructions for AI agents working on this project.
+이 파일은 이 프로젝트에서 작업하는 AI 에이전트를 위한 지침을 제공합니다.
 
-## Core Responsibilities
+## 핵심 책임
 
-- **Keep README.md Updated:** Whenever you add new features, change flags, or modify the application's architecture, you MUST update the `README.md` file to reflect these changes.
-- **Maintain Versioning:** Increment the version number in `README.md` (e.g., from v2 to v3) when significant new functionality is added.
-- **Document New Flags:** Ensure every new CLI flag is added to the "Flags" table in `README.md`.
-- **Explain New Modes:** If a new mode (like Web UI or a new migration type) is added, provide a dedicated section in `README.md` with usage examples.
-- **Update Tasks:** For every new feature, create a corresponding task in `docs/` with clear implementation steps.
+- **README.md 업데이트 유지:** 새로운 기능을 추가하거나, 플래그를 변경하거나, 애플리케이션의 아키텍처를 수정할 때마다 이러한 변경 사항을 반영하도록 `README.md` 파일을 반드시 업데이트해야 합니다.
+- **버전 관리 유지:** 중요한 새 기능이 추가되면 `README.md`에서 버전 번호를 증가시킵니다(예: v2에서 v3로).
+- **새로운 플래그 문서화:** 모든 새로운 CLI 플래그가 `README.md`의 "Flags(플래그)" 테이블에 추가되었는지 확인합니다.
+- **새로운 모드 설명:** 새로운 모드(예: 웹 UI 또는 새로운 마이그레이션 유형)가 추가되면 사용 예제와 함께 `README.md`에 전용 섹션을 제공합니다.
+- **작업(Tasks) 업데이트:** 모든 새로운 기능에 대해 명확한 구현 단계가 포함된 해당 작업을 `docs/`에 생성합니다.
 
-## Code Standards
+## 코드 표준
 
-- Use structured logging (`log/slog`) for all significant events.
-- Ensure all new features are covered by the dry-run mode if applicable.
-- Follow the existing internal package structure (`internal/config`, `internal/db`, `internal/migration`, `internal/web`).
+- 모든 중요한 이벤트에 대해 구조화된 로깅(`log/slog`)을 사용합니다.
+- 가능한 경우 모든 새로운 기능이 예행 연습(dry-run) 모드에서 처리되는지 확인합니다.
+- 기존 내부 패키지 구조(`internal/config`, `internal/db`, `internal/migration`, `internal/web`)를 따릅니다.

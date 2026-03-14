@@ -1,49 +1,49 @@
-# Product Requirements Document (PRD): Oracle to PostgreSQL Data Migration CLI
+# 제품 요구사항 문서 (PRD): Oracle에서 PostgreSQL 데이터 마이그레이션 CLI
 
-## 1. Overview
-This project is a Command Line Interface (CLI) application built in Go, designed to extract data from an Oracle database and generate PostgreSQL-compatible `INSERT` SQL scripts. The tool emphasizes performance and flexibility, offering bulk insert capabilities, correct data type mapping (e.g., CLOB, BLOB, Timestamp), and advanced execution options like parallel processing and per-table output file generation.
+## 1. 개요
+이 프로젝트는 Go 언어로 구축된 명령줄 인터페이스(CLI) 애플리케이션으로, Oracle 데이터베이스에서 데이터를 추출하여 PostgreSQL 호환 `INSERT` SQL 스크립트를 생성하도록 설계되었습니다. 이 도구는 성능과 유연성에 중점을 두며, 대량 삽입(Bulk Insert) 기능, 올바른 데이터 타입 매핑(예: CLOB, BLOB, Timestamp) 및 병렬 처리, 테이블별 출력 파일 생성과 같은 고급 실행 옵션을 제공합니다.
 
-## 2. Objectives
-- **Data Export:** Query specified tables from an Oracle database.
-- **Data Transformation:** Convert Oracle-specific data types (BLOB, RAW, CLOB, DATE, TIMESTAMP) to appropriate PostgreSQL literal syntax (e.g., `\x...` hex encoding for bytea, properly escaped strings, precise timestamp strings).
-- **Efficiency:** Generate `BULK INSERT` statements rather than individual row inserts to reduce PostgreSQL import overhead.
-- **Parallelism & Organization:** Provide options to process tables concurrently and output results into separate `.sql` files per table.
+## 2. 목표
+- **데이터 내보내기:** Oracle 데이터베이스에서 지정된 테이블을 조회합니다.
+- **데이터 변환:** Oracle 전용 데이터 타입(BLOB, RAW, CLOB, DATE, TIMESTAMP)을 적절한 PostgreSQL 리터럴 구문으로 변환합니다 (예: bytea에 대한 `\x...` 16진수 인코딩, 적절하게 이스케이프된 문자열, 정확한 타임스탬프 문자열).
+- **효율성:** 개별 행 삽입 대신 `BULK INSERT` 문을 생성하여 PostgreSQL 가져오기 오버헤드를 줄입니다.
+- **병렬 처리 및 구성:** 테이블을 동시에 처리하고 결과를 테이블별로 개별 `.sql` 파일로 출력하는 옵션을 제공합니다.
 
-## 3. Scope and Features
-### Core Features
-- Connect to an Oracle database using a pure Go driver (no CGO/Oracle Instant Client required).
-- Accept connection credentials, URL, and a comma-separated list of tables via CLI flags.
-- Handle `NULL` values seamlessly.
-- Extract `SELECT * FROM <table>` iteratively to avoid excessive memory consumption.
-- Batch rows up to a configurable size (default 1000) before writing an `INSERT INTO` statement.
+## 3. 범위 및 기능
+### 핵심 기능
+- 순수 Go 드라이버(CGO/Oracle Instant Client 불필요)를 사용하여 Oracle 데이터베이스에 연결합니다.
+- CLI 플래그를 통해 연결 자격 증명, URL 및 쉼표로 구분된 테이블 목록을 허용합니다.
+- `NULL` 값을 원활하게 처리합니다.
+- 과도한 메모리 소비를 방지하기 위해 `SELECT * FROM <table>`을 반복적으로 추출합니다.
+- `INSERT INTO` 문을 작성하기 전에 행을 구성 가능한 크기(기본값 1000)까지 일괄 처리(Batch)합니다.
 
-### Advanced Output Options (New)
-- **`--per-table` Flag:**
-  - When enabled, instead of writing all SQL commands to a single output file (e.g., `migration.sql`), the tool will generate a separate file for each table in the format: `<table>_migration.sql`.
-- **`--parallel` Flag:**
-  - Enables concurrent extraction and file writing for multiple tables using Go routines (`sync.WaitGroup`).
-  - Greatly speeds up the extraction of large schemas when multiple tables are specified.
-  - If both `--parallel` and a single output file (no `--per-table`) are used, the tool must safely synchronize file writes using a Mutex to prevent data interleaving/corruption.
+### 고급 출력 옵션 (신규)
+- **`--per-table` 플래그:**
+  - 활성화되면 모든 SQL 명령을 단일 출력 파일(예: `migration.sql`)에 작성하는 대신 테이블별로 `<테이블명>_migration.sql` 형식의 개별 파일을 생성합니다.
+- **`--parallel` 플래그:**
+  - Go 루틴(`sync.WaitGroup`)을 사용하여 여러 테이블에 대한 동시 추출 및 파일 쓰기를 활성화합니다.
+  - 여러 테이블이 지정된 경우 대규모 스키마의 추출 속도를 크게 높입니다.
+  - `--parallel`과 단일 출력 파일(`--per-table` 없음)이 모두 사용되는 경우 데이터 인터리빙/손상을 방지하기 위해 Mutex를 사용하여 파일 쓰기를 안전하게 동기화해야 합니다.
 
-## 4. CLI Arguments
-| Flag | Description | Default | Required |
+## 4. CLI 인수
+| 플래그 | 설명 | 기본값 | 필수 여부 |
 | --- | --- | --- | --- |
-| `-url` | Oracle DB Connection URL / DSN | None | Yes |
-| `-user` | Database Username | None | Yes |
-| `-password`| Database Password | None | Yes |
-| `-tables` | Comma-separated list of tables | None | Yes |
-| `-out` | Output SQL file name (if `-per-table` is false) | `migration.sql` | No |
-| `-batch` | Number of rows per bulk insert statement | `1000` | No |
-| `-per-table`| Output to separate files named `<tablename>.sql` | `false` | No |
-| `-parallel`| Process tables concurrently | `false` | No |
+| `-url` | Oracle DB 연결 URL / DSN | 없음 | 예 |
+| `-user` | 데이터베이스 사용자명 | 없음 | 예 |
+| `-password`| 데이터베이스 비밀번호 | 없음 | 예 |
+| `-tables` | 쉼표로 구분된 테이블 목록 | 없음 | 예 |
+| `-out` | 출력 SQL 파일명 (`-per-table`이 false인 경우) | `migration.sql` | 아니오 |
+| `-batch` | 대량 삽입(Bulk Insert) 문당 행 수 | `1000` | 아니오 |
+| `-per-table`| `<tablename>.sql`이라는 별도의 파일로 출력 | `false` | 아니오 |
+| `-parallel`| 테이블을 동시에 처리 | `false` | 아니오 |
 
-## 5. Non-Functional Requirements
-- **Language:** Go 1.21+
-- **Driver:** `github.com/sijms/go-ora/v2`
-- **Performance:** Stream results efficiently; keep memory usage low even for large tables. Use Goroutines for parallel operations.
-- **Safety:** Prevent SQL injection risks in the generated file by strictly escaping single quotes in string columns. Write concurrently to a shared file using a Mutex when necessary.
+## 5. 비기능적 요구사항
+- **언어:** Go 1.21 이상
+- **드라이버:** `github.com/sijms/go-ora/v2`
+- **성능:** 결과를 효율적으로 스트리밍하고 큰 테이블에 대해서도 메모리 사용량을 낮게 유지합니다. 병렬 작업을 위해 고루틴(Goroutine)을 사용합니다.
+- **안전성:** 문자열 열에서 작은따옴표를 엄격하게 이스케이프하여 생성된 파일의 SQL 인젝션 위험을 방지합니다. 필요한 경우 Mutex를 사용하여 공유 파일에 동시에 씁니다.
 
-## 6. Future Enhancements
-- DDL Generation (CREATE TABLE schemas).
-- Direct PostgreSQL insertion without intermediate files.
-- Support for more complex data types like Spatial data.
+## 6. 향후 개선 사항
+- DDL 생성 (CREATE TABLE 스키마).
+- 중간 파일 없이 직접 PostgreSQL 삽입.
+- 공간(Spatial) 데이터와 같은 더 복잡한 데이터 타입 지원.
