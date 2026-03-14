@@ -1,9 +1,0 @@
-{
-  "job_id": "test",
-  "tables": {
-    "T2": {
-      "offset": 1,
-      "completed": true
-    }
-  }
-}
