@@ -6,6 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"dbmigrator/internal/bus"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -30,6 +32,7 @@ const (
 	MsgWarning          MsgType = "warning"
 	MsgValidationStart  MsgType = "validation_start"
 	MsgValidationResult MsgType = "validation_result"
+	MsgMetrics          MsgType = "metrics"
 )
 
 // DetailedError는 migration 패키지의 순환 의존 없이 구조화 에러 필드를 읽기 위한 인터페이스이다.
@@ -85,15 +88,52 @@ type WebSocketTracker struct {
 	states       map[string]*tableState
 	mu           sync.Mutex
 	lastAccessed time.Time
+	eventBus     bus.EventBus
 }
 
 func NewWebSocketTracker() *WebSocketTracker {
-	return &WebSocketTracker{
+	t := &WebSocketTracker{
 		clients:      make(map[*websocket.Conn]bool),
 		states:       make(map[string]*tableState),
 		lastAccessed: time.Now(),
+		eventBus:     bus.NewEventBus(),
 	}
+	t.setupSubscriptions()
+	return t
 }
+
+func (t *WebSocketTracker) setupSubscriptions() {
+	t.eventBus.Subscribe(bus.EventInit, func(e bus.Event) { t.Init(e.Table, e.Total) })
+	t.eventBus.Subscribe(bus.EventUpdate, func(e bus.Event) { t.Update(e.Table, e.Count) })
+	t.eventBus.Subscribe(bus.EventDone, func(e bus.Event) { t.Done(e.Table) })
+	t.eventBus.Subscribe(bus.EventError, func(e bus.Event) { t.Error(e.Table, e.Error) })
+	t.eventBus.Subscribe(bus.EventAllDone, func(e bus.Event) {
+		var summary *ReportSummary
+		if e.ReportSummary != nil {
+			if s, ok := e.ReportSummary.(*ReportSummary); ok {
+				summary = s
+			}
+		}
+		t.AllDone(e.ZipFileID, summary)
+	})
+	t.eventBus.Subscribe(bus.EventDryRunResult, func(e bus.Event) { t.DryRunResult(e.Table, e.Total, e.ConnectionOk) })
+	t.eventBus.Subscribe(bus.EventDDLProgress, func(e bus.Event) { t.DDLProgress(e.Object, e.ObjectName, e.Status, e.Error) })
+	t.eventBus.Subscribe(bus.EventWarning, func(e bus.Event) { t.Warning(e.Message) })
+	t.eventBus.Subscribe(bus.EventValidationStart, func(e bus.Event) { t.ValidationStart(e.Table) })
+	t.eventBus.Subscribe(bus.EventValidationResult, func(e bus.Event) { t.ValidationResult(e.Table, e.Total, e.Count, e.Status, e.Message) })
+	t.eventBus.Subscribe(bus.EventMetrics, func(e bus.Event) {
+		t.broadcast(ProgressMsg{
+			Type:    MsgType(e.Type),
+			Message: e.Message, // JSON payload representing metrics
+		})
+	})
+}
+
+// EventBus returns the underlying EventBus for publishing events
+func (t *WebSocketTracker) EventBus() bus.EventBus {
+	return t.eventBus
+}
+
 
 type SessionManager struct {
 	trackers map[string]*WebSocketTracker

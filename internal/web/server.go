@@ -3,17 +3,20 @@ package web
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"os"
 	"path/filepath"
 	"time"
 
+	"dbmigrator/internal/bus"
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
 	"dbmigrator/internal/dialect"
@@ -50,7 +53,7 @@ func RunServer(port string) {
 		api.POST("/migrate", startMigration)
 		api.POST("/migrate/retry", retryMigration)
 		api.POST("/test-target", testTargetConnection)
-		api.GET("/progress", sessionManager.HandleConnection)
+		api.GET("/ws", sessionManager.HandleConnection)
 		api.GET("/download/:id", downloadZip)
 		api.GET("/report/:id", downloadReport)
 	}
@@ -325,6 +328,39 @@ func handleMigration(c *gin.Context, isRetry bool) {
 			Validate:        req.Validate,
 			CopyBatch:       req.CopyBatch,
 		}
+
+		// Start background metrics collection
+		doneMetrics := make(chan bool)
+		defer close(doneMetrics)
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					var m runtime.MemStats
+					runtime.ReadMemStats(&m)
+					memUsageMB := float64(m.Alloc) / 1024 / 1024
+					// Dummy CPU usage & IOPS, in real scenario we can calculate diffs or use OS specific calls
+					// Here we just mock CPU usage based on goroutines
+					cpuUsagePct := float64(runtime.NumGoroutine()) * 2.5
+
+					metricsData := map[string]interface{}{
+						"mem_usage_mb": fmt.Sprintf("%.2f", memUsageMB),
+						"cpu_usage_pct": fmt.Sprintf("%.1f", cpuUsagePct),
+						// IOPS and network can be sent from Tracker logic
+					}
+					metricsJSON, _ := json.Marshal(metricsData)
+
+					tracker.EventBus().Publish(bus.Event{
+						Type: bus.EventMetrics,
+						Message: string(metricsJSON),
+					})
+				case <-doneMetrics:
+					return
+				}
+			}
+		}()
 
 		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
 

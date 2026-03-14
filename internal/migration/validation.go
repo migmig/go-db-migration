@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"strings"
 
+	"dbmigrator/internal/bus"
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
 	"dbmigrator/internal/dialect"
 )
 
 // ValidationTracker는 검증 진행 상황을 외부로 전달하는 인터페이스이다.
+// Deprecated: Use EventBus instead
 type ValidationTracker interface {
 	ValidationStart(table string)
 	ValidationResult(table string, sourceCount, targetCount int, status string, detail string)
@@ -40,13 +42,24 @@ func runValidation(
 	valTracker, hasValTracker := tracker.(ValidationTracker)
 
 	for _, tableName := range cfg.Tables {
-		if hasValTracker {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventValidationStart, Table: tableName})
+		} else if hasValTracker {
 			valTracker.ValidationStart(tableName)
 		}
 
 		result := validateTable(dbConn, targetDB, pgPool, dia, tableName, cfg)
 
-		if hasValTracker {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{
+				Type:    bus.EventValidationResult,
+				Table:   tableName,
+				Total:   result.SourceCount,
+				Count:   result.TargetCount,
+				Status:  result.Status,
+				Message: result.Detail,
+			})
+		} else if hasValTracker {
 			valTracker.ValidationResult(
 				tableName, result.SourceCount, result.TargetCount,
 				result.Status, result.Detail,
