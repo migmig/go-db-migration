@@ -20,6 +20,8 @@ func setupTestRouter() *gin.Engine {
 	api := r.Group("/api")
 	api.POST("/tables", getTables)
 	api.POST("/migrate", startMigration)
+	api.POST("/migrate/retry", retryMigration)
+	api.POST("/test-target", testTargetConnection)
 	api.GET("/download/:id", downloadZip)
 	return r
 }
@@ -69,6 +71,30 @@ func TestValidateMigrationRequest_NegativeWorkers(t *testing.T) {
 	req := &startMigrationRequest{Workers: -1}
 	if err := validateMigrationRequest(req); err == nil {
 		t.Error("expected error for negative workers, got nil")
+	}
+}
+
+func TestValidateMigrationRequest_NegativeDBPoolSettings(t *testing.T) {
+	validReq := startMigrationRequest{
+		OracleURL: "host/svc",
+		Username:  "u",
+		Password:  "p",
+		Tables:    []string{"T1"},
+	}
+
+	req1 := validReq
+	req1.DBMaxOpen = -1
+	req2 := validReq
+	req2.DBMaxIdle = -1
+	req3 := validReq
+	req3.DBMaxLife = -1
+
+	cases := []startMigrationRequest{req1, req2, req3}
+
+	for _, req := range cases {
+		if err := validateMigrationRequest(&req); err == nil {
+			t.Errorf("expected error for negative DB pool setting, got nil for %+v", req)
+		}
 	}
 }
 
@@ -135,6 +161,67 @@ func TestStartMigration_InvalidOracleOwner_Returns400(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "invalid oracle owner") {
 		t.Errorf("expected error message to contain 'invalid oracle owner', got: %s", w.Body.String())
+	}
+}
+
+// ── Retry Migration ──────────────────────────────────────────────────────────
+
+func TestRetryMigration_ValidRequest_Returns200(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"host/svc","username":"u","password":"p","tables":["T1"]}`
+	req, _ := http.NewRequest("POST", "/api/migrate/retry", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "Migration started") {
+		t.Errorf("expected 'Migration started' in response body, got: %s", w.Body.String())
+	}
+}
+
+func TestRetryMigration_InvalidJSON(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/migrate/retry", strings.NewReader("{bad json}"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// ── Test Target Connection ───────────────────────────────────────────────────
+
+func TestTestTargetConnection_MissingFields(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/test-target", strings.NewReader(`{"targetDb":"postgres"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing targetUrl, got %d", w.Code)
+	}
+}
+
+func TestTestTargetConnection_UnsupportedDB(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"targetDb":"unsupported","targetUrl":"some_url"}`
+	req, _ := http.NewRequest("POST", "/api/test-target", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for unsupported DB, got %d", w.Code)
 	}
 }
 
