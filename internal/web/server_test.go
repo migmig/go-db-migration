@@ -102,6 +102,42 @@ func TestStartMigration_InvalidSchema_Returns400(t *testing.T) {
 	}
 }
 
+func TestStartMigration_InvalidTableName_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	// 악의적인 테이블명 포함
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["USERS; DROP TABLE USERS --"]}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid table name, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "invalid table name") {
+		t.Errorf("expected error message to contain 'invalid table name', got: %s", w.Body.String())
+	}
+}
+
+func TestStartMigration_InvalidOracleOwner_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	// 유효하지 않은 oracleOwner
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["USERS"],"oracleOwner":"HR;--"}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid oracle owner, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "invalid oracle owner") {
+		t.Errorf("expected error message to contain 'invalid oracle owner', got: %s", w.Body.String())
+	}
+}
+
 // ── 6-2 하위 호환성: 새 필드 미포함 요청 정상 동작 ────────────────────────────────
 
 func TestStartMigration_BackwardCompat_NoNewFields(t *testing.T) {

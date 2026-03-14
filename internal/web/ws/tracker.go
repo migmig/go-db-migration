@@ -38,6 +38,8 @@ type DetailedError interface {
 	ErrorCategory() string
 	ErrorSuggestion() string
 	IsRecoverable() bool
+	ErrorBatchNum() int
+	ErrorRowOffset() int
 }
 
 // ReportSummary는 마이그레이션 완료 시 all_done 메시지에 포함되는 요약 정보이다.
@@ -66,6 +68,8 @@ type ProgressMsg struct {
 	Category      string         `json:"category,omitempty"`
 	Suggestion    string         `json:"suggestion,omitempty"`
 	Recoverable   *bool          `json:"recoverable,omitempty"`
+	BatchNum      int            `json:"batch_num,omitempty"`
+	RowOffset     int            `json:"row_offset,omitempty"`
 	// v9: 리포트 요약
 	ReportSummary *ReportSummary `json:"report_summary,omitempty"`
 }
@@ -278,6 +282,8 @@ func (t *WebSocketTracker) Error(table string, err error) {
 		msg.Suggestion = de.ErrorSuggestion()
 		recoverable := de.IsRecoverable()
 		msg.Recoverable = &recoverable
+		msg.BatchNum = de.ErrorBatchNum()
+		msg.RowOffset = de.ErrorRowOffset()
 	}
 
 	t.broadcast(msg)

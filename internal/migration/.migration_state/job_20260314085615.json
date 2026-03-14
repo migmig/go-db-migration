@@ -1,0 +1,21 @@
+{
+  "job_id": "job_20260314085615",
+  "tables": {
+    "ALPHA": {
+      "offset": 2,
+      "completed": true
+    },
+    "BETA": {
+      "offset": 2,
+      "completed": true
+    },
+    "T1": {
+      "offset": 1,
+      "completed": true
+    },
+    "T2": {
+      "offset": 1,
+      "completed": true
+    }
+  }
+}

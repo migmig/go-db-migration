@@ -2,3 +2,6 @@
 /dbmigrator
 *.log
 /dbmigrator.exe
+
+.gemini/
+gha-creds-*.json

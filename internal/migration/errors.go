@@ -11,6 +11,7 @@ type ErrorCategory string
 const (
 	ErrTypeMismatch     ErrorCategory = "TYPE_MISMATCH"
 	ErrNullViolation    ErrorCategory = "NULL_VIOLATION"
+	ErrUniqueViolation  ErrorCategory = "UNIQUE_VIOLATION"
 	ErrFKViolation      ErrorCategory = "FK_VIOLATION"
 	ErrConnectionLost   ErrorCategory = "CONNECTION_LOST"
 	ErrTimeout          ErrorCategory = "TIMEOUT"
@@ -62,6 +63,8 @@ func (e *MigrationError) ErrorPhase() string     { return e.Phase }
 func (e *MigrationError) ErrorCategory() string  { return string(e.Category) }
 func (e *MigrationError) ErrorSuggestion() string { return e.Suggestion }
 func (e *MigrationError) IsRecoverable() bool    { return e.Recoverable }
+func (e *MigrationError) ErrorBatchNum() int     { return e.BatchNum }
+func (e *MigrationError) ErrorRowOffset() int    { return e.RowOffset }
 
 // classifyError는 DB 드라이버 에러 메시지를 분석하여 ErrorCategory를 결정한다.
 func classifyError(err error) ErrorCategory {
