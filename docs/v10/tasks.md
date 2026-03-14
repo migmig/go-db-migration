@@ -42,3 +42,11 @@
 * [x] **Task 4.3: Edge Case 테스트 및 버그 수정**
   * 브라우저 탭 이동 시 타이머(ETA) 이슈 확인.
   * 다크모드 적용 시 누락된 컬러 변수(테이블 헤더, 탭 활성화 상태 등) 보완.
+
+## Phase 5: 테스트 케이스 작성 여부 (Test Coverage Check)
+* [x] **Task 5.1: 타겟 DB 검증 API 테스트**
+  * `POST /api/test-target` 엔드포인트에 대한 성공 및 실패 케이스 검증.
+* [x] **Task 5.2: 재시도(Retry) API 테스트**
+  * `POST /api/migrate/retry` 엔드포인트 요청에 대한 처리 여부 확인.
+* [x] **Task 5.3: 입력값 검증 (Validation) 테스트 확장**
+  * DB 커넥션 풀(DB Max Open/Idle/Life) 등 새로운 설정값에 대한 유효성 테스트 작성.
