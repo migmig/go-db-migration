@@ -1,44 +1,44 @@
-# Product Requirements Document (PRD): Oracle to PostgreSQL Migration Tool v2
+# 제품 요구사항 문서 (PRD): Oracle에서 PostgreSQL 마이그레이션 도구 v2
 
-## 1. Overview
-Building on the success of the initial CLI tool, v2 aims to enhance robustness, performance, and features to support production-scale migrations. This version focuses on direct database insertion, schema creation, and better resource management.
+## 1. 개요
+초기 CLI 도구의 성공을 바탕으로, v2는 프로덕션 규모의 마이그레이션을 지원하기 위해 견고성, 성능 및 기능을 향상시키는 것을 목표로 합니다. 이 버전은 직접 데이터베이스 삽입, 스키마 생성 및 더 나은 리소스 관리에 중점을 둡니다.
 
-## 2. Objectives
-- **Direct Migration:** Support direct data transfer from Oracle to PostgreSQL without intermediate SQL files.
-- **Schema Autodiscovery:** Generate `CREATE TABLE` DDLs based on Oracle table structures.
-- **Improved Performance:** Use a worker pool to manage concurrent table processing more efficiently.
-- **Enhanced Validation:** Provide a "dry run" mode to validate connectivity and estimate data volumes.
+## 2. 목표
+- **직접 마이그레이션(Direct Migration):** 중간 SQL 파일 없이 Oracle에서 PostgreSQL로의 직접 데이터 전송을 지원합니다.
+- **스키마 자동 검색:** Oracle 테이블 구조를 기반으로 `CREATE TABLE` DDL을 생성합니다.
+- **성능 향상:** 작업자 풀(Worker Pool)을 사용하여 동시 테이블 처리를 보다 효율적으로 관리합니다.
+- **검증 강화:** 연결성을 검증하고 데이터 볼륨을 추정하기 위한 "예행 연습(dry run)" 모드를 제공합니다.
 
-## 3. New Features
+## 3. 새로운 기능
 
-### 3.1 Direct PostgreSQL Insertion
-- **New Flag:** `--pg-url`
-- When specified, the tool connects to the target PostgreSQL database and executes `COPY` or `INSERT` commands directly.
-- Uses `github.com/lib/pq` or `github.com/jackc/pgx/v5`.
+### 3.1 직접 PostgreSQL 삽입
+- **새 플래그:** `--pg-url`
+- 지정된 경우 도구는 대상 PostgreSQL 데이터베이스에 연결하고 `COPY` 또는 `INSERT` 명령을 직접 실행합니다.
+- `github.com/lib/pq` 또는 `github.com/jackc/pgx/v5`를 사용합니다.
 
-### 3.2 DDL Generation
-- **New Flag:** `--with-ddl`
-- Generates `CREATE TABLE` statements before the `INSERT` statements.
-- Automatically maps Oracle types to the most appropriate PostgreSQL types (e.g., `VARCHAR2` -> `text`, `NUMBER(10,0)` -> `integer`).
+### 3.2 DDL 생성
+- **새 플래그:** `--with-ddl`
+- `INSERT` 문 전에 `CREATE TABLE` 문을 생성합니다.
+- Oracle 타입을 가장 적절한 PostgreSQL 타입으로 자동 매핑합니다 (예: `VARCHAR2` -> `text`, `NUMBER(10,0)` -> `integer`).
 
-### 3.3 Worker Pool for Parallelism
-- **New Flag:** `--workers` (Default: 4)
-- Instead of spawning one goroutine per table, the tool uses a fixed number of workers to process the table queue, preventing resource exhaustion on the databases.
+### 3.3 병렬 처리를 위한 작업자 풀
+- **새 플래그:** `--workers` (기본값: 4)
+- 테이블당 하나의 고루틴을 생성하는 대신, 도구는 고정된 수의 작업자를 사용하여 테이블 대기열을 처리하므로 데이터베이스의 리소스 고갈을 방지합니다.
 
-### 3.4 Dry Run Mode
-- **New Flag:** `--dry-run`
-- Connects to Oracle, verifies permissions, counts rows in specified tables, and reports the estimated migration plan without writing any files or inserting data.
+### 3.4 예행 연습(Dry Run) 모드
+- **새 플래그:** `--dry-run`
+- Oracle에 연결하고, 권한을 확인하고, 지정된 테이블의 행 수를 세고, 파일을 쓰거나 데이터를 삽입하지 않고 예상되는 마이그레이션 계획을 보고합니다.
 
-### 3.5 Structured Logging
-- Replace standard `log` with `log/slog` for structured, leveled logging (JSON or Text).
+### 3.5 구조화된 로깅
+- 구조화되고 레벨이 지정된 로깅(JSON 또는 Text)을 위해 표준 `log`를 `log/slog`로 교체합니다.
 
-## 4. Technical Requirements
-- **Language:** Go 1.22+
-- **Drivers:** 
+## 4. 기술 요구사항
+- **언어:** Go 1.22 이상
+- **드라이버:**
   - Oracle: `github.com/sijms/go-ora/v2`
   - PostgreSQL: `github.com/jackc/pgx/v5`
-- **Concurrency:** Worker pool pattern using channels and `sync.WaitGroup`.
+- **동시성:** 채널(channels) 및 `sync.WaitGroup`을 사용하는 작업자 풀 패턴.
 
-## 5. Scope & Constraints
-- Migration remains focused on data and basic schema; complex objects like procedures, triggers, or views are out of scope for v2.
-- Large BLOB/CLOB handling must be optimized to avoid memory spikes (streaming).
+## 5. 범위 및 제약 사항
+- 마이그레이션은 데이터 및 기본 스키마에 중점을 둡니다. 프로시저, 트리거 또는 뷰와 같은 복잡한 객체는 v2의 범위를 벗어납니다.
+- 메모리 급증을 방지하기 위해 대용량 BLOB/CLOB 처리를 최적화해야 합니다 (스트리밍).
