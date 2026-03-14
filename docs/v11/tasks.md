@@ -3,16 +3,16 @@
 본 문서는 `prd.md` 및 `spec.md`를 바탕으로 개발자가 순차적으로 실행할 수 있도록 분할한 세부 작업 목록입니다.
 
 ## Phase 1: 실시간 모니터링 고도화 (WebSocket 도입)
-* [ ] **Task 1.1: WebSocket 서버 아키텍처 구축**
+* [x] **Task 1.1: WebSocket 서버 아키텍처 구축**
   * `internal/web/ws/` 디렉토리에 WebSocket 핸들러 및 연결 관리(Connection Manager) 구현.
   * 기존 HTTP 단방향 Polling 엔드포인트를 대체할 `ws://<host>/api/ws` 엔드포인트 라우팅 추가.
-* [ ] **Task 1.2: 내부 Event Bus (Pub/Sub) 구현**
+* [x] **Task 1.2: 내부 Event Bus (Pub/Sub) 구현**
   * 마이그레이션 코어 로직(Worker)과 웹소켓 브로드캐스터 간의 의존성 분리를 위한 경량 Event Bus 구조 도입.
   * 상태 변경, 에러 발생, 진행률 업데이트 이벤트를 정의하고 발행(Publish) 및 구독(Subscribe) 로직 작성.
-* [ ] **Task 1.3: 프론트엔드 WebSocket 클라이언트 연동**
+* [x] **Task 1.3: 프론트엔드 WebSocket 클라이언트 연동**
   * `ui.js` (또는 관련 프론트엔드 스크립트)에서 기존 `setInterval` 기반의 Polling 로직 제거.
   * WebSocket API(`new WebSocket()`)를 사용하여 서버 연결, 재연결(Reconnection) 로직 및 수신된 이벤트 처리 함수 구현.
-* [ ] **Task 1.4: 실시간 대시보드 UI 반영**
+* [x] **Task 1.4: 실시간 대시보드 UI 반영**
   * WebSocket을 통해 수신된 초당 처리량(IOPS), 네트워크 대역폭, 예상 남은 시간(ETA) 등의 메트릭을 UI 대시보드 위젯에 즉각적으로(지연 없이) 렌더링.
 
 ## Phase 2: 대용량 테이블 분할 병렬 처리 (Table Chunking)

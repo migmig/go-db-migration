@@ -1,0 +1,32 @@
+{
+  "job_id": "job_20260314091554",
+  "started_at": "2026-03-14T09:15:54.20771006Z",
+  "finished_at": "2026-03-14T09:15:54.209275457Z",
+  "duration": "1ms",
+  "source_url": "oracle://:@",
+  "target_db": "",
+  "target_url": "",
+  "tables": [
+    {
+      "name": "ALPHA",
+      "row_count": 2,
+      "duration_ns": 849384,
+      "duration": "0ms",
+      "rows_per_sec": 2354.6,
+      "ddl_executed": false,
+      "status": "ok"
+    },
+    {
+      "name": "BETA",
+      "row_count": 2,
+      "duration_ns": 588283,
+      "duration": "0ms",
+      "rows_per_sec": 3399.7,
+      "ddl_executed": false,
+      "status": "ok"
+    }
+  ],
+  "total_rows": 4,
+  "success_count": 2,
+  "error_count": 0
+}

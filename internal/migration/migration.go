@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"dbmigrator/internal/bus"
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/db"
 	"dbmigrator/internal/dialect"
@@ -19,24 +20,29 @@ import (
 )
 
 // ProgressTracker is used to send progress updates to the caller (e.g., Web UI)
+// Deprecated: Use EventBus instead
 type ProgressTracker interface {
 	Init(table string, totalRows int)
 	Update(table string, processedRows int)
 	Done(table string)
 	Error(table string, err error)
+	EventBus() bus.EventBus
 }
 
 // DryRunTracker extends ProgressTracker with dry-run result reporting
+// Deprecated: Use EventBus instead
 type DryRunTracker interface {
 	DryRunResult(table string, totalRows int, connectionOk bool)
 }
 
 // DDLProgressTracker extends ProgressTracker with DDL object progress reporting
+// Deprecated: Use EventBus instead
 type DDLProgressTracker interface {
 	DDLProgress(object, name, status string, err error)
 }
 
 // WarningTracker extends ProgressTracker with warning broadcasting.
+// Deprecated: Use EventBus instead
 type WarningTracker interface {
 	Warning(message string)
 }
@@ -141,13 +147,26 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 			err := dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(table))).Scan(&count)
 			if err != nil {
 				slog.Error("failed to get row count for table", "table", table, "error", err)
-				if tracker != nil {
+				if tracker != nil && tracker.EventBus() != nil {
+					tracker.EventBus().Publish(bus.Event{
+						Type:  bus.EventError,
+						Table: table,
+						Error: err,
+					})
+				} else if tracker != nil {
 					tracker.Error(table, err)
 				}
 				continue
 			}
 			slog.Info("table estimation", "table", table, "estimated_rows", count)
-			if hasDryTracker {
+			if tracker != nil && tracker.EventBus() != nil {
+				tracker.EventBus().Publish(bus.Event{
+					Type:         bus.EventDryRunResult,
+					Table:        table,
+					Total:        count,
+					ConnectionOk: connOk,
+				})
+			} else if hasDryTracker {
 				dryTracker.DryRunResult(table, count, connOk)
 			}
 		}
@@ -220,7 +239,12 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 				ddl := GenerateConstraintDDL(c, cfg.Schema, dia)
 				if ddl == "" || strings.HasPrefix(ddl, "--") {
 					if ddl != "" && tracker != nil {
-						if wt, ok := tracker.(WarningTracker); ok {
+						if tracker.EventBus() != nil {
+							tracker.EventBus().Publish(bus.Event{
+								Type:    bus.EventWarning,
+								Message: strings.TrimSpace(strings.TrimPrefix(ddl, "--")),
+							})
+						} else if wt, ok := tracker.(WarningTracker); ok {
 							wt.Warning(strings.TrimSpace(strings.TrimPrefix(ddl, "--")))
 						}
 					}
@@ -251,12 +275,27 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 
 				if execErr != nil {
 					slog.Warn("failed to execute constraint DDL", "constraint", c.Name, "error", execErr)
-					if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "constraint",
+							ObjectName: c.Name,
+							Status:     "error",
+							Error:      execErr,
+						})
+					} else if hasDDLTracker {
 						ddlTracker.DDLProgress("constraint", c.Name, "error", execErr)
 					}
 				} else {
 					slog.Info("constraint DDL applied", "constraint", c.Name)
-					if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "constraint",
+							ObjectName: c.Name,
+							Status:     "ok",
+						})
+					} else if hasDDLTracker {
 						ddlTracker.DDLProgress("constraint", c.Name, "ok", nil)
 					}
 				}
@@ -285,7 +324,13 @@ func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dial
 		finishTable(rowCount, err)
 		if err != nil {
 			slog.Error("error migrating table", "table", j.tableName, "error", err)
-			if tracker != nil {
+			if tracker != nil && tracker.EventBus() != nil {
+				tracker.EventBus().Publish(bus.Event{
+					Type:  bus.EventError,
+					Table: j.tableName,
+					Error: err,
+				})
+			} else if tracker != nil {
 				tracker.Error(j.tableName, err)
 			}
 		}
@@ -298,7 +343,11 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 		slog.Info("table already completed, skipping", "table", tableName)
 		var totalRows int
 		_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(tableName))).Scan(&totalRows)
-		if tracker != nil {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventInit, Table: tableName, Total: totalRows})
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: totalRows})
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: tableName})
+		} else if tracker != nil {
 			tracker.Init(tableName, totalRows)
 			tracker.Update(tableName, totalRows)
 			tracker.Done(tableName)
@@ -308,7 +357,9 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 
 	var totalRows int
 	_ = dbConn.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", dialect.QuoteOracleIdentifier(tableName))).Scan(&totalRows)
-	if tracker != nil {
+	if tracker != nil && tracker.EventBus() != nil {
+		tracker.EventBus().Publish(bus.Event{Type: bus.EventInit, Table: tableName, Total: totalRows})
+	} else if tracker != nil {
 		tracker.Init(tableName, totalRows)
 	}
 
@@ -324,7 +375,9 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 
 	if err == nil {
 		mState.MarkCompleted(tableName)
-		if tracker != nil {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: tableName})
+		} else if tracker != nil {
 			tracker.Done(tableName)
 		}
 	}
@@ -362,12 +415,27 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 					}
 					if err != nil {
 						slog.Warn("failed to execute sequence DDL", "sequence", seq.Name, "error", err)
-						if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "sequence",
+							ObjectName: seq.Name,
+							Status:     "error",
+							Error:      err,
+						})
+					} else if hasDDLTracker {
 							ddlTracker.DDLProgress("sequence", seq.Name, "error", err)
 						}
 					} else {
 						slog.Info("sequence DDL executed", "sequence", seq.Name)
-						if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "sequence",
+							ObjectName: seq.Name,
+							Status:     "ok",
+						})
+					} else if hasDDLTracker {
 							ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
 						}
 					}
@@ -529,7 +597,9 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 				}
 				currentBatch = currentBatch[:0]
 				mState.UpdateOffset(tableName, rowCount)
-				if tracker != nil {
+				if tracker != nil && tracker.EventBus() != nil {
+					tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+				} else if tracker != nil {
 					tracker.Update(tableName, rowCount)
 				}
 			}
@@ -550,7 +620,9 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 				}
 			}
 			mState.UpdateOffset(tableName, rowCount)
-			if tracker != nil {
+			if tracker != nil && tracker.EventBus() != nil {
+				tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+			} else if tracker != nil {
 				tracker.Update(tableName, rowCount)
 			}
 		}
@@ -582,12 +654,27 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 				}
 				if err != nil {
 					slog.Warn("failed to execute index DDL", "index", idx.Name, "error", err)
-					if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "index",
+							ObjectName: idx.Name,
+							Status:     "error",
+							Error:      err,
+						})
+					} else if hasDDLTracker {
 						ddlTracker.DDLProgress("index", idx.Name, "error", err)
 					}
 				} else {
 					slog.Info("index DDL executed", "index", idx.Name)
-					if hasDDLTracker {
+					if tracker != nil && tracker.EventBus() != nil {
+						tracker.EventBus().Publish(bus.Event{
+							Type:       bus.EventDDLProgress,
+							Object:     "index",
+							ObjectName: idx.Name,
+							Status:     "ok",
+						})
+					} else if hasDDLTracker {
 						ddlTracker.DDLProgress("index", idx.Name, "ok", nil)
 					}
 				}
@@ -775,7 +862,9 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 			}
 			currentBatch = currentBatch[:0]
 			mState.UpdateOffset(tableName, rowCount)
-			if tracker != nil {
+			if tracker != nil && tracker.EventBus() != nil {
+				tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+			} else if tracker != nil {
 				tracker.Update(tableName, rowCount)
 			}
 		}
@@ -787,7 +876,9 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 			writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex)
 		}
 		mState.UpdateOffset(tableName, rowCount)
-		if tracker != nil {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+		} else if tracker != nil {
 			tracker.Update(tableName, rowCount)
 		}
 	}
@@ -882,7 +973,9 @@ func migrateTablePgBatchCopy(
 
 		offset += int(n)
 		mState.UpdateOffset(tableName, offset)
-		if tracker != nil {
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: offset})
+		} else if tracker != nil {
 			tracker.Update(tableName, offset)
 		}
 

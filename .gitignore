@@ -3,5 +3,7 @@
 *.log
 /dbmigrator.exe
 
+.migration_state/
+
 .gemini/
 gha-creds-*.json
