@@ -2,7 +2,9 @@ package config
 
 import (
 	"flag"
+	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -188,5 +190,53 @@ func TestParseFlags_ExplicitFlags(t *testing.T) {
 	}
 	if !cfg.LogJSON {
 		t.Error("expected LogJSON=true")
+	}
+}
+
+func TestParseFlags_CompletionMode_SkipsRequiredFieldValidation(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	os.Args = []string{"cmd", "-completion=bash"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("expected no error in completion mode, got: %v", err)
+	}
+	if cfg.CompletionShell != "bash" {
+		t.Fatalf("expected CompletionShell=bash, got %q", cfg.CompletionShell)
+	}
+
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read completion output: %v", err)
+	}
+	if !strings.Contains(string(out), "complete -F _dbmigrator_completions dbmigrator") {
+		t.Fatalf("expected bash completion output, got: %s", string(out))
+	}
+}
+
+func TestParseFlags_CompletionMode_UnsupportedShell(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-completion=tcsh"}
+
+	_, err := ParseFlags()
+	if err == nil {
+		t.Fatal("expected error for unsupported completion shell")
+	}
+	if !strings.Contains(err.Error(), "unsupported shell") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

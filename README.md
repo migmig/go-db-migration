@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v11)
+# Oracle to Multi-Target Data Migration CLI (v12)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -18,6 +18,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **마이그레이션 재개 (Resume) 및 히스토리 (v11):** 로컬 SQLite에 마이그레이션 이력과 로그를 저장하여 중단된 작업을 쉽게 재개(Resume)하고 감사를 수행할 수 있습니다.
 - **구조화된 로깅 (Structured Logging):** `log/slog`를 활용한 JSON 또는 Text 기반의 구조화된 로깅을 지원합니다.
 - **데이터 타입 매핑 (Data Type Mapping):** VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, NUMBER(정밀도 포함) 등 복잡한 타입을 안전하게 매핑합니다.
+- **쉘 자동완성 (Shell Completion) (v12):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다.
 
 ## 설치 (Installation)
 
@@ -57,6 +58,32 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 - 기능: 테이블 검색(LIKE), 실시간 마이그레이션 진행 상황 추적, 생성된 SQL 파일 ZIP 다운로드 등.
 
 ![Web UI Screenshot](docs/web-ui.png)
+
+### 쉘 자동완성 스크립트 생성 (v12)
+
+필요한 쉘용 자동완성 스크립트를 출력하여 적용할 수 있습니다.
+
+**Bash:**
+```bash
+./dbmigrator -completion bash > /etc/bash_completion.d/dbmigrator
+source /etc/bash_completion.d/dbmigrator
+```
+
+**Zsh:**
+```bash
+./dbmigrator -completion zsh > ~/.zsh/completions/_dbmigrator
+autoload -U compinit && compinit
+```
+
+**Fish:**
+```bash
+./dbmigrator -completion fish > ~/.config/fish/completions/dbmigrator.fish
+```
+
+**PowerShell:**
+```powershell
+./dbmigrator -completion powershell | Out-String | Invoke-Expression
+```
 
 ### 직접 마이그레이션 (Direct Migration)
 
@@ -176,6 +203,7 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 | `-validate` | 마이그레이션 후 소스-타겟 행 수 검증 수행 | `false` | 아니오 |
 | `-copy-batch` | PostgreSQL COPY 배치 크기 (0: 단일 COPY 모드) | `10000` | 아니오 |
 | `-resume` | 재개할 Job ID | 없음 | 아니오 |
+| `-completion` | 쉘 자동완성 스크립트 출력 (`bash`, `zsh`, `fish`, `powershell`) | 없음 | 아니오 |
 | `-dry-run` | 연결 확인 및 예상 행 수만 조회 (실제 이관 없음) | `false` | 아니오 |
 | `-log-json` | JSON 구조화 로그 활성화 | `false` | 아니오 |
 
