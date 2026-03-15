@@ -76,15 +76,23 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 
 > 참고: 현재 릴리즈에서는 인증 상세 기능이 단계적으로 구현 중이며, 위 옵션은 v15 구현 경로를 위한 준비 설정입니다.
 
-### 관리자 CLI (v15 예정)
+### 관리자 CLI (v15)
 
-v15 스펙 기준으로 아래 계정 관리 커맨드를 사용할 예정입니다.
+아래 계정 관리 커맨드를 통해 로컬 인증 사용자 계정을 관리할 수 있습니다.
 
 ```bash
 ./dbmigrator users list
 ./dbmigrator users add <username> <password>
 ./dbmigrator users reset-password <username> <new_password>
 ./dbmigrator users delete <username>
+```
+
+기본적으로 사용자 정보는 `.migration_state/auth.db`에 저장됩니다.
+필요하면 `DBM_AUTH_DB_PATH` 환경변수로 경로를 변경할 수 있습니다.
+
+```bash
+export DBM_AUTH_DB_PATH=./my-auth.db
+./dbmigrator users list
 ```
 
 ### 쉘 자동완성 스크립트 생성 (v12, v13)
