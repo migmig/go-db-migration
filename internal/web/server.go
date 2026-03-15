@@ -1,8 +1,10 @@
 package web
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -11,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 
 	"os"
 	"path/filepath"
@@ -22,6 +25,7 @@ import (
 	"dbmigrator/internal/dialect"
 	"dbmigrator/internal/logger"
 	"dbmigrator/internal/migration"
+	"dbmigrator/internal/security"
 	"dbmigrator/internal/web/ws"
 	"dbmigrator/internal/web/ziputil"
 
@@ -33,8 +37,81 @@ var templateFS embed.FS
 
 var sessionManager = ws.NewSessionManager()
 
+const authSessionCookieName = "dbm_auth_session"
+
+type authSession struct {
+	UserID    int64
+	Username  string
+	ExpiresAt time.Time
+}
+
+type authSessionManager struct {
+	mu       sync.RWMutex
+	sessions map[string]authSession
+	ttl      time.Duration
+}
+
+func newAuthSessionManager(ttl time.Duration) *authSessionManager {
+	return &authSessionManager{
+		sessions: make(map[string]authSession),
+		ttl:      ttl,
+	}
+}
+
+func (m *authSessionManager) createSession(userID int64, username string) (string, authSession, error) {
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return "", authSession{}, fmt.Errorf("generate session token: %w", err)
+	}
+
+	token := hex.EncodeToString(tokenBytes)
+	s := authSession{UserID: userID, Username: username, ExpiresAt: time.Now().Add(m.ttl)}
+
+	m.mu.Lock()
+	m.sessions[token] = s
+	m.mu.Unlock()
+
+	return token, s, nil
+}
+
+func (m *authSessionManager) getSession(token string) (authSession, bool) {
+	m.mu.RLock()
+	s, ok := m.sessions[token]
+	m.mu.RUnlock()
+	if !ok {
+		return authSession{}, false
+	}
+	if time.Now().After(s.ExpiresAt) {
+		m.deleteSession(token)
+		return authSession{}, false
+	}
+	return s, true
+}
+
+func (m *authSessionManager) deleteSession(token string) {
+	m.mu.Lock()
+	delete(m.sessions, token)
+	m.mu.Unlock()
+}
+
 func RunServer(port string) {
+	RunServerWithAuth(port, false)
+}
+
+func RunServerWithAuth(port string, authEnabled bool) {
 	r := gin.Default()
+	var userStore *db.UserStore
+	var authSessions *authSessionManager
+
+	if authEnabled {
+		store, err := db.OpenUserStore(os.Getenv("DBM_AUTH_DB_PATH"))
+		if err != nil {
+			log.Fatalf("Failed to open auth user store: %v", err)
+		}
+		userStore = store
+		defer userStore.Close()
+		authSessions = newAuthSessionManager(12 * time.Hour)
+	}
 
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
 	r.SetHTMLTemplate(tmpl)
@@ -51,18 +128,109 @@ func RunServer(port string) {
 
 	api := r.Group("/api")
 	{
-		api.POST("/tables", getTables)
-		api.POST("/migrate", startMigration)
-		api.POST("/migrate/retry", retryMigration)
-		api.POST("/test-target", testTargetConnection)
-		api.GET("/ws", sessionManager.HandleConnection)
-		api.GET("/download/:id", downloadZip)
-		api.GET("/report/:id", downloadReport)
+		if authEnabled {
+			api.POST("/auth/login", loginHandler(userStore, authSessions))
+			api.POST("/auth/logout", logoutHandler(authSessions))
+			api.GET("/auth/me", meHandler(authSessions))
+		}
+
+		protected := api.Group("")
+		if authEnabled {
+			protected.Use(requireAuth(authSessions))
+		}
+		protected.POST("/tables", getTables)
+		protected.POST("/migrate", startMigration)
+		protected.POST("/migrate/retry", retryMigration)
+		protected.POST("/test-target", testTargetConnection)
+		protected.GET("/ws", sessionManager.HandleConnection)
+		protected.GET("/download/:id", downloadZip)
+		protected.GET("/report/:id", downloadReport)
 	}
 
 	log.Printf("Starting web server on port %s...", port)
 	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
+	}
+}
+
+type loginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+func loginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req loginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+			return
+		}
+
+		user, err := userStore.GetUserByUsername(strings.TrimSpace(req.Username))
+		if err != nil || !security.VerifyPassword(user.PasswordHash, req.Password) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
+			return
+		}
+
+		token, s, err := sessions.createSession(user.ID, user.Username)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+			return
+		}
+
+		c.SetCookie(authSessionCookieName, token, int(time.Until(s.ExpiresAt).Seconds()), "/", "", false, true)
+		c.JSON(http.StatusOK, gin.H{"username": user.Username, "userId": user.ID})
+	}
+}
+
+func logoutHandler(sessions *authSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, _ := c.Cookie(authSessionCookieName)
+		if token != "" {
+			sessions.deleteSession(token)
+		}
+		c.SetCookie(authSessionCookieName, "", -1, "/", "", false, true)
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+func meHandler(sessions *authSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, err := c.Cookie(authSessionCookieName)
+		if err != nil || token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		s, ok := sessions.getSession(token)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"userId": s.UserID, "username": s.Username})
+	}
+}
+
+func requireAuth(sessions *authSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, err := c.Cookie(authSessionCookieName)
+		if err != nil || token == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		s, ok := sessions.getSession(token)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", s.UserID)
+		c.Set("username", s.Username)
+		c.Next()
 	}
 }
 
@@ -348,14 +516,14 @@ func handleMigration(c *gin.Context, isRetry bool) {
 					cpuUsagePct := float64(runtime.NumGoroutine()) * 2.5
 
 					metricsData := map[string]interface{}{
-						"mem_usage_mb": fmt.Sprintf("%.2f", memUsageMB),
+						"mem_usage_mb":  fmt.Sprintf("%.2f", memUsageMB),
 						"cpu_usage_pct": fmt.Sprintf("%.1f", cpuUsagePct),
 						// IOPS and network can be sent from Tracker logic
 					}
 					metricsJSON, _ := json.Marshal(metricsData)
 
 					tracker.EventBus().Publish(bus.Event{
-						Type: bus.EventMetrics,
+						Type:    bus.EventMetrics,
 						Message: string(metricsJSON),
 					})
 				case <-doneMetrics:

@@ -32,7 +32,7 @@ func main() {
 	}
 
 	if cfg.WebMode {
-		web.RunServer("8080")
+		web.RunServerWithAuth("8080", cfg.AuthEnabled)
 		return
 	}
 

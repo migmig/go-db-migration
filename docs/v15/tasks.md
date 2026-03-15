@@ -37,10 +37,10 @@
 
 ### 4. 인증/인가 서버 구현 (Web Backend)
 - [ ] `internal/web/server.go`
-  - [ ] `POST /api/auth/login`
-  - [ ] `POST /api/auth/logout`
-  - [ ] `GET /api/auth/me`
-  - [ ] 인증 미들웨어(`requireAuth`) 적용
+  - [x] `POST /api/auth/login`
+  - [x] `POST /api/auth/logout`
+  - [x] `GET /api/auth/me`
+  - [x] 인증 미들웨어(`requireAuth`) 적용
 - [ ] 보호 API 사용자 스코프 강제
   - [ ] credentials CRUD에서 `user_id` 소유권 체크
   - [ ] history 조회/상세/재실행에서 `user_id` 소유권 체크
@@ -80,7 +80,7 @@
 - [ ] 단위 테스트
   - [x] bcrypt 해시/검증
   - [x] AES-GCM 암복호화/키 오류
-  - [ ] user_id 스코프 필터(권한) 검증
+  - [x] user_id 스코프 필터(권한) 검증
 - [ ] 통합 테스트
   - [ ] 로그인/로그아웃/세션 만료 시나리오
   - [ ] 사용자 A/B 데이터 격리 검증(credentials/history)

@@ -1,12 +1,17 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"dbmigrator/internal/db"
+	"dbmigrator/internal/security"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +28,37 @@ func setupTestRouter() *gin.Engine {
 	api.POST("/migrate/retry", retryMigration)
 	api.POST("/test-target", testTargetConnection)
 	api.GET("/download/:id", downloadZip)
+	return r
+}
+
+func setupAuthTestRouter(t *testing.T) *gin.Engine {
+	t.Helper()
+	store, err := db.OpenUserStore(filepath.Join(t.TempDir(), "auth.db"))
+	if err != nil {
+		t.Fatalf("open user store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	hash, err := security.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if err := store.CreateUser("alice", hash, false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	sessions := newAuthSessionManager(time.Hour)
+
+	r := gin.New()
+	api := r.Group("/api")
+	api.POST("/auth/login", loginHandler(store, sessions))
+	api.POST("/auth/logout", logoutHandler(sessions))
+	api.GET("/auth/me", meHandler(sessions))
+
+	protected := api.Group("")
+	protected.Use(requireAuth(sessions))
+	protected.POST("/migrate", startMigration)
+
 	return r
 }
 
@@ -282,6 +318,74 @@ func TestGetTables_EmptyBody(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for empty body, got %d", w.Code)
+	}
+}
+
+func TestAuth_LoginMeLogoutFlow(t *testing.T) {
+	r := setupAuthTestRouter(t)
+
+	loginReq := httptest.NewRecorder()
+	body := `{"username":"alice","password":"password123"}`
+	req, _ := http.NewRequest("POST", "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(loginReq, req)
+
+	if loginReq.Code != http.StatusOK {
+		t.Fatalf("expected login 200, got %d (%s)", loginReq.Code, loginReq.Body.String())
+	}
+
+	cookie := loginReq.Header().Get("Set-Cookie")
+	if cookie == "" {
+		t.Fatal("expected session cookie on login")
+	}
+
+	meReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/auth/me", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(meReq, req)
+
+	if meReq.Code != http.StatusOK {
+		t.Fatalf("expected me 200, got %d (%s)", meReq.Code, meReq.Body.String())
+	}
+
+	var me map[string]any
+	if err := json.Unmarshal(meReq.Body.Bytes(), &me); err != nil {
+		t.Fatalf("decode me response: %v", err)
+	}
+	if me["username"] != "alice" {
+		t.Fatalf("expected username alice, got %v", me["username"])
+	}
+
+	logoutReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/api/auth/logout", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(logoutReq, req)
+
+	if logoutReq.Code != http.StatusOK {
+		t.Fatalf("expected logout 200, got %d", logoutReq.Code)
+	}
+
+	meAfter := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/auth/me", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(meAfter, req)
+
+	if meAfter.Code != http.StatusUnauthorized {
+		t.Fatalf("expected me after logout 401, got %d", meAfter.Code)
+	}
+}
+
+func TestAuth_ProtectedEndpointRequiresSession(t *testing.T) {
+	r := setupAuthTestRouter(t)
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["T"]}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without session, got %d", w.Code)
 	}
 }
 
