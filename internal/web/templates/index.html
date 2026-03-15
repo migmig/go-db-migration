@@ -798,16 +798,16 @@
                     </div>
                     <div id="ddlSubOptions" style="padding-left: 1.5rem; display: block;">
                         <div class="checkbox-container" style="margin-bottom: 0.5rem;">
-                            <input type="checkbox" id="withSequences" disabled aria-label="Sequence 포함" aria-disabled="true">
-                            <label for="withSequences" style="color: var(--text-muted);">Sequence 포함</label>
+                            <input type="checkbox" id="withSequences" aria-label="Sequence 포함">
+                            <label for="withSequences">Sequence 포함</label>
                         </div>
                         <div class="checkbox-container" style="margin-bottom: 0.5rem;">
-                            <input type="checkbox" id="withIndexes" disabled aria-label="Index 포함" aria-disabled="true">
-                            <label for="withIndexes" style="color: var(--text-muted);">Index 포함</label>
+                            <input type="checkbox" id="withIndexes" aria-label="Index 포함">
+                            <label for="withIndexes">Index 포함</label>
                         </div>
                         <div class="checkbox-container" style="margin-bottom: 0.75rem;">
-                            <input type="checkbox" id="withConstraints" disabled aria-label="제약조건(FK, Check, Default) 포함" aria-disabled="true">
-                            <label for="withConstraints" style="color: var(--text-muted);">제약조건 포함 (FK, Check, Default)</label>
+                            <input type="checkbox" id="withConstraints" aria-label="제약조건(FK, Check, Default) 포함">
+                            <label for="withConstraints">제약조건 포함 (FK, Check, Default)</label>
                         </div>
                         <div class="checkbox-container" style="margin-bottom: 0.75rem;">
                             <input type="checkbox" id="validate" aria-label="마이그레이션 후 데이터 검증 수행">
@@ -1720,6 +1720,9 @@
     // ── Chart.js ──
     let progressChart;
     function initProgressChart() {
+        if (progressChart) {
+            progressChart.destroy();
+        }
         const ctx = document.getElementById('progressChart').getContext('2d');
         const isDark = document.documentElement.dataset.theme === 'dark';
         const textColor = isDark ? '#94a3b8' : '#64748b';
