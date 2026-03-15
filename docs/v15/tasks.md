@@ -17,8 +17,8 @@
   - [ ] `db_credentials` 테이블 생성/마이그레이션 추가
   - [ ] `migration_history.user_id` 스키마 확장 및 인덱스 추가
   - [ ] 업그레이드 백필 로직(user_id 매핑) 구현
-- [ ] 사용자 저장소 메서드 구현
-  - [ ] `CreateUser`, `GetUserByUsername`, `ListUsers`, `DeleteUser`, `ResetPassword`
+- [x] 사용자 저장소 메서드 구현
+  - [x] `CreateUser`, `GetUserByUsername`, `ListUsers`, `DeleteUser`, `ResetPassword`
 - [ ] 접속정보 저장소 메서드 구현
   - [ ] `CreateCredential`, `ListCredentialsByUser`, `UpdateCredential`, `DeleteCredential`
 - [ ] 이력 저장소 메서드 구현
@@ -67,14 +67,14 @@
   - [ ] 로그인/로그아웃 이벤트 핸들링
 
 ### 7. 관리자 CLI 구현 (Admin Shell)
-- [ ] `main.go` 커맨드 엔트리 추가
-  - [ ] `users list`
-  - [ ] `users add <username> <password>`
-  - [ ] `users reset-password <username> <newPassword>`
-  - [ ] `users delete <username>`
-- [ ] 에러 처리/종료코드 표준화
-  - [ ] 성공 시 0, 실패 시 non-zero
-  - [ ] 오류 메시지 표준에러 출력
+- [x] `main.go` 커맨드 엔트리 추가
+  - [x] `users list`
+  - [x] `users add <username> <password>`
+  - [x] `users reset-password <username> <newPassword>`
+  - [x] `users delete <username>`
+- [x] 에러 처리/종료코드 표준화
+  - [x] 성공 시 0, 실패 시 non-zero
+  - [x] 오류 메시지 표준에러 출력
 
 ### 8. 테스트 (Testing)
 - [ ] 단위 테스트
