@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v14)
+# Oracle to Multi-Target Data Migration CLI (v15)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -20,6 +20,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **데이터 타입 매핑 (Data Type Mapping):** VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, NUMBER(정밀도 포함) 등 복잡한 타입을 안전하게 매핑합니다.
 - **쉘 자동완성 (Shell Completion) (v12, v13):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다. 단독으로 입력 시 현재 쉘을 자동 감지합니다.
 - **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
+- **인증 기반 멀티유저 준비 (v15):** `-auth-enabled` 플래그와 `DBM_MASTER_KEY` 환경변수 기반 설정을 추가하여 인증/암호화 기능 도입을 위한 실행 옵션을 제공합니다.
 
 ## 설치 (Installation)
 
@@ -60,6 +61,32 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 - v14 추가: 상단 Quick Shared Connection에서 DB URL/ID/PASS를 공통 관리할 수 있으며, `비밀번호 기억` 체크 시 PASS까지 재접속 후 복원됩니다(공용 PC 비권장).
 
 ![Web UI Screenshot](docs/web-ui.png)
+
+### 인증 모드 및 키 설정 (v15 준비)
+
+v15 멀티유저 인증 기능 도입을 위한 실행 옵션이 추가되었습니다.
+
+- `-auth-enabled`: 인증 기반 멀티유저 모드 활성화 플래그 (기본값 `false`)
+- `DBM_MASTER_KEY`: DB 접속정보 암호화에 사용할 마스터 키 환경변수
+
+예시:
+```bash
+export DBM_MASTER_KEY="change-me-32-bytes-or-more"
+./dbmigrator -web -auth-enabled
+```
+
+> 참고: 현재 릴리즈에서는 인증 상세 기능이 단계적으로 구현 중이며, 위 옵션은 v15 구현 경로를 위한 준비 설정입니다.
+
+### 관리자 CLI (v15 예정)
+
+v15 스펙 기준으로 아래 계정 관리 커맨드를 사용할 예정입니다.
+
+```bash
+./dbmigrator users list
+./dbmigrator users add <username> <password>
+./dbmigrator users reset-password <username> <new_password>
+./dbmigrator users delete <username>
+```
 
 ### 쉘 자동완성 스크립트 생성 (v12, v13)
 
@@ -213,10 +240,17 @@ autoload -U compinit && compinit
 | `-copy-batch` | PostgreSQL COPY 배치 크기 (0: 단일 COPY 모드) | `10000` | 아니오 |
 | `-resume` | 재개할 Job ID | 없음 | 아니오 |
 | `-completion` | 쉘 자동완성 스크립트 출력 (`bash`, `zsh`, `fish`, `powershell`) | 없음 | 아니오 |
+| `-auth-enabled` | 인증 기반 멀티유저 모드 활성화 (v15 준비) | `false` | 아니오 |
 | `-dry-run` | 연결 확인 및 예상 행 수만 조회 (실제 이관 없음) | `false` | 아니오 |
 | `-log-json` | JSON 구조화 로그 활성화 | `false` | 아니오 |
 
 *\* CLI 모드에서는 필수 항목입니다. (Web 모드 시 UI에서 입력)*
+
+## 환경 변수 (Environment Variables)
+
+| 변수 | 설명 | 필수 여부 |
+| --- | --- | --- |
+| `DBM_MASTER_KEY` | v15 인증/접속정보 암호화 기능에서 사용할 마스터 키. 운영 환경에서는 반드시 강한 비밀값을 사용하세요. | v15 인증모드 사용 시 권장 |
 
 ## 개발 (Development)
 

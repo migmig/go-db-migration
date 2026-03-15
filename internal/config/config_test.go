@@ -124,6 +124,12 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.LogJSON {
 		t.Error("LogJSON should default to false")
 	}
+	if cfg.AuthEnabled {
+		t.Error("AuthEnabled should default to false")
+	}
+	if cfg.MasterKey != "" {
+		t.Errorf("MasterKey default = %q, want empty", cfg.MasterKey)
+	}
 }
 
 func TestParseFlags_ExplicitFlags(t *testing.T) {
@@ -146,6 +152,7 @@ func TestParseFlags_ExplicitFlags(t *testing.T) {
 		"-with-ddl",
 		"-dry-run",
 		"-log-json",
+		"-auth-enabled",
 	}
 
 	cfg, err := ParseFlags()
@@ -190,6 +197,9 @@ func TestParseFlags_ExplicitFlags(t *testing.T) {
 	}
 	if !cfg.LogJSON {
 		t.Error("expected LogJSON=true")
+	}
+	if !cfg.AuthEnabled {
+		t.Error("expected AuthEnabled=true")
 	}
 }
 
@@ -324,5 +334,27 @@ func TestParseFlags_CompletionNoArgs_UnsupportedShell_Fails(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "자동 감지된 쉘이 지원되지 않거나 알 수 없습니다") {
 		t.Errorf("expected usage output, got: %s", string(out))
+	}
+}
+
+
+func TestParseFlags_LoadsMasterKeyFromEnv(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	oldMaster := os.Getenv("DBM_MASTER_KEY")
+	defer func() {
+		os.Args = oldArgs
+		_ = os.Setenv("DBM_MASTER_KEY", oldMaster)
+	}()
+
+	_ = os.Setenv("DBM_MASTER_KEY", "test-master-key")
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MasterKey != "test-master-key" {
+		t.Fatalf("MasterKey = %q, want %q", cfg.MasterKey, "test-master-key")
 	}
 }

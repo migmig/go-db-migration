@@ -102,6 +102,9 @@ type Config struct {
 	CopyBatch int
 	// v12 flags
 	CompletionShell string
+	// v15 flags
+	AuthEnabled bool
+	MasterKey   string
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -113,7 +116,7 @@ _dbmigrator_completions()
     local cur
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion"
+    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion -auth-enabled"
     local target_dbs="postgres mysql mariadb sqlite mssql"
 
     case "${COMP_WORDS[COMP_CWORD-1]}" in
@@ -167,6 +170,7 @@ _dbmigrator() {
     '-dry-run[연결 확인 및 행 수 추정만 수행]'
     '-log-json[JSON 구조화 로그 활성화]'
     '-completion[자동완성 스크립트 생성]:shell:(bash zsh fish powershell)'
+    '-auth-enabled[인증 기반 멀티유저 모드 활성화]'
     )
     _arguments -s $opts
     }
@@ -206,6 +210,7 @@ complete -c dbmigrator -l copy-batch -r -d 'PostgreSQL COPY 배치 크기'
 complete -c dbmigrator -l resume -r -d '재개할 Job ID'
 complete -c dbmigrator -l dry-run -d '연결 확인 및 행 수 추정만 수행'
 complete -c dbmigrator -l log-json -d 'JSON 구조화 로그 활성화'
+complete -c dbmigrator -l auth-enabled -d '인증 기반 멀티유저 모드 활성화'
 complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동완성 스크립트 생성'
 `, nil
 	case "powershell":
@@ -215,7 +220,7 @@ complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동
         '-web','-url','-user','-password','-tables','-target-db','-target-url','-pg-url','-out','-batch',
         '-schema','-per-table','-parallel','-workers','-with-ddl','-with-sequences','-with-indexes',
         '-with-constraints','-sequences','-oracle-owner','-db-max-open','-db-max-idle','-db-max-life',
-        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion'
+        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion','-auth-enabled'
     )
     $opts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
@@ -327,8 +332,11 @@ func ParseFlags() (*Config, error) {
 	flag.IntVar(&cfg.CopyBatch, "copy-batch", 10000, "PostgreSQL COPY 배치 크기 (0: 단일 COPY 모드)")
 	// v12 flags
 	flag.StringVar(&cfg.CompletionShell, "completion", "", "쉘 자동완성 스크립트 출력 (bash/zsh/fish/powershell)")
+	flag.BoolVar(&cfg.AuthEnabled, "auth-enabled", false, "인증 기반 멀티유저 모드 활성화")
 
 	flag.Parse()
+
+	cfg.MasterKey = os.Getenv("DBM_MASTER_KEY")
 
 	// v6: Backward compatibility for pg-url
 	if cfg.TargetDB == "postgres" && cfg.PGURL != "" {
