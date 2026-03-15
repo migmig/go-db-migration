@@ -623,6 +623,35 @@
             border-color: var(--primary-color);
         }
 
+
+        .shared-conn-card {
+            margin-bottom: 1rem;
+            padding: 1rem;
+        }
+
+        .shared-conn-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 0.75rem;
+            align-items: end;
+        }
+
+        .shared-conn-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+        }
+
+        .inline-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
         /* ── Responsive 768px ── */
         @media (max-width: 768px) {
             .container { padding: 1rem 0.75rem 3rem; }
@@ -642,6 +671,30 @@
 </header>
 
 <div class="container">
+
+    <div class="card shared-conn-card" id="shared-conn-card">
+        <h2 style="margin-top:0; font-size:1rem;">Quick Shared Connection</h2>
+        <div class="shared-conn-grid">
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="sharedDbUrl">DB URL</label>
+                <input type="text" id="sharedDbUrl" placeholder="localhost:1521/XE" aria-label="공통 DB URL">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="sharedDbId">DB ID</label>
+                <input type="text" id="sharedDbId" placeholder="scott" aria-label="공통 DB ID">
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <label for="sharedDbPass">DB PASS</label>
+                <input type="password" id="sharedDbPass" placeholder="••••••" aria-label="공통 DB 비밀번호">
+            </div>
+        </div>
+        <div class="shared-conn-actions">
+            <label class="inline-checkbox"><input type="checkbox" id="rememberPass"> 비밀번호 기억</label>
+            <button type="button" id="btn-clear-shared" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">공통정보 초기화</button>
+            <button type="button" id="btn-clear-history" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">입력 이력 전체 삭제</button>
+            <span style="font-size:0.8rem;color:var(--text-muted);">공용 PC에서는 비밀번호 기억 사용을 권장하지 않습니다.</span>
+        </div>
+    </div>
 
     <!-- ── Stepper Header ── -->
     <div class="stepper-header" role="navigation" aria-label="진행 단계">
@@ -669,12 +722,12 @@
                 <h2>1. Source DB Connection (Oracle)</h2>
                 <div class="form-group">
                     <label for="oracleUrl">Oracle URL</label>
-                    <input type="text" id="oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
+                    <input type="text" id="oracleUrl" list="history-oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
                 </div>
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
                     <div class="form-group" style="flex: 1; margin-bottom: 0;">
                         <label for="username">Username</label>
-                        <input type="text" id="username" required aria-label="Oracle 사용자명">
+                        <input type="text" id="username" list="history-username" required aria-label="Oracle 사용자명">
                     </div>
                     <div class="form-group" style="flex: 1; margin-bottom: 0;">
                         <label for="password">Password</label>
@@ -683,12 +736,20 @@
                 </div>
                 <div class="form-group">
                     <label for="likeQuery">Table Filter (LIKE)</label>
-                    <input type="text" id="likeQuery" placeholder="e.g. USERS_%" aria-label="테이블 필터 (LIKE 패턴)">
+                    <input type="text" id="likeQuery" list="history-likeQuery" placeholder="e.g. USERS_%" aria-label="테이블 필터 (LIKE 패턴)">
                 </div>
                 <button id="btn-connect" class="btn-primary" aria-label="Oracle 연결 및 테이블 조회">Connect &amp; Fetch Tables</button>
                 <div id="conn-error" class="error-msg" role="alert"></div>
                 <div id="conn-success" class="conn-success-banner" style="display:none" role="status"></div>
             </div>
+
+                <datalist id="history-oracleUrl"></datalist>
+                <datalist id="history-username"></datalist>
+                <datalist id="history-likeQuery"></datalist>
+                <datalist id="history-pgUrl"></datalist>
+                <datalist id="history-schema"></datalist>
+                <datalist id="history-outFile"></datalist>
+                <datalist id="history-oracleOwner"></datalist>
 
             <!-- Target DB Panel -->
             <div id="target-conn-section" class="card" style="margin-bottom: 0;">
@@ -720,12 +781,12 @@
                     <div id="pg-config" style="animation: fadeIn 0.3s ease-in-out;">
                         <div class="form-group">
                             <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
-                            <input type="text" id="pgUrl" placeholder="postgres://user:pass@host:5432/dbname" aria-label="대상 DB 연결 URL">
+                            <input type="text" id="pgUrl" list="history-pgUrl" placeholder="postgres://user:pass@host:5432/dbname" aria-label="대상 DB 연결 URL">
                         </div>
                     </div>
                     <div class="form-group" id="schema-group">
                         <label for="schema">스키마</label>
-                        <input type="text" id="schema" placeholder="public" aria-label="대상 스키마">
+                        <input type="text" id="schema" list="history-schema" placeholder="public" aria-label="대상 스키마">
                     </div>
                     <button id="btn-test-target" class="btn-secondary" aria-label="타겟 DB 연결 테스트">Test Target Connection</button>
                     <div id="target-error" class="error-msg" role="alert"></div>
@@ -777,7 +838,7 @@
                 <div id="sql-only-controls">
                     <div class="form-group" style="margin-bottom: 0.75rem;">
                         <label for="outFile">출력 파일명</label>
-                        <input type="text" id="outFile" value="migration.sql" aria-label="출력 파일명">
+                        <input type="text" id="outFile" list="history-outFile" value="migration.sql" aria-label="출력 파일명">
                     </div>
                     <div style="display: flex; gap: 2rem;">
                         <div class="checkbox-container" style="margin-bottom: 0;">
@@ -815,7 +876,7 @@
                         </div>
                         <div class="form-group" style="margin-bottom: 0.75rem;">
                             <label for="oracleOwner">Oracle 소유자</label>
-                            <input type="text" id="oracleOwner" placeholder="접속 계정과 동일" aria-label="Oracle 소유자 계정">
+                            <input type="text" id="oracleOwner" list="history-oracleOwner" placeholder="접속 계정과 동일" aria-label="Oracle 소유자 계정">
                         </div>
                     </div>
                 </div>
@@ -1003,6 +1064,12 @@
     const dryRunCb        = document.getElementById('dryRun');
     const sqlOnlyControls = document.getElementById('sql-only-controls');
     const connSuccess     = document.getElementById('conn-success');
+    const sharedDbUrl     = document.getElementById('sharedDbUrl');
+    const sharedDbId      = document.getElementById('sharedDbId');
+    const sharedDbPass    = document.getElementById('sharedDbPass');
+    const rememberPassCb  = document.getElementById('rememberPass');
+    const clearSharedBtn  = document.getElementById('btn-clear-shared');
+    const clearHistoryBtn = document.getElementById('btn-clear-history');
 
     let ws;
     let currentZipId  = '';
@@ -1031,6 +1098,170 @@
         localStorage.setItem('theme', next);
         document.getElementById('theme-toggle').textContent = next === 'dark' ? '☀️' : '🌙';
     });
+
+    const STORAGE_PREFIX = 'dbmigrator:webui:v14:';
+    const HISTORY_LIMIT = 10;
+    const SHARED_CONN_KEY = `${STORAGE_PREFIX}sharedConnection`;
+    const FIELD_HISTORY_CONFIG = [
+        { inputId: 'oracleUrl', listId: 'history-oracleUrl', key: 'oracleUrl' },
+        { inputId: 'username', listId: 'history-username', key: 'username' },
+        { inputId: 'likeQuery', listId: 'history-likeQuery', key: 'likeQuery' },
+        { inputId: 'pgUrl', listId: 'history-pgUrl', key: 'targetUrl' },
+        { inputId: 'schema', listId: 'history-schema', key: 'schema' },
+        { inputId: 'outFile', listId: 'history-outFile', key: 'outFile' },
+        { inputId: 'oracleOwner', listId: 'history-oracleOwner', key: 'oracleOwner' },
+    ];
+
+    const sharedMirrorMap = {
+        sharedDbUrl: 'oracleUrl',
+        sharedDbId: 'username',
+        sharedDbPass: 'password',
+    };
+
+    function safeStorageGet(key) {
+        try { return localStorage.getItem(key); } catch (_) { return null; }
+    }
+
+    function safeStorageSet(key, value) {
+        try { localStorage.setItem(key, value); } catch (_) {}
+    }
+
+    function safeStorageRemove(key) {
+        try { localStorage.removeItem(key); } catch (_) {}
+    }
+
+    function historyKey(fieldKey) {
+        return `${STORAGE_PREFIX}history:${fieldKey}`;
+    }
+
+    function loadHistory(fieldKey) {
+        const raw = safeStorageGet(historyKey(fieldKey));
+        if (!raw) return [];
+        try {
+            const arr = JSON.parse(raw);
+            return Array.isArray(arr) ? arr.filter(v => typeof v === 'string') : [];
+        } catch (_) {
+            safeStorageRemove(historyKey(fieldKey));
+            return [];
+        }
+    }
+
+    function saveHistory(fieldKey, value) {
+        const normalized = (value || '').trim();
+        if (!normalized) return;
+        const hist = loadHistory(fieldKey).filter(v => v !== normalized);
+        hist.unshift(normalized);
+        safeStorageSet(historyKey(fieldKey), JSON.stringify(hist.slice(0, HISTORY_LIMIT)));
+    }
+
+    function renderHistoryOptions(listId, values, prefix = '') {
+        const list = document.getElementById(listId);
+        if (!list) return;
+        const p = (prefix || '').toLowerCase();
+        const filtered = p ? values.filter(v => v.toLowerCase().startsWith(p)) : values;
+        list.innerHTML = filtered.map(v => `<option value="${v.replace(/"/g, '&quot;')}"></option>`).join('');
+    }
+
+    function bindFieldHistory({ inputId, listId, key }) {
+        const input = document.getElementById(inputId);
+        if (!input) return;
+
+        const refresh = () => renderHistoryOptions(listId, loadHistory(key), input.value);
+        input.addEventListener('focus', refresh);
+        input.addEventListener('input', refresh);
+        input.addEventListener('change', () => saveHistory(key, input.value));
+        input.addEventListener('blur', () => saveHistory(key, input.value));
+        refresh();
+    }
+
+    function loadSharedConnection() {
+        const raw = safeStorageGet(SHARED_CONN_KEY);
+        if (!raw) return { dbUrl: '', dbId: '', dbPass: '', rememberPass: false };
+        try {
+            const parsed = JSON.parse(raw);
+            return {
+                dbUrl: parsed.dbUrl || '',
+                dbId: parsed.dbId || '',
+                dbPass: parsed.dbPass || '',
+                rememberPass: Boolean(parsed.rememberPass),
+            };
+        } catch (_) {
+            safeStorageRemove(SHARED_CONN_KEY);
+            return { dbUrl: '', dbId: '', dbPass: '', rememberPass: false };
+        }
+    }
+
+    function saveSharedConnection() {
+        const rememberPass = Boolean(rememberPassCb.checked);
+        safeStorageSet(SHARED_CONN_KEY, JSON.stringify({
+            dbUrl: sharedDbUrl.value.trim(),
+            dbId: sharedDbId.value.trim(),
+            dbPass: rememberPass ? sharedDbPass.value : '',
+            rememberPass,
+            updatedAt: new Date().toISOString(),
+        }));
+    }
+
+    function applySharedConnectionToMain() {
+        document.getElementById('oracleUrl').value = sharedDbUrl.value;
+        document.getElementById('username').value = sharedDbId.value;
+        document.getElementById('password').value = sharedDbPass.value;
+    }
+
+    function syncMainToShared() {
+        sharedDbUrl.value = document.getElementById('oracleUrl').value;
+        sharedDbId.value = document.getElementById('username').value;
+        sharedDbPass.value = document.getElementById('password').value;
+        saveSharedConnection();
+    }
+
+    function clearAllInputHistory() {
+        FIELD_HISTORY_CONFIG.forEach(conf => safeStorageRemove(historyKey(conf.key)));
+        FIELD_HISTORY_CONFIG.forEach(conf => renderHistoryOptions(conf.listId, []));
+    }
+
+    function captureInputHistorySnapshot() {
+        FIELD_HISTORY_CONFIG.forEach(conf => {
+            const input = document.getElementById(conf.inputId);
+            if (input) saveHistory(conf.key, input.value);
+        });
+    }
+
+    function initPersistence() {
+        FIELD_HISTORY_CONFIG.forEach(bindFieldHistory);
+
+        const shared = loadSharedConnection();
+        sharedDbUrl.value = shared.dbUrl;
+        sharedDbId.value = shared.dbId;
+        rememberPassCb.checked = shared.rememberPass;
+        sharedDbPass.value = shared.rememberPass ? shared.dbPass : '';
+        applySharedConnectionToMain();
+
+        Object.entries(sharedMirrorMap).forEach(([sharedId, mainId]) => {
+            const sharedInput = document.getElementById(sharedId);
+            const mainInput = document.getElementById(mainId);
+            sharedInput.addEventListener('input', () => {
+                mainInput.value = sharedInput.value;
+                saveSharedConnection();
+            });
+            mainInput.addEventListener('input', syncMainToShared);
+        });
+
+        rememberPassCb.addEventListener('change', saveSharedConnection);
+
+        clearSharedBtn.addEventListener('click', () => {
+            sharedDbUrl.value = '';
+            sharedDbId.value = '';
+            sharedDbPass.value = '';
+            rememberPassCb.checked = false;
+            applySharedConnectionToMain();
+            saveSharedConnection();
+        });
+
+        clearHistoryBtn.addEventListener('click', clearAllInputHistory);
+    }
+
+    initPersistence();
 
     // ── Stepper ──
     let currentStep = 1;
@@ -1098,8 +1329,8 @@
         updateNextButtonState();
         btnMigrate.disabled = false;
         btnMigrate.innerText = 'Start Migration';
-        // Password cleared for security
-        document.getElementById('password').value = '';
+        // Restore from shared connection panel
+        applySharedConnectionToMain();
         if (ws) { ws.close(); ws = null; }
         tableProgressData = {};
         shownWarnings.clear();
@@ -1307,6 +1538,8 @@
 
     // ── Connect ──
     btnConnect.addEventListener('click', async () => {
+        captureInputHistorySnapshot();
+        saveSharedConnection();
         const oracleUrl = document.getElementById('oracleUrl').value;
         const username  = document.getElementById('username').value;
         const password  = document.getElementById('password').value;
@@ -1424,6 +1657,8 @@
     let successCount = 0, failCount = 0, warnCount = 0;
 
     btnMigrate.addEventListener('click', async () => {
+        captureInputHistorySnapshot();
+        saveSharedConnection();
         const cbs            = document.querySelectorAll('.table-cb:checked');
         const selectedTables = Array.from(cbs).map(cb => cb.value);
         const errorDiv       = document.getElementById('migrate-error');
@@ -2117,6 +2352,8 @@
     }
 
     async function retryTableMigration(tableName) {
+        captureInputHistorySnapshot();
+        saveSharedConnection();
         // Update UI immediately
         if (failCount > 0) failCount--;
         if (doneTables > 0) doneTables--;

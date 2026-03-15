@@ -61,7 +61,7 @@ func RunServer(port string) {
 	}
 
 	log.Printf("Starting web server on port %s...", port)
-	if err := r.Run("localhost:" + port); err != nil {
+	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
 }
