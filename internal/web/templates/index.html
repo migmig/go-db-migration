@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .title }}</title>
+    <script src="/static/templates/chart.js"></script>
     <style>
         :root {
             --primary-color: #3b82f6;
@@ -119,6 +120,12 @@
         .session-info code {
             font-family: monospace;
             font-size: 0.78rem;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
         }
 
         #theme-toggle {
@@ -940,8 +947,28 @@
                 <div id="summary-actions" style="display:none; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;"></div>
             </div>
 
+            <!-- Dashboard Charts and Logs -->
+            <div id="dashboard-section" style="display: none; margin-top: 1.5rem; display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+                <div class="card" style="padding: 1rem;">
+                    <h3 style="margin-top: 0; font-size: 1rem;">테이블별 마이그레이션 진행률</h3>
+                    <canvas id="progressChart" style="max-height: 250px;"></canvas>
+                </div>
+                <div class="card" style="padding: 1rem; display: flex; flex-direction: column;">
+                    <h3 style="margin-top: 0; font-size: 1rem; color: var(--danger-color);">실시간 에러 로그</h3>
+                    <div id="error-log-container" style="flex: 1; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 4px; padding: 0.5rem; overflow-y: auto; font-family: monospace; font-size: 0.8rem; max-height: 250px;">
+                        <span style="color: var(--text-muted);">에러 로그 대기중...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="active-tables-section" style="display: none; margin-top: 1rem;">
+                <h3 style="margin-top: 0; font-size: 1rem; color: var(--primary-color);">현재 처리 중인 테이블</h3>
+                <div id="active-tables-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                </div>
+            </div>
+
             <!-- Status Tabs -->
-            <div class="status-tabs" id="status-tabs" style="display: none;">
+            <div class="status-tabs" id="status-tabs" style="display: none; margin-top: 1.5rem;">
                 <button class="status-tab active" data-filter="all">전체 (<span id="tab-cnt-all">0</span>)</button>
                 <button class="status-tab" data-filter="pending">대기 (<span id="tab-cnt-pending">0</span>)</button>
                 <button class="status-tab" data-filter="running">진행중 (<span id="tab-cnt-running">0</span>)</button>
@@ -1479,7 +1506,11 @@
         totalRowsProcessed = 0;
         totalExpectedRows = 0;
         document.getElementById('summary-card').style.display = 'block';
+        document.getElementById('dashboard-section').style.display = 'grid';
+        document.getElementById('active-tables-section').style.display = 'block';
         document.getElementById('status-tabs').style.display = 'flex';
+
+        initProgressChart();
         updateSummaryWidget();
         updateTabsCount();
 
@@ -1569,6 +1600,33 @@
             item.dataset.status = status;
             updateTabsCount();
         }
+        updateActiveTablesUI();
+    }
+
+    function updateActiveTablesUI() {
+        const container = document.getElementById('active-tables-container');
+        if (!container) return;
+
+        let activeTablesHtml = '';
+        let hasActive = false;
+
+        document.querySelectorAll('#progress-container .progress-item').forEach(item => {
+            if (item.dataset.status === 'running') {
+                const tableName = item.querySelector('.progress-title').innerText;
+                const progressText = item.querySelector('.progress-text').innerText;
+                hasActive = true;
+                activeTablesHtml += `<div style="background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 12px; padding: 0.2rem 0.6rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--primary-color); animation: pulse 1.5s infinite;"></span>
+                    <span style="font-weight:600;">${tableName}</span>
+                    <span style="color:var(--text-muted); font-size:0.75rem;">${progressText}</span>
+                </div>`;
+            }
+        });
+
+        if (!hasActive) {
+            activeTablesHtml = '<span style="color:var(--text-muted); font-size: 0.85rem;">현재 처리 중인 테이블이 없습니다.</span>';
+        }
+        container.innerHTML = activeTablesHtml;
     }
 
     function updateSummaryWidget() {
@@ -1659,6 +1717,129 @@
         totalRowsProcessed = total;
     }
 
+    // ── Chart.js ──
+    let progressChart;
+    function initProgressChart() {
+        const ctx = document.getElementById('progressChart').getContext('2d');
+        const isDark = document.documentElement.dataset.theme === 'dark';
+        const textColor = isDark ? '#94a3b8' : '#64748b';
+        const gridColor = isDark ? '#334155' : '#e2e8f0';
+
+        progressChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: '진행률 (%)',
+                    data: [],
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: textColor, autoSkip: false }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.parsed.x + '%';
+                            }
+                        }
+                    }
+                },
+                animation: { duration: 0 } // Disable animation for performance during rapid updates
+            }
+        });
+    }
+
+    function updateProgressChart() {
+        if (!progressChart) return;
+
+        // Extract top 10 tables by size or just all active/pending tables
+        // For performance, we'll show up to 10 tables that are currently running, or if less than 10, fill with others
+        const entries = Object.entries(tableProgressData);
+        if (entries.length === 0) return;
+
+        // Sort: running first, then pending, then by total desc
+        entries.sort((a, b) => {
+            if (a[1].status === 'running' && b[1].status !== 'running') return -1;
+            if (a[1].status !== 'running' && b[1].status === 'running') return 1;
+            return b[1].total - a[1].total;
+        });
+
+        const displayEntries = entries.slice(0, 15); // Show top 15
+
+        progressChart.data.labels = displayEntries.map(e => e[0]);
+        progressChart.data.datasets[0].data = displayEntries.map(e => {
+            if (e[1].total > 0) {
+                return Math.min(100, Math.floor((e[1].count / e[1].total) * 100));
+            } else if (e[1].count > 0 || e[1].status === 'completed') {
+                return 100;
+            }
+            return 0;
+        });
+
+        // Dynamic colors based on status
+        const isDark = document.documentElement.dataset.theme === 'dark';
+        const successCol = isDark ? '#34d399' : '#10b981';
+        const errCol     = isDark ? '#f87171' : '#ef4444';
+        const runCol     = isDark ? '#60a5fa' : '#3b82f6';
+        const pendCol    = isDark ? '#475569' : '#cbd5e1';
+
+        progressChart.data.datasets[0].backgroundColor = displayEntries.map(e => {
+            if (e[1].status === 'completed') return successCol;
+            if (e[1].status === 'error') return errCol;
+            if (e[1].status === 'running') return runCol;
+            return pendCol;
+        });
+
+        progressChart.update();
+    }
+
+    // ── Error Log Streaming ──
+    function appendErrorLog(msg) {
+        const container = document.getElementById('error-log-container');
+        if (!container) return;
+
+        // Remove placeholder if present
+        if (container.innerHTML.includes('에러 로그 대기중...')) {
+            container.innerHTML = '';
+        }
+
+        const time = new Date().toLocaleTimeString();
+        const div = document.createElement('div');
+        div.style.marginBottom = '0.4rem';
+        div.style.borderBottom = '1px solid var(--border-color)';
+        div.style.paddingBottom = '0.2rem';
+
+        let content = `<span style="color:var(--text-muted)">[${time}]</span> `;
+        if (msg.table) {
+            content += `<strong style="color:var(--text-main)">${msg.table}</strong>: `;
+        }
+        content += `<span style="color:var(--danger-color)">${msg.error || msg.message || 'Unknown error'}</span>`;
+
+        div.innerHTML = content;
+        container.appendChild(div);
+
+        // Auto-scroll to bottom
+        container.scrollTop = container.scrollHeight;
+    }
+
     function handleProgressMessage(msg) {
         const container = document.getElementById('progress-container');
 
@@ -1741,6 +1922,7 @@
             } else {
                 item.style.color = 'var(--danger-color)';
                 item.innerHTML   = `${errIcon}[${msg.object}] ${msg.object_name} — ${msg.error || 'error'}`;
+                appendErrorLog({ table: msg.object_name, error: `DDL Error: ${msg.error || 'error'}` });
             }
             return;
         }
@@ -1791,23 +1973,29 @@
         if (msg.type === 'init') {
             tableProgressData[msg.table].total = msg.total || 0;
             totalExpectedRows += (msg.total || 0);
+            tableProgressData[msg.table].status = 'running';
             updateItemStatus(msg.table, 'running');
             updateProgressUI(msg.table);
             updateSummaryWidget();
+            updateProgressChart();
         } else if (msg.type === 'update') {
             tableProgressData[msg.table].count = msg.count || 0;
+            tableProgressData[msg.table].status = 'running';
             updateItemStatus(msg.table, 'running');
             updateTotalRows();
             updateProgressUI(msg.table);
             updateSummaryWidget();
+            updateProgressChart();
         } else if (msg.type === 'done') {
             successCount++;
             doneTables++;
             const data = tableProgressData[msg.table];
             data.count = data.total;
+            data.status = 'completed';
             updateItemStatus(msg.table, 'completed');
             updateTotalRows();
             updateProgressUI(msg.table);
+            updateProgressChart();
             const fill = document.getElementById(`prog-fill-${msg.table}`);
             if (fill) fill.style.backgroundColor = 'var(--success-color)';
             const textEl = document.getElementById(`prog-text-${msg.table}`);
@@ -1820,6 +2008,9 @@
             updateOverallProgress();
             updateSummaryWidget();
         } else if (msg.type === 'error') {
+            appendErrorLog(msg);
+            tableProgressData[msg.table].status = 'error';
+            updateProgressChart();
             failCount++;
             doneTables++;
             updateItemStatus(msg.table, 'error');

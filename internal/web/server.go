@@ -47,6 +47,8 @@ func RunServer(port string) {
 		})
 	})
 
+	r.StaticFS("/static", http.FS(templateFS))
+
 	api := r.Group("/api")
 	{
 		api.POST("/tables", getTables)
