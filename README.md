@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v12)
+# Oracle to Multi-Target Data Migration CLI (v14)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -19,6 +19,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **구조화된 로깅 (Structured Logging):** `log/slog`를 활용한 JSON 또는 Text 기반의 구조화된 로깅을 지원합니다.
 - **데이터 타입 매핑 (Data Type Mapping):** VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, NUMBER(정밀도 포함) 등 복잡한 타입을 안전하게 매핑합니다.
 - **쉘 자동완성 (Shell Completion) (v12, v13):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다. 단독으로 입력 시 현재 쉘을 자동 감지합니다.
+- **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
 
 ## 설치 (Installation)
 
@@ -56,6 +57,7 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 ```
 - 기본 접속 URL: `http://localhost:8080`
 - 기능: 테이블 검색(LIKE), 실시간 마이그레이션 진행 상황 추적, 생성된 SQL 파일 ZIP 다운로드 등.
+- v14 추가: 상단 Quick Shared Connection에서 DB URL/ID/PASS를 공통 관리할 수 있으며, `비밀번호 기억` 체크 시 PASS까지 재접속 후 복원됩니다(공용 PC 비권장).
 
 ![Web UI Screenshot](docs/web-ui.png)
 
