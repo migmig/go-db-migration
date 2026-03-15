@@ -240,3 +240,89 @@ func TestParseFlags_CompletionMode_UnsupportedShell(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestParseFlags_CompletionNoArgs_DetectsShell_Success(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	oldEnv := os.Getenv("SHELL")
+	oldExit := osExit
+	defer func() {
+		os.Args = oldArgs
+		os.Setenv("SHELL", oldEnv)
+		osExit = oldExit
+	}()
+
+	os.Setenv("SHELL", "/bin/bash")
+	os.Args = []string{"cmd", "-completion"}
+
+	exitCode := -1
+	osExit = func(code int) {
+		exitCode = code
+	}
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	_, _ = ParseFlags()
+
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read completion output: %v", err)
+	}
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+	if !strings.Contains(string(out), "complete -F _dbmigrator_completions dbmigrator") {
+		t.Errorf("expected bash completion output, got: %s", string(out))
+	}
+}
+
+func TestParseFlags_CompletionNoArgs_UnsupportedShell_Fails(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	oldEnv := os.Getenv("SHELL")
+	oldExit := osExit
+	defer func() {
+		os.Args = oldArgs
+		os.Setenv("SHELL", oldEnv)
+		osExit = oldExit
+	}()
+
+	os.Setenv("SHELL", "/usr/bin/tcsh")
+	os.Args = []string{"cmd", "-completion"}
+
+	exitCode := -1
+	osExit = func(code int) {
+		exitCode = code
+	}
+
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stderr = w
+	defer func() { os.Stderr = oldStderr }()
+
+	_, _ = ParseFlags()
+
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("failed to read usage output: %v", err)
+	}
+
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(string(out), "자동 감지된 쉘이 지원되지 않거나 알 수 없습니다") {
+		t.Errorf("expected usage output, got: %s", string(out))
+	}
+}

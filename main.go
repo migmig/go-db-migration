@@ -19,6 +19,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.CompletionShell != "" {
+		return
+	}
+
 	if cfg.WebMode {
 		web.RunServer("8080")
 		return

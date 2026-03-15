@@ -18,7 +18,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **마이그레이션 재개 (Resume) 및 히스토리 (v11):** 로컬 SQLite에 마이그레이션 이력과 로그를 저장하여 중단된 작업을 쉽게 재개(Resume)하고 감사를 수행할 수 있습니다.
 - **구조화된 로깅 (Structured Logging):** `log/slog`를 활용한 JSON 또는 Text 기반의 구조화된 로깅을 지원합니다.
 - **데이터 타입 매핑 (Data Type Mapping):** VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, NUMBER(정밀도 포함) 등 복잡한 타입을 안전하게 매핑합니다.
-- **쉘 자동완성 (Shell Completion) (v12):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다.
+- **쉘 자동완성 (Shell Completion) (v12, v13):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다. 단독으로 입력 시 현재 쉘을 자동 감지합니다.
 
 ## 설치 (Installation)
 
@@ -59,9 +59,16 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 
 ![Web UI Screenshot](docs/web-ui.png)
 
-### 쉘 자동완성 스크립트 생성 (v12)
+### 쉘 자동완성 스크립트 생성 (v12, v13)
 
-필요한 쉘용 자동완성 스크립트를 출력하여 적용할 수 있습니다.
+`-completion` 플래그를 단독으로 사용하면 현재 사용 중인 쉘(Bash, Zsh, Fish 등)을 자동으로 감지하여 적절한 스크립트를 출력합니다.
+
+**현재 쉘에 즉시 적용 (권장):**
+```bash
+eval "$(./dbmigrator -completion)"
+```
+
+수동으로 쉘을 지정하여 파일로 저장할 수도 있습니다:
 
 **Bash:**
 ```bash

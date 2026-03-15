@@ -3,8 +3,65 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+var osExit = os.Exit
+
+func getParentProcessName() string {
+	ppid := os.Getppid()
+	out, err := exec.Command("ps", "-p", strconv.Itoa(ppid), "-o", "comm=").Output()
+	if err == nil {
+		comm := strings.TrimSpace(string(out))
+		base := filepath.Base(comm)
+		return strings.TrimPrefix(base, "-")
+	}
+	return ""
+}
+
+func detectShell() string {
+	// 1. Try to detect from parent process name
+	parent := getParentProcessName()
+	if parent != "" {
+		parent = strings.ToLower(parent)
+		if strings.Contains(parent, "bash") {
+			return "bash"
+		}
+		if strings.Contains(parent, "zsh") {
+			return "zsh"
+		}
+		if strings.Contains(parent, "fish") {
+			return "fish"
+		}
+		if strings.Contains(parent, "pwsh") || strings.Contains(parent, "powershell") {
+			return "powershell"
+		}
+	}
+
+	// 2. Fallback to $SHELL environment variable
+	shellEnv := strings.ToLower(os.Getenv("SHELL"))
+	if strings.Contains(shellEnv, "bash") {
+		return "bash"
+	}
+	if strings.Contains(shellEnv, "zsh") {
+		return "zsh"
+	}
+	if strings.Contains(shellEnv, "fish") {
+		return "fish"
+	}
+	if strings.Contains(shellEnv, "pwsh") || strings.Contains(shellEnv, "powershell") {
+		return "powershell"
+	}
+	return ""
+}
+
+func printCompletionUsage() {
+	fmt.Fprintf(os.Stderr, "자동 감지된 쉘이 지원되지 않거나 알 수 없습니다.\n\n사용법:\n  -completion <shell>\n\n지원하는 쉘(shell):\n  bash, zsh, fish, powershell\n\n사용 예시:\n  ./dbmigrator -completion bash > /etc/bash_completion.d/dbmigrator\n  ./dbmigrator -completion zsh > ~/.zsh/completions/_dbmigrator\n")
+}
 
 type Config struct {
 	OracleURL string
@@ -110,12 +167,14 @@ _dbmigrator() {
     '-dry-run[연결 확인 및 행 수 추정만 수행]'
     '-log-json[JSON 구조화 로그 활성화]'
     '-completion[자동완성 스크립트 생성]:shell:(bash zsh fish powershell)'
-  )
-  _arguments -s $opts
-}
+    )
+    _arguments -s $opts
+    }
 
-_dbmigrator "$@"
-`, nil
+    if [[ "$(basename -- ${(%):-%x})" != "_dbmigrator" ]]; then
+    compdef _dbmigrator dbmigrator
+    fi
+    `, nil
 	case "fish":
 		return `# fish completion for dbmigrator
 complete -c dbmigrator -f
@@ -169,6 +228,26 @@ complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동
 }
 
 func ParseFlags() (*Config, error) {
+	// flag.Parse() 호출 전, -completion 단독 사용 예외 처리 및 쉘 자동 감지
+	args := os.Args[1:]
+	for i, arg := range args {
+		if arg == "-completion" || arg == "--completion" {
+			// 마지막 인자이거나 다음 인자가 또 다른 플래그일 때 (인자 없음)
+			if i+1 == len(args) || strings.HasPrefix(args[i+1], "-") {
+				detected := detectShell()
+				if detected != "" {
+					script, _ := generateCompletionScript(detected)
+					fmt.Println(script)
+					osExit(0)
+					return nil, nil // For tests
+				}
+				printCompletionUsage()
+				osExit(1)
+				return nil, nil // For tests
+			}
+		}
+	}
+
 	cfg := &Config{}
 
 	flag.Usage = func() {
