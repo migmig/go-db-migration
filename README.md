@@ -60,7 +60,6 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 - 기능: 테이블 검색(LIKE), 실시간 마이그레이션 진행 상황 추적, 생성된 SQL 파일 ZIP 다운로드 등.
 - v14 추가: 상단 Quick Shared Connection에서 DB URL/ID/PASS를 공통 관리할 수 있으며, `비밀번호 기억` 체크 시 PASS까지 재접속 후 복원됩니다(공용 PC 비권장).
 
-![Web UI Screenshot](docs/web-ui.png)
 
 ### 인증 모드 및 키 설정 (v15 준비)
 
