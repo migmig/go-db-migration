@@ -749,6 +749,10 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.ObjectGroup = strings.ToLower(strings.TrimSpace(req.ObjectGroup))
+	if req.ObjectGroup == "" {
+		req.ObjectGroup = config.ObjectGroupAll
+	}
 
 	tracker := sessionManager.GetTracker(req.SessionID)
 	if tracker == nil && req.SessionID != "" {
@@ -934,13 +938,30 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 			if report == nil {
 				return nil
 			}
-			totalRows, successCount, errorCount, duration, reportID := report.ToSummary()
+			summary := report.ToSummary()
 			return &ws.ReportSummary{
-				TotalRows:    totalRows,
-				SuccessCount: successCount,
-				ErrorCount:   errorCount,
-				Duration:     duration,
-				ReportID:     reportID,
+				TotalRows:    summary.TotalRows,
+				SuccessCount: summary.SuccessCount,
+				ErrorCount:   summary.ErrorCount,
+				Duration:     summary.Duration,
+				ReportID:     summary.ReportID,
+				ObjectGroup:  summary.ObjectGroup,
+				Stats: ws.GroupedStats{
+					Tables: ws.GroupStats{
+						TotalItems:   summary.Stats.Tables.TotalItems,
+						SuccessCount: summary.Stats.Tables.SuccessCount,
+						ErrorCount:   summary.Stats.Tables.ErrorCount,
+						SkippedCount: summary.Stats.Tables.SkippedCount,
+						TotalRows:    summary.Stats.Tables.TotalRows,
+					},
+					Sequences: ws.GroupStats{
+						TotalItems:   summary.Stats.Sequences.TotalItems,
+						SuccessCount: summary.Stats.Sequences.SuccessCount,
+						ErrorCount:   summary.Stats.Sequences.ErrorCount,
+						SkippedCount: summary.Stats.Sequences.SkippedCount,
+						TotalRows:    summary.Stats.Sequences.TotalRows,
+					},
+				},
 			}
 		}
 
@@ -1002,8 +1023,21 @@ func saveHistoryForRequest(store *db.UserStore, userID int64, req startMigration
 		status = "failed"
 		logSummary = runErr.Error()
 	} else if report != nil {
-		totalRows, successCount, errorCount, duration, reportID := report.ToSummary()
-		logSummary = fmt.Sprintf("report=%s rows=%d success=%d error=%d duration=%s", reportID, totalRows, successCount, errorCount, duration)
+		summary := report.ToSummary()
+		logSummary = fmt.Sprintf(
+			"report=%s rows=%d success=%d error=%d duration=%s object_group=%s tables_ok=%d tables_error=%d sequences_ok=%d sequences_error=%d sequences_skipped=%d",
+			summary.ReportID,
+			summary.TotalRows,
+			summary.SuccessCount,
+			summary.ErrorCount,
+			summary.Duration,
+			summary.ObjectGroup,
+			summary.Stats.Tables.SuccessCount,
+			summary.Stats.Tables.ErrorCount,
+			summary.Stats.Sequences.SuccessCount,
+			summary.Stats.Sequences.ErrorCount,
+			summary.Stats.Sequences.SkippedCount,
+		)
 	}
 
 	if _, err := store.InsertHistory(userID, db.HistoryEntry{
@@ -1018,6 +1052,10 @@ func saveHistoryForRequest(store *db.UserStore, userID int64, req startMigration
 }
 
 func buildReplayPayload(req startMigrationRequest) map[string]any {
+	objectGroup := strings.ToLower(strings.TrimSpace(req.ObjectGroup))
+	if objectGroup == "" {
+		objectGroup = config.ObjectGroupAll
+	}
 	targetURL := maskedURL(req.TargetURL)
 	if targetURL == "" {
 		targetURL = maskedURL(req.PGURL)
@@ -1048,7 +1086,7 @@ func buildReplayPayload(req startMigrationRequest) map[string]any {
 		"dbMaxLife":       req.DBMaxLife,
 		"validate":        req.Validate,
 		"copyBatch":       req.CopyBatch,
-		"objectGroup":     req.ObjectGroup,
+		"objectGroup":     objectGroup,
 	}
 }
 

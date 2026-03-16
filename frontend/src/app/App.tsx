@@ -12,6 +12,7 @@ type RoleFilter = "all" | "source" | "target";
 type NoticeTone = "info" | "error";
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type TableRunStatus = "pending" | "running" | "completed" | "error";
+type ObjectGroup = "all" | "tables" | "sequences";
 
 type SourceState = {
   oracleUrl: string;
@@ -34,6 +35,7 @@ type SourceRecent = {
 };
 
 type MigrationOptions = {
+  objectGroup: ObjectGroup;
   outFile: string;
   perTable: boolean;
   withDdl: boolean;
@@ -81,6 +83,21 @@ type ReportSummary = {
   error_count: number;
   duration: string;
   report_id: string;
+  object_group: ObjectGroup;
+  stats: GroupedStats;
+};
+
+type GroupStats = {
+  total_items: number;
+  success_count: number;
+  error_count: number;
+  skipped_count: number;
+  total_rows?: number;
+};
+
+type GroupedStats = {
+  tables: GroupStats;
+  sequences: GroupStats;
 };
 
 type WsProgressMsg = {
@@ -113,6 +130,7 @@ const SOURCE_RECENT_KEY = "dbm:v16:source-recent";
 const SOURCE_REMEMBER_KEY = "dbm:v16:source-remember-pass";
 
 const DEFAULT_OPTIONS: MigrationOptions = {
+  objectGroup: "all",
   outFile: "migration.sql",
   perTable: true,
   withDdl: true,
@@ -186,6 +204,14 @@ function toString(value: unknown, fallback = ""): string {
     return value;
   }
   return fallback;
+}
+
+function toObjectGroup(value: unknown, fallback: ObjectGroup): ObjectGroup {
+  const normalized = toString(value, fallback).trim().toLowerCase();
+  if (normalized === "tables" || normalized === "sequences") {
+    return normalized;
+  }
+  return "all";
 }
 
 function toStringArray(value: unknown): string[] {
@@ -363,6 +389,7 @@ export function App() {
       ? Math.floor((expectedRows - processedRows) / rowsPerSecond)
       : null;
   const runReadyToShow = runStartedAt !== null || runEntries.length > 0;
+  const groupSummary = reportSummary?.stats ?? null;
 
   useEffect(() => {
     migrationActiveRef.current = migrationBusy;
@@ -884,7 +911,9 @@ export function App() {
 
   function applyReplayPayload(payload: Record<string, unknown>) {
     const direct = Boolean(payload.direct);
+    const replayObjectGroup = toObjectGroup(payload.objectGroup, options.objectGroup);
     const replayOptions = {
+      objectGroup: replayObjectGroup,
       outFile: toString(payload.outFile, options.outFile),
       perTable: toBool(payload.perTable, options.perTable),
       withDdl: toBool(payload.withDdl, options.withDdl),
@@ -918,7 +947,17 @@ export function App() {
       targetUrl: toString(payload.targetUrl ?? payload.pgUrl, ""),
       schema: toString(payload.schema, ""),
     }));
-    setOptions((prev) => ({ ...prev, ...replayOptions }));
+    setOptions((prev) => {
+      const next = { ...prev, ...replayOptions };
+      if (replayObjectGroup === "tables") {
+        next.withSequences = false;
+      }
+      if (replayObjectGroup === "sequences") {
+        next.withDdl = true;
+        next.withSequences = true;
+      }
+      return next;
+    });
     if (replayTables.length > 0) {
       setSelectedTables(replayTables);
     }
@@ -1032,6 +1071,30 @@ export function App() {
     });
   }
 
+  function applyObjectGroupSelection(nextGroup: ObjectGroup) {
+    setOptions((prev) => {
+      if (nextGroup === "tables") {
+        return {
+          ...prev,
+          objectGroup: nextGroup,
+          withSequences: false,
+        };
+      }
+      if (nextGroup === "sequences") {
+        return {
+          ...prev,
+          objectGroup: nextGroup,
+          withDdl: true,
+          withSequences: true,
+        };
+      }
+      return {
+        ...prev,
+        objectGroup: nextGroup,
+      };
+    });
+  }
+
   function selectAllVisibleTables() {
     setSelectedTables((prev) => {
       const merged = new Set(prev);
@@ -1130,6 +1193,7 @@ export function App() {
             dbMaxIdle: options.dbMaxIdle,
             dbMaxLife: options.dbMaxLife,
             copyBatch: options.copyBatch,
+            objectGroup: options.objectGroup,
           }),
         },
       );
@@ -1557,9 +1621,25 @@ export function App() {
                   </>
                 )}
 
+                <label className="block text-sm">
+                  <span className="mb-1 block text-slate-700">Migration target</span>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                    onChange={(event) =>
+                      applyObjectGroupSelection(event.target.value as ObjectGroup)
+                    }
+                    value={options.objectGroup}
+                  >
+                    <option value="all">All objects</option>
+                    <option value="tables">Tables only</option>
+                    <option value="sequences">Sequences only</option>
+                  </select>
+                </label>
+
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     checked={options.withDdl}
+                    disabled={options.objectGroup === "sequences"}
                     onChange={(event) =>
                       setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
                     }
@@ -1570,6 +1650,7 @@ export function App() {
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     checked={options.withSequences}
+                    disabled={options.objectGroup !== "all"}
                     onChange={(event) =>
                       setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
                     }
@@ -1577,6 +1658,13 @@ export function App() {
                   />
                   Include sequences
                 </label>
+                {options.objectGroup !== "all" && (
+                  <p className="text-xs text-slate-500">
+                    {options.objectGroup === "tables"
+                      ? "Tables-only mode disables sequence DDL automatically."
+                      : "Sequences-only mode forces DDL + sequence generation automatically."}
+                  </p>
+                )}
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     checked={options.withIndexes}
@@ -1766,7 +1854,8 @@ export function App() {
                   5. Run Status {runDryRun ? "(Dry-run)" : ""}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Session: {runSessionId || "untracked"} · {wsStatusLabel(wsStatus)}
+                  Session: {runSessionId || "untracked"} · {wsStatusLabel(wsStatus)} · Target{" "}
+                  {reportSummary?.object_group ?? options.objectGroup}
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -1848,6 +1937,39 @@ export function App() {
                 </p>
               </div>
             </div>
+
+            {groupSummary && (
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Tables Group
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {groupSummary.tables.success_count} ok · {groupSummary.tables.error_count} error
+                    {groupSummary.tables.skipped_count > 0
+                      ? ` · ${groupSummary.tables.skipped_count} skipped`
+                      : ""}
+                  </p>
+                  <p className="mt-2 text-xl font-bold text-slate-900">
+                    {groupSummary.tables.total_rows?.toLocaleString() ?? "0"} rows
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Sequences Group
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {groupSummary.sequences.success_count} ok · {groupSummary.sequences.error_count} error
+                    {groupSummary.sequences.skipped_count > 0
+                      ? ` · ${groupSummary.sequences.skipped_count} skipped`
+                      : ""}
+                  </p>
+                  <p className="mt-2 text-xl font-bold text-slate-900">
+                    {groupSummary.sequences.total_items.toLocaleString()} objects
+                  </p>
+                </div>
+              </div>
+            )}
 
             {warnings.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">

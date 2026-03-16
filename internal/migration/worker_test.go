@@ -97,7 +97,7 @@ func TestWorkerSingleFile(t *testing.T) {
 	mainBuf := bufio.NewWriter(tmpFile)
 
 	dia := &dialect.PostgresDialect{}
-	report := NewMigrationReport("test", "oracle://user:pass@host/SID", "postgres", "")
+	report := NewMigrationReport("test", "oracle://user:pass@host/SID", "postgres", "", config.ObjectGroupAll)
 	for w := 1; w <= cfg.Workers; w++ {
 		wg.Add(1)
 		go worker(w, db, nil, nil, dia, jobs, &wg, mainBuf, cfg, &outMutex, nil, NewMigrationState("test"), report)

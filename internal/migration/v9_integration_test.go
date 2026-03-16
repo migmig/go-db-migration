@@ -69,27 +69,27 @@ func TestV9_ReportGeneration(t *testing.T) {
 	jobID := "test_v9_report"
 	source := "oracle://user:pass@localhost:1521/xe"
 	target := "postgres://pg:secret@localhost:5432/db"
-	
-	report := NewMigrationReport(jobID, source, "postgres", target)
-	
+
+	report := NewMigrationReport(jobID, source, "postgres", target, config.ObjectGroupAll)
+
 	// Simulate table migration
 	finish := report.StartTable("TABLE1", true)
 	finish(100, nil)
-	
+
 	finish2 := report.StartTable("TABLE2", false)
 	finish2(0, fmt.Errorf("connection lost"))
-	
+
 	err := report.Finalize()
 	if err != nil {
 		t.Fatalf("failed to finalize report: %v", err)
 	}
-	
+
 	reportPath := filepath.Join(".migration_state", jobID+"_report.json")
 	if _, err := os.Stat(reportPath); os.IsNotExist(err) {
 		t.Fatal("report file was not created")
 	}
 	defer os.Remove(reportPath)
-	
+
 	// Verify masking
 	if strings.Contains(report.SourceURL, "pass") {
 		t.Error("source password was not masked in report")
@@ -97,7 +97,7 @@ func TestV9_ReportGeneration(t *testing.T) {
 	if strings.Contains(report.TargetURL, "secret") {
 		t.Error("target password was not masked in report")
 	}
-	
+
 	if report.SuccessCount != 1 || report.ErrorCount != 1 {
 		t.Errorf("expected 1 success and 1 error, got %d and %d", report.SuccessCount, report.ErrorCount)
 	}
@@ -107,9 +107,9 @@ type mockV9Tracker struct {
 	lastMsg ws.ProgressMsg
 }
 
-func (m *mockV9Tracker) Init(table string, totalRows int) {}
+func (m *mockV9Tracker) Init(table string, totalRows int)       {}
 func (m *mockV9Tracker) Update(table string, processedRows int) {}
-func (m *mockV9Tracker) Done(table string) {}
+func (m *mockV9Tracker) Done(table string)                      {}
 func (m *mockV9Tracker) Error(table string, err error) {
 	msg := ws.ProgressMsg{
 		Type:     ws.MsgError,
@@ -136,7 +136,7 @@ func TestV9_BatchedCopyIntegration(t *testing.T) {
 		CopyBatch: 5000,
 	}
 	_ = cfg
-	
+
 	// Mock DBs
 	// This would require a real or highly mocked environment.
 	// For now, let's just ensure the flags are parsed correctly in config_test.go if not already.

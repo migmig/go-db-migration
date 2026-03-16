@@ -35,39 +35,28 @@ func newFileBuf() (*bytes.Buffer, *bufio.Writer) {
 	return &buf, bufio.NewWriter(&buf)
 }
 
-// ── 7-2: WithSequences=true → Sequence DDL이 CREATE TABLE 이전에 출력 ───────────
+// ── v17: Sequence DDL은 별도 그룹으로 분리되고 table script에는 inline 되지 않음 ──
 
-func TestWithSequences_DDLOutputBeforeCreateTable(t *testing.T) {
+func TestWithSequences_TableScriptDoesNotInlineSequenceDDL(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	defer db.Close()
 
-	// 1) GetSequenceMetadata: defaultQuery — 빈 결과 반환 (패턴 기반 이름 사용)
-	mock.ExpectQuery("SELECT data_default FROM all_tab_columns").
-		WillReturnRows(sqlmock.NewRows([]string{"data_default"}))
-
-	// 2) GetSequenceMetadata: seqQuery — USERS_SEQ 메타데이터 반환
-	mock.ExpectQuery("all_sequences").
-		WillReturnRows(sqlmock.NewRows([]string{
-			"sequence_name", "min_value", "max_value",
-			"increment_by", "cycle_flag", "last_number",
-		}).AddRow("USERS_SEQ", int64(1), "9999999999999999999999999999", int64(1), "N", int64(100)))
-
-	// 3) GetTableMetadata
+	// 1) GetTableMetadata
 	mock.ExpectQuery("SELECT column_name, data_type").
 		WithArgs("USERS").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"column_name", "data_type", "data_precision", "data_scale", "nullable", "data_default",
 		}).AddRow("ID", "NUMBER", int64(10), nil, "N", nil))
 
-	// 4) No primary key
+	// 2) No primary key
 	mock.ExpectQuery("SELECT c.constraint_name").
 		WithArgs("OWNER", "USERS").
 		WillReturnError(sql.ErrNoRows)
 
-	// 5) SELECT * FROM USERS — 행 없음
+	// 3) SELECT * FROM USERS — 행 없음
 	mock.ExpectQuery("SELECT \\* FROM \"USERS\"").
 		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
 
@@ -89,17 +78,13 @@ func TestWithSequences_DDLOutputBeforeCreateTable(t *testing.T) {
 	w.Flush()
 	out := buf.String()
 
-	seqIdx := strings.Index(out, "CREATE SEQUENCE")
 	tableIdx := strings.Index(out, "CREATE TABLE")
 
-	if seqIdx == -1 {
-		t.Fatalf("Sequence DDL이 출력에 없음:\n%s", out)
-	}
 	if tableIdx == -1 {
 		t.Fatalf("CREATE TABLE이 출력에 없음:\n%s", out)
 	}
-	if seqIdx > tableIdx {
-		t.Errorf("Sequence DDL(pos=%d)이 CREATE TABLE(pos=%d) 이후에 출력됨", seqIdx, tableIdx)
+	if strings.Contains(out, "CREATE SEQUENCE") {
+		t.Fatalf("table script should not inline sequence DDL anymore:\n%s", out)
 	}
 }
 

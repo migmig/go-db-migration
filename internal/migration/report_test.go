@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"dbmigrator/internal/config"
 )
 
 func TestMaskPassword(t *testing.T) {
@@ -68,7 +70,7 @@ func TestFormatCount(t *testing.T) {
 }
 
 func TestMigrationReport_StartTable(t *testing.T) {
-	r := NewMigrationReport("test-job", "oracle://user:pass@host/ORCL", "postgres", "postgres://user:pass@host/db")
+	r := NewMigrationReport("test-job", "oracle://user:pass@host/ORCL", "postgres", "postgres://user:pass@host/db", config.ObjectGroupAll)
 
 	// 소스 URL 비밀번호 마스킹 확인
 	if r.SourceURL != "oracle://user:***@host/ORCL" {
@@ -105,6 +107,12 @@ func TestMigrationReport_StartTable(t *testing.T) {
 	if len(r.Tables[1].Errors) == 0 {
 		t.Error("Tables[1].Errors should not be empty")
 	}
+	if r.Stats.Tables.SuccessCount != 1 || r.Stats.Tables.ErrorCount != 1 {
+		t.Errorf("unexpected table group stats: %+v", r.Stats.Tables)
+	}
+	if r.Stats.Tables.TotalRows != 50100 {
+		t.Errorf("table group rows = %d, want 50100", r.Stats.Tables.TotalRows)
+	}
 }
 
 func TestMigrationReport_Finalize(t *testing.T) {
@@ -114,7 +122,7 @@ func TestMigrationReport_Finalize(t *testing.T) {
 	os.Chdir(tmp)
 	defer os.Chdir(origDir)
 
-	r := NewMigrationReport("job-finalize-test", "oracle://u:p@h/S", "postgres", "postgres://u:p@h/db")
+	r := NewMigrationReport("job-finalize-test", "oracle://u:p@h/S", "postgres", "postgres://u:p@h/db", config.ObjectGroupTables)
 	r.UserID = 42
 	finish := r.StartTable("USERS", true)
 	finish(100, nil)
@@ -139,10 +147,32 @@ func TestMigrationReport_Finalize(t *testing.T) {
 	if decoded.UserID != 42 {
 		t.Errorf("UserID = %d, want 42", decoded.UserID)
 	}
+	if decoded.ObjectGroup != config.ObjectGroupTables {
+		t.Errorf("ObjectGroup = %q, want %q", decoded.ObjectGroup, config.ObjectGroupTables)
+	}
 	if decoded.SuccessCount != 1 {
 		t.Errorf("SuccessCount = %d, want 1", decoded.SuccessCount)
 	}
 	if decoded.DurationHuman == "" {
 		t.Error("DurationHuman should not be empty after Finalize")
+	}
+}
+
+func TestMigrationReport_ToSummaryIncludesGroupedStats(t *testing.T) {
+	r := NewMigrationReport("summary-job", "oracle://u:p@h/S", "postgres", "postgres://u:p@h/db", config.ObjectGroupAll)
+	finish := r.StartTable("USERS", true)
+	finish(25, nil)
+	r.RecordSequenceResult(nil)
+	r.SkipGroup(config.ObjectGroupSequences, 2)
+
+	summary := r.ToSummary()
+	if summary.ObjectGroup != config.ObjectGroupAll {
+		t.Fatalf("ObjectGroup = %q, want %q", summary.ObjectGroup, config.ObjectGroupAll)
+	}
+	if summary.Stats.Tables.SuccessCount != 1 {
+		t.Fatalf("table success count = %d, want 1", summary.Stats.Tables.SuccessCount)
+	}
+	if summary.Stats.Sequences.SuccessCount != 1 || summary.Stats.Sequences.SkippedCount != 2 {
+		t.Fatalf("unexpected sequence stats: %+v", summary.Stats.Sequences)
 	}
 }

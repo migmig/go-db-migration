@@ -298,6 +298,12 @@ autoload -U compinit && compinit
 
 `-object-group`으로 실행 대상을 분리할 수 있습니다.
 
+- `all`: 테이블/데이터를 먼저 처리한 뒤 시퀀스를 후속 단계로 실행합니다.
+- `tables`: 테이블 계열만 실행하며 sequence DDL은 자동 비활성화됩니다.
+- `sequences`: sequence DDL만 생성/실행하며 `-with-ddl`, `-with-sequences`가 자동 활성화됩니다.
+- SQL 파일 모드에서 `all` 또는 `sequences`를 사용하면 시퀀스 산출물은 별도 `sequences.sql`로 분리됩니다.
+- 완료 리포트(`Download Report`)와 WebSocket 완료 요약에는 `stats.tables`, `stats.sequences` 그룹별 통계가 포함됩니다.
+
 ```bash
 # 기본값: all
 ./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group all

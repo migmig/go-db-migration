@@ -130,6 +130,7 @@ describe("App", () => {
             schema: "audit",
             tables: ["USERS"],
             dryRun: true,
+            objectGroup: "sequences",
             withDdl: true,
             withSequences: true,
             batchSize: 2000,
@@ -163,7 +164,14 @@ describe("App", () => {
         "postgres://app:***@newhost:5432/newdb",
       );
       expect(screen.getByLabelText("Schema")).toHaveValue("audit");
+      expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue(
+        "sequences",
+      );
       expect(screen.getByRole("checkbox", { name: "Dry-run mode" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Include CREATE TABLE DDL" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Include CREATE TABLE DDL" })).toBeDisabled();
+      expect(screen.getByRole("checkbox", { name: "Include sequences" })).toBeChecked();
+      expect(screen.getByRole("checkbox", { name: "Include sequences" })).toBeDisabled();
       expect(screen.getByText("1 / 2 selected")).toBeInTheDocument();
     });
   });

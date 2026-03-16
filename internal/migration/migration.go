@@ -104,6 +104,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 	if group == "" {
 		group = config.ObjectGroupAll
 	}
+	cfg.ObjectGroup = group
 
 	if group == config.ObjectGroupTables && cfg.WithSequences {
 		slog.Warn("object-group=tables requested; sequence ddl generation disabled")
@@ -138,7 +139,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 	}
 
 	sourceURL := fmt.Sprintf("oracle://%s:%s@%s", cfg.User, cfg.Password, cfg.OracleURL)
-	report := NewMigrationReport(jobID, sourceURL, cfg.TargetDB, cfg.TargetURL)
+	report := NewMigrationReport(jobID, sourceURL, cfg.TargetDB, cfg.TargetURL, group)
 	report.UserID = cfg.UserID
 
 	if len(cfg.Tables) == 0 && cfg.ResumeJobID != "" {
@@ -147,6 +148,13 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		}
 		slog.Info("Loaded tables from state for resume", "tables", cfg.Tables)
 	}
+
+	groupedMetadata := collectGroupedMetadata(dbConn, cfg)
+	slog.Info("discovery.completed",
+		"object_group", group,
+		"tables", len(groupedMetadata.Tables),
+		"sequences", len(groupedMetadata.Sequences),
+	)
 
 	if cfg.DryRun {
 		slog.Info("Dry run mode enabled. Verifying connectivity and estimating row counts.")
@@ -196,6 +204,13 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		return report, nil
 	}
 
+	slog.Info("migration.started",
+		"object_group", group,
+		"tables", len(cfg.Tables),
+		"with_ddl", cfg.WithDDL,
+		"with_sequences", cfg.WithSequences,
+	)
+
 	var mainOut *os.File
 	var mainBuf *bufio.Writer
 
@@ -227,10 +242,14 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		} else {
 			slog.Info("running sequences-only migration")
 		}
-		if err := migrateSequencesOnly(dbConn, targetDB, pgPool, dia, cfg, mainBuf); err != nil {
+		if err := migrateSequenceGroup(targetDB, pgPool, dia, cfg, mainBuf, groupedMetadata, tracker, report); err != nil {
 			return nil, err
 		}
+		if err := report.Finalize(); err != nil {
+			slog.Warn("failed to save migration report", "error", err)
+		}
 		report.PrintSummary()
+		slog.Info("migration.completed", "object_group", group, "status", "ok")
 		return report, nil
 	}
 
@@ -256,6 +275,20 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 	close(jobs)
 
 	wg.Wait()
+
+	summary := report.ToSummary()
+	if group == config.ObjectGroupAll && cfg.WithSequences {
+		if summary.Stats.Tables.ErrorCount > 0 {
+			report.SkipGroup(config.ObjectGroupSequences, len(groupedMetadata.Sequences))
+			slog.Warn("migration.sequences.skipped",
+				"object_group", group,
+				"reason", "tables_failed",
+				"sequence_count", len(groupedMetadata.Sequences),
+			)
+		} else if err := migrateSequenceGroup(targetDB, pgPool, dia, cfg, mainBuf, groupedMetadata, tracker, report); err != nil {
+			return nil, err
+		}
+	}
 
 	// Post-processing execution for Constraints
 	if cfg.WithDDL && cfg.WithConstraints {
@@ -347,82 +380,8 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		slog.Warn("failed to save migration report", "error", err)
 	}
 	report.PrintSummary()
+	slog.Info("migration.completed", "object_group", group, "status", "ok")
 	return report, nil
-}
-
-func migrateSequencesOnly(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, mainBuf *bufio.Writer) error {
-	owner := resolveOwner(cfg)
-	seen := make(map[string]struct{})
-
-	if pgPool == nil && targetDB == nil && cfg.PerTable {
-		fileName := "sequences.sql"
-		if cfg.OutputDir != "" {
-			fileName = cfg.OutputDir + "/" + fileName
-		}
-
-		flag := os.O_CREATE | os.O_WRONLY
-		if cfg.ResumeJobID != "" {
-			flag |= os.O_APPEND
-		} else {
-			flag |= os.O_TRUNC
-		}
-
-		out, err := os.OpenFile(fileName, flag, 0644)
-		if err != nil {
-			return fmt.Errorf("failed to create sequences output file: %w", err)
-		}
-		defer out.Close()
-
-		mainBuf = bufio.NewWriter(out)
-		defer mainBuf.Flush()
-	}
-
-	for _, tableName := range cfg.Tables {
-		seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
-		if err != nil {
-			slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
-			continue
-		}
-
-		for _, seq := range seqs {
-			if _, ok := seen[seq.Name]; ok {
-				continue
-			}
-			seen[seq.Name] = struct{}{}
-
-			ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
-			if !supported || ddl == "" {
-				slog.Warn("sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
-				continue
-			}
-
-			if pgPool != nil {
-				if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
-					return fmt.Errorf("failed to execute sequence ddl %s: %w", seq.Name, err)
-				}
-				slog.Info("sequence ddl executed", "sequence", seq.Name)
-				continue
-			}
-
-			if targetDB != nil {
-				if _, err := targetDB.Exec(ddl); err != nil {
-					return fmt.Errorf("failed to execute sequence ddl %s: %w", seq.Name, err)
-				}
-				slog.Info("sequence ddl executed", "sequence", seq.Name)
-				continue
-			}
-
-			if mainBuf == nil {
-				return fmt.Errorf("output buffer is not initialized for sequences-only mode")
-			}
-			if _, err := mainBuf.WriteString(ddl + "\n"); err != nil {
-				return fmt.Errorf("failed to write sequence ddl %s: %w", seq.Name, err)
-			}
-			slog.Info("sequence ddl written", "sequence", seq.Name)
-		}
-	}
-
-	return nil
 }
 
 func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState, report *MigrationReport) {
@@ -502,57 +461,6 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 	tState := mState.GetState(tableName)
 
 	if cfg.WithDDL && tState.Offset == 0 {
-		// Sequence DDLs — executed before CREATE TABLE
-		if cfg.WithSequences {
-			seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
-			if err != nil {
-				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
-			} else {
-				for _, seq := range seqs {
-					ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
-					if !supported || ddl == "" {
-						slog.Warn("Sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
-						if wt, ok := tracker.(WarningTracker); ok {
-							wt.Warning(fmt.Sprintf("%s은(는) Sequence를 지원하지 않습니다. --with-sequences 옵션은 무시됩니다.", dia.Name()))
-						}
-						continue
-					}
-					var err error
-					if pgPool != nil {
-						_, err = pgPool.Exec(context.Background(), ddl)
-					} else if targetDB != nil {
-						_, err = targetDB.Exec(ddl)
-					}
-					if err != nil {
-						slog.Warn("failed to execute sequence DDL", "sequence", seq.Name, "error", err)
-						if tracker != nil && tracker.EventBus() != nil {
-							tracker.EventBus().Publish(bus.Event{
-								Type:       bus.EventDDLProgress,
-								Object:     "sequence",
-								ObjectName: seq.Name,
-								Status:     "error",
-								Error:      err,
-							})
-						} else if hasDDLTracker {
-							ddlTracker.DDLProgress("sequence", seq.Name, "error", err)
-						}
-					} else {
-						slog.Info("sequence DDL executed", "sequence", seq.Name)
-						if tracker != nil && tracker.EventBus() != nil {
-							tracker.EventBus().Publish(bus.Event{
-								Type:       bus.EventDDLProgress,
-								Object:     "sequence",
-								ObjectName: seq.Name,
-								Status:     "ok",
-							})
-						} else if hasDDLTracker {
-							ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
-						}
-					}
-				}
-			}
-		}
-
 		colsMeta, err := GetTableMetadata(dbConn, tableName)
 		if err != nil {
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
@@ -898,30 +806,6 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 
 	if cfg.WithDDL && tState.Offset == 0 {
 		owner := resolveOwner(cfg)
-
-		// Sequence DDLs — written before CREATE TABLE
-		if cfg.WithSequences {
-			seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
-			if err != nil {
-				slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
-			} else {
-				for _, seq := range seqs {
-					ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
-					if !supported || ddl == "" {
-						slog.Warn("Sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
-						if wt, ok := tracker.(WarningTracker); ok {
-							wt.Warning(fmt.Sprintf("%s은(는) Sequence를 지원하지 않습니다. --with-sequences 옵션은 무시됩니다.", dia.Name()))
-						}
-						continue
-					}
-					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
-					if hasDDLTracker {
-						ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
-					}
-					slog.Info("sequence DDL written", "sequence", seq.Name)
-				}
-			}
-		}
 
 		// CREATE TABLE DDL
 		colsMeta, err := GetTableMetadata(dbConn, tableName)

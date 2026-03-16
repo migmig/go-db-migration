@@ -47,11 +47,26 @@ type DetailedError interface {
 
 // ReportSummary는 마이그레이션 완료 시 all_done 메시지에 포함되는 요약 정보이다.
 type ReportSummary struct {
-	TotalRows    int    `json:"total_rows"`
-	SuccessCount int    `json:"success_count"`
-	ErrorCount   int    `json:"error_count"`
-	Duration     string `json:"duration"`
-	ReportID     string `json:"report_id"`
+	TotalRows    int          `json:"total_rows"`
+	SuccessCount int          `json:"success_count"`
+	ErrorCount   int          `json:"error_count"`
+	Duration     string       `json:"duration"`
+	ReportID     string       `json:"report_id"`
+	ObjectGroup  string       `json:"object_group"`
+	Stats        GroupedStats `json:"stats"`
+}
+
+type GroupStats struct {
+	TotalItems   int `json:"total_items"`
+	SuccessCount int `json:"success_count"`
+	ErrorCount   int `json:"error_count"`
+	SkippedCount int `json:"skipped_count"`
+	TotalRows    int `json:"total_rows,omitempty"`
+}
+
+type GroupedStats struct {
+	Tables    GroupStats `json:"tables"`
+	Sequences GroupStats `json:"sequences"`
 }
 
 type ProgressMsg struct {
@@ -67,12 +82,12 @@ type ProgressMsg struct {
 	ObjectName   string  `json:"object_name,omitempty"`
 	Status       string  `json:"status,omitempty"`
 	// v9: 구조화 에러 필드
-	Phase         string         `json:"phase,omitempty"`
-	Category      string         `json:"category,omitempty"`
-	Suggestion    string         `json:"suggestion,omitempty"`
-	Recoverable   *bool          `json:"recoverable,omitempty"`
-	BatchNum      int            `json:"batch_num,omitempty"`
-	RowOffset     int            `json:"row_offset,omitempty"`
+	Phase       string `json:"phase,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Suggestion  string `json:"suggestion,omitempty"`
+	Recoverable *bool  `json:"recoverable,omitempty"`
+	BatchNum    int    `json:"batch_num,omitempty"`
+	RowOffset   int    `json:"row_offset,omitempty"`
 	// v9: 리포트 요약
 	ReportSummary *ReportSummary `json:"report_summary,omitempty"`
 }
@@ -133,7 +148,6 @@ func (t *WebSocketTracker) setupSubscriptions() {
 func (t *WebSocketTracker) EventBus() bus.EventBus {
 	return t.eventBus
 }
-
 
 type SessionManager struct {
 	trackers map[string]*WebSocketTracker

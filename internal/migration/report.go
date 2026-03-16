@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"dbmigrator/internal/config"
 )
 
 // TableReport는 단일 테이블 마이그레이션 결과를 담는다.
@@ -24,6 +26,29 @@ type TableReport struct {
 	Errors        []string `json:"errors,omitempty"`
 }
 
+type GroupStats struct {
+	TotalItems   int `json:"total_items"`
+	SuccessCount int `json:"success_count"`
+	ErrorCount   int `json:"error_count"`
+	SkippedCount int `json:"skipped_count"`
+	TotalRows    int `json:"total_rows,omitempty"`
+}
+
+type GroupedStats struct {
+	Tables    GroupStats `json:"tables"`
+	Sequences GroupStats `json:"sequences"`
+}
+
+type ReportSummary struct {
+	TotalRows    int          `json:"total_rows"`
+	SuccessCount int          `json:"success_count"`
+	ErrorCount   int          `json:"error_count"`
+	Duration     string       `json:"duration"`
+	ReportID     string       `json:"report_id"`
+	ObjectGroup  string       `json:"object_group"`
+	Stats        GroupedStats `json:"stats"`
+}
+
 // MigrationReport는 마이그레이션 전체 실행 결과 감사 로그이다.
 type MigrationReport struct {
 	JobID         string        `json:"job_id"`
@@ -34,7 +59,9 @@ type MigrationReport struct {
 	SourceURL     string        `json:"source_url"`
 	TargetDB      string        `json:"target_db"`
 	TargetURL     string        `json:"target_url"`
+	ObjectGroup   string        `json:"object_group"`
 	Tables        []TableReport `json:"tables"`
+	Stats         GroupedStats  `json:"stats"`
 	TotalRows     int           `json:"total_rows"`
 	SuccessCount  int           `json:"success_count"`
 	ErrorCount    int           `json:"error_count"`
@@ -42,13 +69,17 @@ type MigrationReport struct {
 }
 
 // NewMigrationReport는 새 MigrationReport를 생성한다. URL의 비밀번호는 마스킹된다.
-func NewMigrationReport(jobID, sourceURL, targetDB, targetURL string) *MigrationReport {
+func NewMigrationReport(jobID, sourceURL, targetDB, targetURL, objectGroup string) *MigrationReport {
+	if objectGroup == "" {
+		objectGroup = config.ObjectGroupAll
+	}
 	return &MigrationReport{
-		JobID:     jobID,
-		StartedAt: time.Now(),
-		SourceURL: maskPassword(sourceURL),
-		TargetDB:  targetDB,
-		TargetURL: maskPassword(targetURL),
+		JobID:       jobID,
+		StartedAt:   time.Now(),
+		SourceURL:   maskPassword(sourceURL),
+		TargetDB:    targetDB,
+		TargetURL:   maskPassword(targetURL),
+		ObjectGroup: objectGroup,
 	}
 }
 
@@ -83,7 +114,46 @@ func (r *MigrationReport) StartTable(name string, withDDL bool) func(rowCount in
 		} else {
 			r.SuccessCount++
 		}
+		r.recordGroupResultLocked(config.ObjectGroupTables, rowCount, err)
 		r.mu.Unlock()
+	}
+}
+
+func (r *MigrationReport) RecordSequenceResult(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.recordGroupResultLocked(config.ObjectGroupSequences, 0, err)
+}
+
+func (r *MigrationReport) SkipGroup(group string, count int) {
+	if count <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	stats := r.groupStatsLocked(group)
+	stats.TotalItems += count
+	stats.SkippedCount += count
+}
+
+func (r *MigrationReport) recordGroupResultLocked(group string, rowCount int, err error) {
+	stats := r.groupStatsLocked(group)
+	stats.TotalItems++
+	stats.TotalRows += rowCount
+	if err != nil {
+		stats.ErrorCount++
+		return
+	}
+	stats.SuccessCount++
+}
+
+func (r *MigrationReport) groupStatsLocked(group string) *GroupStats {
+	switch group {
+	case config.ObjectGroupSequences:
+		return &r.Stats.Sequences
+	default:
+		return &r.Stats.Tables
 	}
 }
 
@@ -150,10 +220,18 @@ func (r *MigrationReport) PrintSummary() {
 
 // ToSummary는 ws.ReportSummary DTO에 들어갈 값을 반환한다.
 // server.go에서 AllDone 호출 시 사용한다.
-func (r *MigrationReport) ToSummary() (int, int, int, string, string) {
+func (r *MigrationReport) ToSummary() ReportSummary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.TotalRows, r.SuccessCount, r.ErrorCount, r.DurationHuman, r.JobID
+	return ReportSummary{
+		TotalRows:    r.TotalRows,
+		SuccessCount: r.SuccessCount,
+		ErrorCount:   r.ErrorCount,
+		Duration:     r.DurationHuman,
+		ReportID:     r.JobID,
+		ObjectGroup:  r.ObjectGroup,
+		Stats:        r.Stats,
+	}
 }
 
 // maskPassword는 URL에서 비밀번호를 "***"로 치환한다.
