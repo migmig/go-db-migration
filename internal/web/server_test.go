@@ -226,6 +226,13 @@ func TestValidateMigrationRequest_NegativeDBPoolSettings(t *testing.T) {
 	}
 }
 
+func TestValidateMigrationRequest_InvalidObjectGroup(t *testing.T) {
+	req := &startMigrationRequest{ObjectGroup: "invalid"}
+	if err := validateMigrationRequest(req); err == nil {
+		t.Fatal("expected error for invalid objectGroup")
+	}
+}
+
 // ── /api/migrate validation ───────────────────────────────────────────────────
 
 func TestStartMigration_PathTraversal_Returns400(t *testing.T) {
@@ -289,6 +296,23 @@ func TestStartMigration_InvalidOracleOwner_Returns400(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "invalid oracle owner") {
 		t.Errorf("expected error message to contain 'invalid oracle owner', got: %s", w.Body.String())
+	}
+}
+
+func TestStartMigration_InvalidObjectGroup_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["USERS"],"objectGroup":"bad"}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid objectGroup, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "objectGroup") {
+		t.Errorf("expected objectGroup error in response, got: %s", w.Body.String())
 	}
 }
 

@@ -6,15 +6,15 @@
 - [x] `docs/v17/prd.md` 작성
 - [x] `docs/v17/spec.md` 작성
 - [x] `docs/v17/tasks.md` 작성
-- [ ] `README.md` 업데이트
-  - [ ] 객체 그룹 실행 모드(`all/tables/sequences`) 설명 추가
-  - [ ] 신규 옵션/요청 필드(`--object-group`, `object_group`) 문서화
+- [x] `README.md` 업데이트
+  - [x] 객체 그룹 실행 모드(`all/tables/sequences`) 설명 추가
+  - [x] 신규 옵션/요청 필드(`--object-group`, `object_group`) 문서화
   - [ ] Dry-run/리포트의 그룹별 출력 예시 추가
 
 ### 2. 도메인 모델/분류기 구현 (Domain & Classifier)
-- [ ] `ObjectGroup` 타입/상수 도입
-  - [ ] `all`, `tables`, `sequences` 정의
-  - [ ] 기본값 `all` 처리 경로 반영
+- [x] `ObjectGroup` 타입/상수 도입
+  - [x] `all`, `tables`, `sequences` 정의
+  - [x] 기본값 `all` 처리 경로 반영
 - [ ] DDL 분류기 구현
   - [ ] table/constraint/index 등 `tables` 분류
   - [ ] sequence 관련 DDL `sequences` 분류
@@ -34,7 +34,7 @@
   - [ ] `SEQUENCES SQL`
 
 ### 4. 실행기(Executor) 그룹 선택 로직 (Execution)
-- [ ] 실행 입력에 `object_group` 반영
+- [x] 실행 입력에 `object_group` 반영
 - [ ] 실행 모드별 대상 선택 구현
   - [ ] `all`: `tables -> sequences` 순서 고정
   - [ ] `tables`: tables만 실행
@@ -44,11 +44,11 @@
   - [ ] 정책 이벤트 구조화 로그로 기록
 
 ### 5. API/웹 서버 계약 확장 (API Contract)
-- [ ] `POST /api/migrate` 요청 바디에 `object_group`(optional) 지원
-- [ ] `POST /api/migrate/retry` 요청 바디에 `object_group`(optional) 지원
-- [ ] 입력 검증
-  - [ ] 허용값 외 입력 시 400 반환
-  - [ ] 허용값 안내 메시지 포함
+- [x] `POST /api/migrate` 요청 바디에 `object_group`(optional) 지원
+- [x] `POST /api/migrate/retry` 요청 바디에 `object_group`(optional) 지원
+- [x] 입력 검증
+  - [x] 허용값 외 입력 시 400 반환
+  - [x] 허용값 안내 메시지 포함
 - [ ] 응답/이력 모델 확장
   - [ ] 그룹별 통계(`stats.tables`, `stats.sequences`) 노출
   - [ ] 이력에 `object_group` 저장(미존재 legacy는 `all`로 해석)

@@ -12,6 +12,12 @@ import (
 
 var osExit = os.Exit
 
+const (
+	ObjectGroupAll       = "all"
+	ObjectGroupTables    = "tables"
+	ObjectGroupSequences = "sequences"
+)
+
 func getParentProcessName() string {
 	ppid := os.Getppid()
 	out, err := exec.Command("ps", "-p", strconv.Itoa(ppid), "-o", "comm=").Output()
@@ -106,6 +112,8 @@ type Config struct {
 	AuthEnabled bool
 	MasterKey   string
 	UserID      int64
+	// v17 flags
+	ObjectGroup string
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -117,7 +125,7 @@ _dbmigrator_completions()
     local cur
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion -auth-enabled"
+    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion -auth-enabled -object-group"
     local target_dbs="postgres mysql mariadb sqlite mssql"
 
     case "${COMP_WORDS[COMP_CWORD-1]}" in
@@ -127,6 +135,10 @@ _dbmigrator_completions()
             ;;
         -target-db)
             COMPREPLY=( $(compgen -W "$target_dbs" -- "$cur") )
+            return 0
+            ;;
+        -object-group)
+            COMPREPLY=( $(compgen -W "all tables sequences" -- "$cur") )
             return 0
             ;;
     esac
@@ -172,6 +184,7 @@ _dbmigrator() {
     '-log-json[JSON 구조화 로그 활성화]'
     '-completion[자동완성 스크립트 생성]:shell:(bash zsh fish powershell)'
     '-auth-enabled[인증 기반 멀티유저 모드 활성화]'
+    '-object-group[마이그레이션 객체 그룹 선택]:group:(all tables sequences)'
     )
     _arguments -s $opts
     }
@@ -212,6 +225,7 @@ complete -c dbmigrator -l resume -r -d '재개할 Job ID'
 complete -c dbmigrator -l dry-run -d '연결 확인 및 행 수 추정만 수행'
 complete -c dbmigrator -l log-json -d 'JSON 구조화 로그 활성화'
 complete -c dbmigrator -l auth-enabled -d '인증 기반 멀티유저 모드 활성화'
+complete -c dbmigrator -l object-group -r -a 'all tables sequences' -d '마이그레이션 객체 그룹 선택'
 complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동완성 스크립트 생성'
 `, nil
 	case "powershell":
@@ -221,7 +235,7 @@ complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동
         '-web','-url','-user','-password','-tables','-target-db','-target-url','-pg-url','-out','-batch',
         '-schema','-per-table','-parallel','-workers','-with-ddl','-with-sequences','-with-indexes',
         '-with-constraints','-sequences','-oracle-owner','-db-max-open','-db-max-idle','-db-max-life',
-        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion','-auth-enabled'
+        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion','-auth-enabled','-object-group'
     )
     $opts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
@@ -334,6 +348,7 @@ func ParseFlags() (*Config, error) {
 	// v12 flags
 	flag.StringVar(&cfg.CompletionShell, "completion", "", "쉘 자동완성 스크립트 출력 (bash/zsh/fish/powershell)")
 	flag.BoolVar(&cfg.AuthEnabled, "auth-enabled", false, "인증 기반 멀티유저 모드 활성화")
+	flag.StringVar(&cfg.ObjectGroup, "object-group", "all", "마이그레이션 객체 그룹 선택 (all/tables/sequences)")
 
 	flag.Parse()
 
@@ -377,8 +392,37 @@ func ParseFlags() (*Config, error) {
 	}
 
 	normalizeDDLOptions(cfg)
+	normalizeObjectGroupOptions(cfg)
 
 	return cfg, nil
+}
+
+func normalizeObjectGroupOptions(cfg *Config) {
+	cfg.ObjectGroup = strings.ToLower(strings.TrimSpace(cfg.ObjectGroup))
+	if cfg.ObjectGroup == "" {
+		cfg.ObjectGroup = "all"
+	}
+
+	if cfg.ObjectGroup != ObjectGroupAll && cfg.ObjectGroup != ObjectGroupTables && cfg.ObjectGroup != ObjectGroupSequences {
+		fmt.Printf("Warning: invalid -object-group %q. Falling back to 'all'.\n", cfg.ObjectGroup)
+		cfg.ObjectGroup = ObjectGroupAll
+	}
+
+	if cfg.ObjectGroup == ObjectGroupTables && cfg.WithSequences {
+		fmt.Println("Warning: -object-group=tables ignores sequence DDL. Disabling -with-sequences.")
+		cfg.WithSequences = false
+	}
+
+	if cfg.ObjectGroup == ObjectGroupSequences {
+		if !cfg.WithDDL {
+			fmt.Println("Warning: -object-group=sequences requires -with-ddl. Enabling -with-ddl automatically.")
+			cfg.WithDDL = true
+		}
+		if !cfg.WithSequences {
+			fmt.Println("Warning: -object-group=sequences requires -with-sequences. Enabling -with-sequences automatically.")
+			cfg.WithSequences = true
+		}
+	}
 }
 
 func normalizeDDLOptions(cfg *Config) {

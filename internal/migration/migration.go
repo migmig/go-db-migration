@@ -100,6 +100,27 @@ func splitNames(s string) []string {
 }
 
 func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, tracker ProgressTracker) (*MigrationReport, error) {
+	group := strings.ToLower(strings.TrimSpace(cfg.ObjectGroup))
+	if group == "" {
+		group = config.ObjectGroupAll
+	}
+
+	if group == config.ObjectGroupTables && cfg.WithSequences {
+		slog.Warn("object-group=tables requested; sequence ddl generation disabled")
+		cfg.WithSequences = false
+	}
+
+	if group == config.ObjectGroupSequences {
+		if !cfg.WithDDL {
+			slog.Info("object-group=sequences requested; enabling with-ddl")
+			cfg.WithDDL = true
+		}
+		if !cfg.WithSequences {
+			slog.Info("object-group=sequences requested; enabling with-sequences")
+			cfg.WithSequences = true
+		}
+	}
+
 	if cfg.OutputDir != "" {
 		if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create output directory: %v", err)
@@ -198,6 +219,19 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		defer mainOut.Close()
 		mainBuf = bufio.NewWriter(mainOut)
 		defer mainBuf.Flush()
+	}
+
+	if group == config.ObjectGroupSequences {
+		if cfg.TargetURL == "" && cfg.PGURL == "" && !cfg.PerTable {
+			slog.Info("running sequences-only sql generation")
+		} else {
+			slog.Info("running sequences-only migration")
+		}
+		if err := migrateSequencesOnly(dbConn, targetDB, pgPool, dia, cfg, mainBuf); err != nil {
+			return nil, err
+		}
+		PrintSummary(report)
+		return report, nil
 	}
 
 	var outMutex sync.Mutex
@@ -314,6 +348,58 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 	}
 	report.PrintSummary()
 	return report, nil
+}
+
+func migrateSequencesOnly(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, mainBuf *bufio.Writer) error {
+	owner := resolveOwner(cfg)
+	seen := make(map[string]struct{})
+
+	for _, tableName := range cfg.Tables {
+		seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))
+		if err != nil {
+			slog.Warn("failed to get sequence metadata", "table", tableName, "error", err)
+			continue
+		}
+
+		for _, seq := range seqs {
+			if _, ok := seen[seq.Name]; ok {
+				continue
+			}
+			seen[seq.Name] = struct{}{}
+
+			ddl, supported := GenerateSequenceDDL(seq, cfg.Schema, dia)
+			if !supported || ddl == "" {
+				slog.Warn("sequence not supported by dialect", "dialect", dia.Name(), "sequence", seq.Name)
+				continue
+			}
+
+			if pgPool != nil {
+				if _, err := pgPool.Exec(context.Background(), ddl); err != nil {
+					return fmt.Errorf("failed to execute sequence ddl %s: %w", seq.Name, err)
+				}
+				slog.Info("sequence ddl executed", "sequence", seq.Name)
+				continue
+			}
+
+			if targetDB != nil {
+				if _, err := targetDB.Exec(ddl); err != nil {
+					return fmt.Errorf("failed to execute sequence ddl %s: %w", seq.Name, err)
+				}
+				slog.Info("sequence ddl executed", "sequence", seq.Name)
+				continue
+			}
+
+			if mainBuf == nil {
+				return fmt.Errorf("output buffer is not initialized for sequences-only mode")
+			}
+			if _, err := mainBuf.WriteString(ddl + "\n"); err != nil {
+				return fmt.Errorf("failed to write sequence ddl %s: %w", seq.Name, err)
+			}
+			slog.Info("sequence ddl written", "sequence", seq.Name)
+		}
+	}
+
+	return nil
 }
 
 func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, jobs <-chan job, wg *sync.WaitGroup, mainBuf *bufio.Writer, cfg *config.Config, outMutex *sync.Mutex, tracker ProgressTracker, mState *MigrationState, report *MigrationReport) {
