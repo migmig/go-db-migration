@@ -4,6 +4,9 @@
 /dbmigrator.exe
 
 .migration_state/
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
 
 .gemini/
 gha-creds-*.json

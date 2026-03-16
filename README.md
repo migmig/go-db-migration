@@ -78,6 +78,24 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 > 인증 세션은 `SameSite=Lax`, `HttpOnly` 쿠키를 사용하며 idle timeout 30분, absolute timeout 24시간 정책을 따릅니다. HTTPS 환경에서는 `Secure` 쿠키가 적용됩니다.
 > 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율 및 `credentials`/`history` API 오류율을 제공합니다.
 
+### v16 프런트 미리보기 (Vite + React + Tailwind)
+
+v16 UI는 별도 프런트 빌드 산출물을 서버가 정적으로 제공하는 방식입니다.
+
+```bash
+cd frontend
+npm install
+npm run build
+
+cd ..
+export DBM_MASTER_KEY="replace-with-16-24-or-32-byte-key"
+./dbmigrator -web -auth-enabled
+```
+
+- 접속 URL: `http://localhost:8080/v16`
+- 런타임에는 Node/Vite dev server가 필요하지 않습니다(빌드 결과물만 사용).
+- `frontend/dist`가 없으면 `/v16`은 안내 메시지(`503`)를 반환합니다.
+
 ### 관리자 CLI (v15)
 
 아래 계정 관리 커맨드를 통해 로컬 인증 사용자 계정을 관리할 수 있습니다.

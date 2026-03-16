@@ -159,9 +159,17 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	})
 
 	r.StaticFS("/static", http.FS(templateFS))
+	registerV16Routes(r)
 
 	api := r.Group("/api")
 	{
+		api.GET("/meta", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"authEnabled": authEnabled,
+				"uiVersion":   "v16-preview",
+			})
+		})
+
 		if authEnabled {
 			api.POST("/auth/login", loginHandler(userStore, authSessions))
 			api.POST("/auth/logout", logoutHandler(authSessions))
@@ -200,6 +208,52 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
+}
+
+func registerV16Routes(r *gin.Engine) {
+	if r == nil {
+		return
+	}
+
+	distDir := filepath.Join("frontend", "dist")
+	indexPath := filepath.Join(distDir, "index.html")
+
+	serveMissing := func(c *gin.Context) {
+		c.String(http.StatusServiceUnavailable, "v16 frontend build not found. run: cd frontend && npm install && npm run build")
+	}
+
+	if _, err := os.Stat(indexPath); err != nil {
+		r.GET("/v16", serveMissing)
+		r.GET("/v16/*path", serveMissing)
+		return
+	}
+
+	serveIndex := func(c *gin.Context) {
+		c.File(indexPath)
+	}
+
+	r.GET("/v16", serveIndex)
+	r.GET("/v16/*path", func(c *gin.Context) {
+		reqPath := strings.TrimPrefix(c.Param("path"), "/")
+		if reqPath == "" {
+			serveIndex(c)
+			return
+		}
+
+		cleaned := filepath.Clean(reqPath)
+		if cleaned == "." || strings.HasPrefix(cleaned, "..") {
+			serveIndex(c)
+			return
+		}
+
+		candidate := filepath.Join(distDir, cleaned)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			c.File(candidate)
+			return
+		}
+
+		serveIndex(c)
+	})
 }
 
 type loginRequest struct {

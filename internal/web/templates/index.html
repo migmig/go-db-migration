@@ -629,6 +629,33 @@
             padding: 1rem;
         }
 
+        .shared-conn-summary {
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-main);
+            list-style: none;
+        }
+
+        .shared-conn-summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .shared-conn-summary::before {
+            content: '▸';
+            margin-right: 0.45rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .shared-conn-card[open] .shared-conn-summary::before {
+            content: '▾';
+        }
+
+        .shared-conn-body {
+            margin-top: 0.8rem;
+        }
+
         .shared-conn-grid {
             display: grid;
             grid-template-columns: 2fr 1fr 1fr;
@@ -738,6 +765,26 @@
             font-size: 0.8rem;
         }
 
+        .field-label-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            margin-bottom: 0.35rem;
+        }
+
+        .field-label-row label {
+            margin-bottom: 0;
+        }
+
+        .field-load-btn {
+            width: auto;
+            padding: 0.3rem 0.55rem;
+            font-size: 0.75rem;
+            line-height: 1.15;
+            white-space: nowrap;
+        }
+
         .pill {
             display: inline-flex;
             align-items: center;
@@ -839,6 +886,7 @@
             button { padding: 0.85rem 1.5rem; }
             .auth-panel-grid { grid-template-columns: 1fr; }
             .auth-nav { justify-content: flex-end; }
+            .field-label-row { align-items: flex-start; flex-direction: column; gap: 0.4rem; }
         }
     </style>
 </head>
@@ -850,7 +898,7 @@
     <div class="header-actions">
         <div id="auth-nav" class="auth-nav" aria-label="인증 메뉴">
             <span id="auth-user-chip" class="auth-chip"></span>
-            <button id="btn-nav-credentials" class="gnb-btn" type="button">내 정보</button>
+            <button id="btn-nav-credentials" class="gnb-btn" type="button">저장된 연결</button>
             <button id="btn-nav-history" class="gnb-btn" type="button">내 작업 내역</button>
             <button id="btn-logout" class="gnb-btn" type="button">로그아웃</button>
         </div>
@@ -927,7 +975,7 @@
                 <div>
                     <h2 style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
                         <span>목록</span>
-                        <span class="muted-note">Oracle 항목은 Source, 나머지는 Target으로 바로 불러옵니다.</span>
+                        <span id="credential-filter-note" class="muted-note">전체 연결 목록</span>
                     </h2>
                     <div id="credential-empty" class="empty-state">저장된 접속정보가 없습니다.</div>
                     <table id="credential-table" class="auth-mini-table" style="display:none;">
@@ -974,29 +1022,31 @@
         </div>
     </div>
 
-    <div class="card shared-conn-card" id="shared-conn-card">
-        <h2 style="margin-top:0; font-size:1rem;">Quick Shared Connection</h2>
-        <div class="shared-conn-grid">
-            <div class="form-group" style="margin-bottom:0;">
-                <label for="sharedDbUrl">DB URL</label>
-                <input type="text" id="sharedDbUrl" placeholder="localhost:1521/XE" aria-label="공통 DB URL">
+    <details class="card shared-conn-card" id="shared-conn-card">
+        <summary class="shared-conn-summary">최근 입력 (선택)</summary>
+        <div class="shared-conn-body">
+            <div class="shared-conn-grid">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="sharedDbUrl">Oracle URL</label>
+                    <input type="text" id="sharedDbUrl" placeholder="localhost:1521/XE" aria-label="최근 Oracle URL">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="sharedDbId">Oracle ID</label>
+                    <input type="text" id="sharedDbId" placeholder="scott" aria-label="최근 Oracle ID">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label for="sharedDbPass">Oracle PASS</label>
+                    <input type="password" id="sharedDbPass" placeholder="••••••" aria-label="최근 Oracle 비밀번호">
+                </div>
             </div>
-            <div class="form-group" style="margin-bottom:0;">
-                <label for="sharedDbId">DB ID</label>
-                <input type="text" id="sharedDbId" placeholder="scott" aria-label="공통 DB ID">
-            </div>
-            <div class="form-group" style="margin-bottom:0;">
-                <label for="sharedDbPass">DB PASS</label>
-                <input type="password" id="sharedDbPass" placeholder="••••••" aria-label="공통 DB 비밀번호">
+            <div class="shared-conn-actions">
+                <label class="inline-checkbox"><input type="checkbox" id="rememberPass"> 비밀번호 기억</label>
+                <button type="button" id="btn-clear-shared" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">최근 입력 초기화</button>
+                <button type="button" id="btn-clear-history" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">입력 이력 전체 삭제</button>
+                <span style="font-size:0.8rem;color:var(--text-muted);">공용 PC에서는 비밀번호 기억 사용을 권장하지 않습니다.</span>
             </div>
         </div>
-        <div class="shared-conn-actions">
-            <label class="inline-checkbox"><input type="checkbox" id="rememberPass"> 비밀번호 기억</label>
-            <button type="button" id="btn-clear-shared" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">공통정보 초기화</button>
-            <button type="button" id="btn-clear-history" class="btn-secondary" style="width:auto; padding:0.5rem 0.8rem;">입력 이력 전체 삭제</button>
-            <span style="font-size:0.8rem;color:var(--text-muted);">공용 PC에서는 비밀번호 기억 사용을 권장하지 않습니다.</span>
-        </div>
-    </div>
+    </details>
 
     <!-- ── Stepper Header ── -->
     <div class="stepper-header" role="navigation" aria-label="진행 단계">
@@ -1023,7 +1073,10 @@
             <div id="conn-section" class="card" style="margin-bottom: 0;">
                 <h2>1. Source DB Connection (Oracle)</h2>
                 <div class="form-group">
-                    <label for="oracleUrl">Oracle URL</label>
+                    <div class="field-label-row">
+                        <label for="oracleUrl">Oracle URL</label>
+                        {{ if .AuthEnabled }}<button id="btn-load-source-credential" class="btn-secondary field-load-btn" type="button">저장된 연결 불러오기</button>{{ end }}
+                    </div>
                     <input type="text" id="oracleUrl" list="history-oracleUrl" placeholder="localhost:1521/XE" required aria-label="Oracle URL">
                 </div>
                 <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem;">
@@ -1082,7 +1135,10 @@
                     </div>
                     <div id="pg-config" style="animation: fadeIn 0.3s ease-in-out;">
                         <div class="form-group">
-                            <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
+                            <div class="field-label-row">
+                                <label for="pgUrl" id="targetUrlLabel">대상 URL</label>
+                                {{ if .AuthEnabled }}<button id="btn-load-target-credential" class="btn-secondary field-load-btn" type="button">저장된 연결 불러오기</button>{{ end }}
+                            </div>
                             <input type="text" id="pgUrl" list="history-pgUrl" placeholder="postgres://user:pass@host:5432/dbname" aria-label="대상 DB 연결 URL">
                         </div>
                     </div>
@@ -1409,6 +1465,9 @@
     const historyPageLabel = document.getElementById('history-page-label');
     const btnHistoryPrev   = document.getElementById('btn-history-prev');
     const btnHistoryNext   = document.getElementById('btn-history-next');
+    const btnLoadSourceCredential = document.getElementById('btn-load-source-credential');
+    const btnLoadTargetCredential = document.getElementById('btn-load-target-credential');
+    const credentialFilterNote = document.getElementById('credential-filter-note');
 
     let ws;
     let currentZipId  = '';
@@ -1426,6 +1485,7 @@
     let currentHistoryPage = 1;
     const historyPageSize = 5;
     let editingCredentialId = null;
+    let credentialListFilterRole = 'all';
     let credentialCache = [];
     let historyCache = [];
     let pendingReplayTables = [];
@@ -1610,6 +1670,9 @@
     function toggleAuthPanel(panelName) {
         if (!currentUser) return;
         activeAuthPanel = activeAuthPanel === panelName ? '' : panelName;
+        if (activeAuthPanel === 'credentials') {
+            credentialListFilterRole = 'all';
+        }
         renderAuthHeader();
         if (activeAuthPanel === 'credentials') {
             populateCredentialEditorFromCurrent();
@@ -1617,6 +1680,25 @@
         } else if (activeAuthPanel === 'history') {
             loadHistoryPage(currentHistoryPage);
         }
+    }
+
+    function openCredentialPanel(filterRole = 'all') {
+        if (!authEnabled) return;
+        if (!currentUser) {
+            setAuthOverlayVisible(true);
+            showToast('로그인 후 저장된 연결을 불러올 수 있습니다.', true);
+            return;
+        }
+
+        activeAuthPanel = 'credentials';
+        credentialListFilterRole = filterRole;
+        if (filterRole === 'source' || filterRole === 'target') {
+            populateCredentialEditorFromCurrent(filterRole);
+        } else {
+            populateCredentialEditorFromCurrent();
+        }
+        renderAuthHeader();
+        loadCredentials();
     }
 
     function resetCredentialEditor() {
@@ -1658,9 +1740,33 @@
 
     function renderCredentialList(items = []) {
         credentialCache = items;
-        credentialEmpty.style.display = items.length ? 'none' : 'block';
-        credentialTable.style.display = items.length ? 'table' : 'none';
-        credentialList.innerHTML = items.map(item => {
+        const filtered = items.filter(item => {
+            if (credentialListFilterRole === 'all') return true;
+            if (credentialListFilterRole === 'source') return item.dbType === 'oracle';
+            return item.dbType !== 'oracle';
+        });
+
+        if (credentialFilterNote) {
+            if (credentialListFilterRole === 'source') {
+                credentialFilterNote.textContent = 'Source(Oracle) 연결만 표시 중';
+            } else if (credentialListFilterRole === 'target') {
+                credentialFilterNote.textContent = 'Target 연결만 표시 중';
+            } else {
+                credentialFilterNote.textContent = '전체 연결 목록';
+            }
+        }
+
+        if (credentialListFilterRole === 'source') {
+            credentialEmpty.innerText = '저장된 Source(Oracle) 접속정보가 없습니다.';
+        } else if (credentialListFilterRole === 'target') {
+            credentialEmpty.innerText = '저장된 Target 접속정보가 없습니다.';
+        } else {
+            credentialEmpty.innerText = '저장된 접속정보가 없습니다.';
+        }
+
+        credentialEmpty.style.display = filtered.length ? 'none' : 'block';
+        credentialTable.style.display = filtered.length ? 'table' : 'none';
+        credentialList.innerHTML = filtered.map(item => {
             const role = item.dbType === 'oracle' ? 'Source' : 'Target';
             const connection = item.host || '-';
             return `
@@ -2044,9 +2150,26 @@
     btnSaveCredential.addEventListener('click', saveCredential);
     btnResetCredential.addEventListener('click', resetCredentialEditor);
     credentialRole.addEventListener('change', () => populateCredentialEditorFromCurrent(credentialRole.value));
-    btnNavCredentials.addEventListener('click', () => toggleAuthPanel('credentials'));
+    btnNavCredentials.addEventListener('click', () => {
+        if (activeAuthPanel === 'credentials') {
+            activeAuthPanel = '';
+            renderAuthHeader();
+            return;
+        }
+        openCredentialPanel('all');
+    });
     btnNavHistory.addEventListener('click', () => toggleAuthPanel('history'));
     btnLogout.addEventListener('click', logout);
+    if (btnLoadSourceCredential) {
+        btnLoadSourceCredential.addEventListener('click', () => openCredentialPanel('source'));
+    }
+    if (btnLoadTargetCredential) {
+        btnLoadTargetCredential.addEventListener('click', () => {
+            document.getElementById('modeDirect').checked = true;
+            document.getElementById('modeDirect').dispatchEvent(new Event('change'));
+            openCredentialPanel('target');
+        });
+    }
     btnLogin.addEventListener('click', login);
     loginPassword.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') login();
