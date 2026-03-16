@@ -36,31 +36,57 @@ func setupTestRouter() *gin.Engine {
 	return r
 }
 
-func TestRegisterV16Routes_ServesEmbeddedIndexAndFallback(t *testing.T) {
+func TestRegisterV16Routes_RedirectsToLegacyWhenBundleUnavailable(t *testing.T) {
+	tmp := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
 	r := gin.New()
-	registerV16Routes(r)
+	ready := registerV16Routes(r)
+	if ready {
+		t.Fatal("expected v16 bundle to be unavailable in test binary")
+	}
 
 	for _, route := range []string{"/v16", "/v16/some/deep/link"} {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", route, nil)
 		r.ServeHTTP(w, req)
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200 for %s, got %d", route, w.Code)
+		if w.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 for %s, got %d", route, w.Code)
 		}
-		if !strings.Contains(w.Body.String(), "v16 frontend bundle") {
-			t.Fatalf("expected embedded placeholder content for %s, got %q", route, w.Body.String())
+		if got := w.Header().Get("Location"); got != "/legacy" {
+			t.Fatalf("expected redirect to /legacy for %s, got %q", route, got)
 		}
 	}
 }
 
 func TestRootRedirectsToV16(t *testing.T) {
+	tmp := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
 	r := gin.New()
+	v16Ready := false
 	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if v16Ready {
+			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			return
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 	r.HEAD("/", func(c *gin.Context) {
-		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if v16Ready {
+			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			return
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -71,9 +97,52 @@ func TestRootRedirectsToV16(t *testing.T) {
 		if w.Code != http.StatusTemporaryRedirect {
 			t.Fatalf("expected 307 for %s, got %d", method, w.Code)
 		}
-		if got := w.Header().Get("Location"); got != "/v16" {
-			t.Fatalf("expected redirect to /v16 for %s, got %q", method, got)
+		if got := w.Header().Get("Location"); got != "/legacy" {
+			t.Fatalf("expected redirect to /legacy for %s, got %q", method, got)
 		}
+	}
+}
+
+func TestRegisterV16Routes_ServesLocalDistWhenPresent(t *testing.T) {
+	tmp := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	distDir := filepath.Join(tmp, "frontend", "dist", "assets")
+	if err := os.MkdirAll(distDir, 0755); err != nil {
+		t.Fatalf("mkdir dist assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "frontend", "dist", "index.html"), []byte(`<!doctype html><html><body><div id="root">v16 live</div><script type="module" src="/v16/assets/app.js"></script></body></html>`), 0644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "app.js"), []byte(`console.log("ok");`), 0644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	r := gin.New()
+	ready := registerV16Routes(r)
+	if !ready {
+		t.Fatal("expected local dist to enable v16 routes")
+	}
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/v16", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for /v16, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "v16 live") {
+		t.Fatalf("expected local dist index content, got %q", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest(http.MethodGet, "/v16/assets/app.js", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for asset, got %d", w.Code)
 	}
 }
 

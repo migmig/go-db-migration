@@ -160,17 +160,26 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		})
 	}
 
+	v16Ready := registerV16Routes(r)
+
 	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if v16Ready {
+			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			return
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 	r.HEAD("/", func(c *gin.Context) {
-		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if v16Ready {
+			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			return
+		}
+		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 	r.GET("/legacy", serveLegacyIndex)
 	r.GET("/v15", serveLegacyIndex)
 
 	r.StaticFS("/static", http.FS(templateFS))
-	registerV16Routes(r)
 
 	api := r.Group("/api")
 	{
@@ -221,21 +230,21 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	}
 }
 
-func registerV16Routes(r *gin.Engine) {
+func registerV16Routes(r *gin.Engine) bool {
 	if r == nil {
-		return
+		return false
 	}
 
-	distFS, err := fs.Sub(templateFS, "assets/v16")
-	if err != nil {
-		serveUnavailable := func(c *gin.Context) {
-			c.String(http.StatusServiceUnavailable, "v16 frontend assets are unavailable in this binary")
+	distFS, ok := resolveV16AssetsFS()
+	if !ok {
+		redirectLegacy := func(c *gin.Context) {
+			c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 		}
-		r.GET("/v16", serveUnavailable)
-		r.HEAD("/v16", serveUnavailable)
-		r.GET("/v16/*path", serveUnavailable)
-		r.HEAD("/v16/*path", serveUnavailable)
-		return
+		r.GET("/v16", redirectLegacy)
+		r.HEAD("/v16", redirectLegacy)
+		r.GET("/v16/*path", redirectLegacy)
+		r.HEAD("/v16/*path", redirectLegacy)
+		return false
 	}
 
 	serveIndex := func(c *gin.Context) {
@@ -289,6 +298,58 @@ func registerV16Routes(r *gin.Engine) {
 
 		serveIndex(c)
 	})
+	return true
+}
+
+func resolveV16AssetsFS() (fs.FS, bool) {
+	for _, candidate := range candidateV16DistDirs() {
+		if info, err := os.Stat(filepath.Join(candidate, "index.html")); err == nil && !info.IsDir() {
+			return os.DirFS(candidate), true
+		}
+	}
+
+	distFS, err := fs.Sub(templateFS, "assets/v16")
+	if err != nil {
+		return nil, false
+	}
+	if embeddedV16IsPlaceholder(distFS) {
+		return nil, false
+	}
+	return distFS, true
+}
+
+func candidateV16DistDirs() []string {
+	candidates := []string{}
+
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(wd, "frontend", "dist"))
+	}
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append(candidates, filepath.Join(exeDir, "frontend", "dist"))
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func embeddedV16IsPlaceholder(distFS fs.FS) bool {
+	indexHTML, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		return true
+	}
+	return strings.Contains(string(indexHTML), "v16 frontend bundle is not embedded in this binary")
 }
 
 type loginRequest struct {

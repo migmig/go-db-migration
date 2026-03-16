@@ -315,6 +315,37 @@ autoload -U compinit && compinit
 ./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group sequences
 ```
 
+예시: Dry-run / 완료 리포트의 그룹별 요약
+
+```text
+Run Status
+Session: ... · WS closed · Target all
+Tables Group: 12 ok · 0 error · 184,320 rows
+Sequences Group: 3 ok · 0 error · 3 objects
+```
+
+```json
+{
+  "report_id": "job_20260317083000",
+  "object_group": "all",
+  "stats": {
+    "tables": {
+      "total_items": 12,
+      "success_count": 12,
+      "error_count": 0,
+      "skipped_count": 0,
+      "total_rows": 184320
+    },
+    "sequences": {
+      "total_items": 3,
+      "success_count": 3,
+      "error_count": 0,
+      "skipped_count": 0
+    }
+  }
+}
+```
+
 ## 플래그 (Flags)
 
 | 플래그 | 설명 | 기본값 | 필수 여부 |

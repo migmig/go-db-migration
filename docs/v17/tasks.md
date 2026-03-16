@@ -9,7 +9,7 @@
 - [x] `README.md` 업데이트
   - [x] 객체 그룹 실행 모드(`all/tables/sequences`) 설명 추가
   - [x] 신규 옵션/요청 필드(`--object-group`, `object_group`) 문서화
-  - [ ] Dry-run/리포트의 그룹별 출력 예시 추가
+  - [x] Dry-run/리포트의 그룹별 출력 예시 추가
 
 ### 2. 도메인 모델/분류기 구현 (Domain & Classifier)
 - [x] `ObjectGroup` 타입/상수 도입
