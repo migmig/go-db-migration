@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v15)
+# Oracle to Multi-Target Data Migration CLI (v17)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -21,6 +21,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **쉘 자동완성 (Shell Completion) (v12, v13):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다. 단독으로 입력 시 현재 쉘을 자동 감지합니다.
 - **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
 - **인증 기반 멀티유저 (v15):** `-auth-enabled` 플래그로 Web UI의 로그인/로그아웃, 세션 기반 접근 제어, 사용자별 접속정보 저장, 사용자별 작업 이력 조회를 활성화할 수 있습니다.
+- **객체 그룹 선택 실행 (v17):** `-object-group` 플래그로 `all|tables|sequences` 실행 그룹을 선택할 수 있습니다. `sequences` 모드는 시퀀스 DDL 전용 경로를 사용합니다.
 
 ## 설치 (Installation)
 
@@ -293,6 +294,21 @@ autoload -U compinit && compinit
 ./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS,ORDERS" -dry-run
 ```
 
+### 객체 그룹 실행 모드 (v17)
+
+`-object-group`으로 실행 대상을 분리할 수 있습니다.
+
+```bash
+# 기본값: all
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group all
+
+# tables 전용: 테이블/데이터 중심 경로 (sequence DDL 비활성)
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -with-sequences -object-group tables
+
+# sequences 전용: 시퀀스 DDL만 생성/실행
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group sequences
+```
+
 ## 플래그 (Flags)
 
 | 플래그 | 설명 | 기본값 | 필수 여부 |
@@ -325,6 +341,7 @@ autoload -U compinit && compinit
 | `-resume` | 재개할 Job ID | 없음 | 아니오 |
 | `-completion` | 쉘 자동완성 스크립트 출력 (`bash`, `zsh`, `fish`, `powershell`) | 없음 | 아니오 |
 | `-auth-enabled` | 인증 기반 멀티유저 모드 활성화 (로그인/세션 접근제어) | `false` | 아니오 |
+| `-object-group` | 마이그레이션 객체 그룹 선택 (`all`, `tables`, `sequences`) | `all` | 아니오 |
 | `-dry-run` | 연결 확인 및 예상 행 수만 조회 (실제 이관 없음) | `false` | 아니오 |
 | `-log-json` | JSON 구조화 로그 활성화 | `false` | 아니오 |
 

@@ -222,6 +222,72 @@ func TestParseFlags_DDLOptions_EnableWithDDLImplicitly(t *testing.T) {
 	}
 }
 
+func TestParseFlags_ObjectGroup_DefaultAll(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ObjectGroup != "all" {
+		t.Fatalf("ObjectGroup=%q, want all", cfg.ObjectGroup)
+	}
+}
+
+func TestParseFlags_ObjectGroup_InvalidFallsBackToAll(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T", "-object-group=bad"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ObjectGroup != "all" {
+		t.Fatalf("ObjectGroup=%q, want all", cfg.ObjectGroup)
+	}
+}
+
+func TestParseFlags_ObjectGroup_TablesDisablesWithSequences(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T", "-object-group=tables", "-with-sequences"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ObjectGroup != "tables" {
+		t.Fatalf("ObjectGroup=%q, want tables", cfg.ObjectGroup)
+	}
+	if cfg.WithSequences {
+		t.Fatal("expected WithSequences=false when object-group=tables")
+	}
+}
+
+func TestParseFlags_ObjectGroup_SequencesEnablesDDLOptions(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T", "-object-group=sequences"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ObjectGroup != "sequences" {
+		t.Fatalf("ObjectGroup=%q, want sequences", cfg.ObjectGroup)
+	}
+	if !cfg.WithDDL || !cfg.WithSequences {
+		t.Fatalf("expected WithDDL=true and WithSequences=true, got withDDL=%t withSequences=%t", cfg.WithDDL, cfg.WithSequences)
+	}
+}
+
 func TestParseFlags_CompletionMode_SkipsRequiredFieldValidation(t *testing.T) {
 	resetFlags()
 	old := os.Args
@@ -355,7 +421,6 @@ func TestParseFlags_CompletionNoArgs_UnsupportedShell_Fails(t *testing.T) {
 		t.Errorf("expected usage output, got: %s", string(out))
 	}
 }
-
 
 func TestParseFlags_LoadsMasterKeyFromEnv(t *testing.T) {
 	resetFlags()
