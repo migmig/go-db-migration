@@ -2,11 +2,37 @@ package dialect
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
 // Oracle 기본 MAXVALUE (28자리 9)
 const oracleDefaultMaxValue = "9999999999999999999999999999"
+
+var oracleNextvalPattern = regexp.MustCompile(`(?i)^"?([a-z0-9_$#]+)"?(?:\."?([a-z0-9_$#]+)"?)?\.nextval$`)
+
+func normalizeOracleDefaultForPostgres(defaultExpr string) string {
+	trimmed := strings.TrimSpace(defaultExpr)
+	if trimmed == "" {
+		return trimmed
+	}
+
+	if matches := oracleNextvalPattern.FindStringSubmatch(trimmed); len(matches) > 0 {
+		sequenceName := strings.ToLower(matches[1])
+		if matches[2] != "" {
+			schema := strings.ToLower(matches[1])
+			sequenceName = fmt.Sprintf(`"%s"."%s"`, schema, strings.ToLower(matches[2]))
+		}
+		return fmt.Sprintf("nextval('%s')", sequenceName)
+	}
+
+	switch strings.ToUpper(trimmed) {
+	case "SYSDATE", "SYSTIMESTAMP":
+		return "CURRENT_TIMESTAMP"
+	default:
+		return trimmed
+	}
+}
 
 func (d *PostgresDialect) CreateTableDDL(tableName, schema string, cols []ColumnDef) string {
 	fullTableName := d.QuoteIdentifier(strings.ToLower(tableName))
@@ -31,7 +57,7 @@ func (d *PostgresDialect) CreateTableDDL(tableName, schema string, cols []Column
 		sb.WriteString(fmt.Sprintf("    %s %s", d.QuoteIdentifier(strings.ToLower(col.Name)), pgType))
 
 		if col.DefaultValue.Valid && col.DefaultValue.String != "" {
-			sb.WriteString(fmt.Sprintf(" DEFAULT %s", col.DefaultValue.String))
+			sb.WriteString(fmt.Sprintf(" DEFAULT %s", normalizeOracleDefaultForPostgres(col.DefaultValue.String)))
 		}
 
 		if col.Nullable == "N" {
