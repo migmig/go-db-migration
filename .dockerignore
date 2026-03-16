@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.cache
+.migration_state
+docs
+
+dbmigrator
+frontend/dist
+frontend/node_modules
+frontend/coverage
+frontend/*.tsbuildinfo
