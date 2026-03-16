@@ -669,6 +669,8 @@ type startMigrationRequest struct {
 	// v9 추가 필드
 	Validate  bool `json:"validate"`
 	CopyBatch int  `json:"copyBatch"`
+	// v17
+	ObjectGroup string `json:"objectGroup"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -694,6 +696,10 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 	}
 	if req.DBMaxLife < 0 {
 		return fmt.Errorf("dbMaxLife must be non-negative")
+	}
+	group := strings.ToLower(strings.TrimSpace(req.ObjectGroup))
+	if group != "" && group != config.ObjectGroupAll && group != config.ObjectGroupTables && group != config.ObjectGroupSequences {
+		return fmt.Errorf("objectGroup must be one of all, tables, sequences")
 	}
 	// v9: 테이블명 및 Oracle 소유자 식별자 검증 (SQL Injection 방어)
 	for _, table := range req.Tables {
@@ -885,6 +891,7 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 			DBMaxLife:       req.DBMaxLife,
 			Validate:        req.Validate,
 			CopyBatch:       req.CopyBatch,
+			ObjectGroup:     strings.ToLower(strings.TrimSpace(req.ObjectGroup)),
 		}
 
 		// Start background metrics collection
@@ -1041,6 +1048,7 @@ func buildReplayPayload(req startMigrationRequest) map[string]any {
 		"dbMaxLife":       req.DBMaxLife,
 		"validate":        req.Validate,
 		"copyBatch":       req.CopyBatch,
+		"objectGroup":     req.ObjectGroup,
 	}
 }
 
