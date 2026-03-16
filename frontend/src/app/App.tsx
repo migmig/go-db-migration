@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../shared/api/client";
 import {
   AuthUser,
@@ -10,6 +10,8 @@ import {
 
 type RoleFilter = "all" | "source" | "target";
 type NoticeTone = "info" | "error";
+type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
+type TableRunStatus = "pending" | "running" | "completed" | "error";
 
 type SourceState = {
   oracleUrl: string;
@@ -31,8 +33,103 @@ type SourceRecent = {
   password: string;
 };
 
+type MigrationOptions = {
+  outFile: string;
+  perTable: boolean;
+  withDdl: boolean;
+  withSequences: boolean;
+  withIndexes: boolean;
+  withConstraints: boolean;
+  validate: boolean;
+  oracleOwner: string;
+  batchSize: number;
+  workers: number;
+  copyBatch: number;
+  dbMaxOpen: number;
+  dbMaxIdle: number;
+  dbMaxLife: number;
+  logJson: boolean;
+  dryRun: boolean;
+};
+
+type TableRunState = {
+  total: number;
+  count: number;
+  status: TableRunStatus;
+  error?: string;
+  details?: string;
+};
+
+type ValidationState = {
+  sourceCount: number;
+  targetCount: number;
+  status: string;
+  message: string;
+};
+
+type DdlEvent = {
+  key: string;
+  object: string;
+  name: string;
+  status: string;
+  error?: string;
+};
+
+type ReportSummary = {
+  total_rows: number;
+  success_count: number;
+  error_count: number;
+  duration: string;
+  report_id: string;
+};
+
+type WsProgressMsg = {
+  type: string;
+  table?: string;
+  count?: number;
+  total?: number;
+  error?: string;
+  message?: string;
+  zip_file_id?: string;
+  connection_ok?: boolean;
+  object?: string;
+  object_name?: string;
+  status?: string;
+  phase?: string;
+  category?: string;
+  suggestion?: string;
+  recoverable?: boolean;
+  batch_num?: number;
+  row_offset?: number;
+  report_summary?: ReportSummary;
+};
+
+type MetricsState = {
+  cpu: string;
+  mem: string;
+};
+
 const SOURCE_RECENT_KEY = "dbm:v16:source-recent";
 const SOURCE_REMEMBER_KEY = "dbm:v16:source-remember-pass";
+
+const DEFAULT_OPTIONS: MigrationOptions = {
+  outFile: "migration.sql",
+  perTable: true,
+  withDdl: true,
+  withSequences: false,
+  withIndexes: false,
+  withConstraints: false,
+  validate: false,
+  oracleOwner: "",
+  batchSize: 1000,
+  workers: 4,
+  copyBatch: 10000,
+  dbMaxOpen: 0,
+  dbMaxIdle: 2,
+  dbMaxLife: 0,
+  logJson: false,
+  dryRun: false,
+};
 
 function loadRememberPassword(): boolean {
   try {
@@ -56,6 +153,80 @@ function loadSourceRecent(): SourceRecent {
     };
   } catch {
     return { oracleUrl: "", username: "", password: "" };
+  }
+}
+
+function toBool(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+  return fallback;
+}
+
+function toNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function toString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return fallback;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function createSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `v16-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function wsStatusLabel(status: WsStatus): string {
+  switch (status) {
+    case "connecting":
+      return "WS connecting";
+    case "connected":
+      return "WS connected";
+    case "closed":
+      return "WS disconnected";
+    case "error":
+      return "WS error";
+    default:
+      return "WS idle";
+  }
+}
+
+function tableStatusLabel(status: TableRunStatus): string {
+  switch (status) {
+    case "running":
+      return "Running";
+    case "completed":
+      return "Completed";
+    case "error":
+      return "Error";
+    default:
+      return "Pending";
   }
 }
 
@@ -83,14 +254,36 @@ export function App() {
 
   const [rememberSourcePassword, setRememberSourcePassword] =
     useState(initialRememberPass);
+
   const [sourceConnectBusy, setSourceConnectBusy] = useState(false);
   const [sourceConnectError, setSourceConnectError] = useState("");
-  const [tableCount, setTableCount] = useState<number | null>(null);
-  const [tablePreview, setTablePreview] = useState<string[]>([]);
+  const [allTables, setAllTables] = useState<string[]>([]);
+  const [tableSearch, setTableSearch] = useState("");
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+
+  const [options, setOptions] = useState<MigrationOptions>(DEFAULT_OPTIONS);
 
   const [targetTestBusy, setTargetTestBusy] = useState(false);
   const [targetTestError, setTargetTestError] = useState("");
   const [targetTestMessage, setTargetTestMessage] = useState("");
+
+  const [tableProgress, setTableProgress] = useState<Record<string, TableRunState>>(
+    {},
+  );
+  const [validation, setValidation] = useState<Record<string, ValidationState>>({});
+  const [ddlEvents, setDdlEvents] = useState<DdlEvent[]>([]);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [metrics, setMetrics] = useState<MetricsState>({ cpu: "-", mem: "-" });
+  const [migrationBusy, setMigrationBusy] = useState(false);
+  const [migrationError, setMigrationError] = useState("");
+  const [wsStatus, setWsStatus] = useState<WsStatus>("idle");
+  const [runSessionId, setRunSessionId] = useState("");
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [runEndedAt, setRunEndedAt] = useState<number | null>(null);
+  const [runDryRun, setRunDryRun] = useState(false);
+  const [zipFileId, setZipFileId] = useState("");
+  const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
+  const [clock, setClock] = useState(Date.now());
 
   const [credentialsPanelOpen, setCredentialsPanelOpen] = useState(false);
   const [credentialFilter, setCredentialFilter] = useState<RoleFilter>("all");
@@ -111,6 +304,74 @@ export function App() {
     null,
   );
 
+  const wsRef = useRef<WebSocket | null>(null);
+  const warningSetRef = useRef<Set<string>>(new Set());
+  const migrationActiveRef = useRef(false);
+  const runDryRunRef = useRef(false);
+
+  const filteredCredentials = credentials.filter((item) => {
+    if (credentialFilter === "all") return true;
+    if (credentialFilter === "source") return item.dbType === "oracle";
+    return item.dbType !== "oracle";
+  });
+
+  const filteredTables = allTables.filter((table) =>
+    table.toLowerCase().includes(tableSearch.toLowerCase()),
+  );
+  const selectedTableSet = new Set(selectedTables);
+  const allVisibleSelected =
+    filteredTables.length > 0 &&
+    filteredTables.every((table) => selectedTableSet.has(table));
+
+  const runEntries = Object.entries(tableProgress).sort((a, b) => {
+    const rank: Record<TableRunStatus, number> = {
+      running: 0,
+      pending: 1,
+      error: 2,
+      completed: 3,
+    };
+    const statusDiff = rank[a[1].status] - rank[b[1].status];
+    if (statusDiff !== 0) return statusDiff;
+    return a[0].localeCompare(b[0]);
+  });
+
+  const runTotalTables = runEntries.length;
+  const runDoneTables = runEntries.filter(
+    ([, item]) => item.status === "completed" || item.status === "error",
+  ).length;
+  const runSuccessCount = runEntries.filter(
+    ([, item]) => item.status === "completed",
+  ).length;
+  const runFailCount = runEntries.filter(([, item]) => item.status === "error").length;
+  const processedRows = runEntries.reduce((sum, [, item]) => sum + item.count, 0);
+  const expectedRows = runEntries.reduce((sum, [, item]) => {
+    if (item.total > 0) return sum + item.total;
+    return sum + item.count;
+  }, 0);
+  const overallPercent =
+    runTotalTables > 0 ? Math.floor((runDoneTables / runTotalTables) * 100) : 0;
+  const elapsedSeconds = runStartedAt
+    ? Math.max(
+        1,
+        Math.floor(((runEndedAt ?? clock) - runStartedAt) / 1000),
+      )
+    : 0;
+  const rowsPerSecond =
+    elapsedSeconds > 0 ? Math.floor(processedRows / elapsedSeconds) : 0;
+  const etaSeconds =
+    rowsPerSecond > 0 && expectedRows > processedRows
+      ? Math.floor((expectedRows - processedRows) / rowsPerSecond)
+      : null;
+  const runReadyToShow = runStartedAt !== null || runEntries.length > 0;
+
+  useEffect(() => {
+    migrationActiveRef.current = migrationBusy;
+  }, [migrationBusy]);
+
+  useEffect(() => {
+    runDryRunRef.current = runDryRun;
+  }, [runDryRun]);
+
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (notice) {
@@ -119,6 +380,16 @@ export function App() {
     }, 2400);
     return () => clearTimeout(timeout);
   }, [notice]);
+
+  useEffect(() => {
+    if (!migrationBusy) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      setClock(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [migrationBusy]);
 
   useEffect(() => {
     try {
@@ -147,11 +418,294 @@ export function App() {
     void boot();
   }, []);
 
-  const filteredCredentials = credentials.filter((item) => {
-    if (credentialFilter === "all") return true;
-    if (credentialFilter === "source") return item.dbType === "oracle";
-    return item.dbType !== "oracle";
-  });
+  useEffect(() => {
+    return () => {
+      closeWebSocket();
+    };
+  }, []);
+
+  function closeWebSocket() {
+    const socket = wsRef.current;
+    if (!socket) {
+      return;
+    }
+    wsRef.current = null;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      socket.close();
+    }
+  }
+
+  function resetRunState() {
+    closeWebSocket();
+    warningSetRef.current = new Set();
+    setWarnings([]);
+    setValidation({});
+    setDdlEvents([]);
+    setMetrics({ cpu: "-", mem: "-" });
+    setTableProgress({});
+    setMigrationError("");
+    setMigrationBusy(false);
+    setWsStatus("idle");
+    setRunSessionId("");
+    setRunStartedAt(null);
+    setRunEndedAt(null);
+    setRunDryRun(false);
+    setZipFileId("");
+    setReportSummary(null);
+  }
+
+  async function openWebSocket(sessionId: string): Promise<boolean> {
+    closeWebSocket();
+    setWsStatus("connecting");
+
+    return await new Promise((resolve) => {
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(
+        `${protocol}://${window.location.host}/api/ws?sessionId=${encodeURIComponent(sessionId)}`,
+      );
+      wsRef.current = socket;
+
+      let settled = false;
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+
+      const timer = window.setTimeout(() => {
+        finish(false);
+      }, 3000);
+
+      socket.onopen = () => {
+        window.clearTimeout(timer);
+        setWsStatus("connected");
+        finish(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data) as WsProgressMsg;
+          handleProgressMessage(msg);
+        } catch {
+          // Ignore malformed websocket payloads.
+        }
+      };
+
+      socket.onerror = () => {
+        setWsStatus("error");
+      };
+
+      socket.onclose = () => {
+        window.clearTimeout(timer);
+        if (wsRef.current === socket) {
+          wsRef.current = null;
+        }
+        if (migrationActiveRef.current) {
+          setWsStatus("closed");
+        }
+        finish(false);
+      };
+    });
+  }
+
+  function handleProgressMessage(msg: WsProgressMsg) {
+    if (msg.type === "metrics") {
+      if (!msg.message) return;
+      try {
+        const payload = JSON.parse(msg.message) as {
+          cpu_usage_pct?: string;
+          mem_usage_mb?: string;
+        };
+        setMetrics({
+          cpu: payload.cpu_usage_pct ? `${payload.cpu_usage_pct}%` : "-",
+          mem: payload.mem_usage_mb ? `${payload.mem_usage_mb} MB` : "-",
+        });
+      } catch {
+        // Ignore malformed metrics payloads.
+      }
+      return;
+    }
+
+    if (msg.type === "warning") {
+      const warningText = msg.message ?? "Unknown warning";
+      if (warningSetRef.current.has(warningText)) {
+        return;
+      }
+      warningSetRef.current.add(warningText);
+      setWarnings((prev) => [warningText, ...prev]);
+      return;
+    }
+
+    if (msg.type === "ddl_progress") {
+      const object = msg.object ?? "";
+      const objectName = msg.object_name ?? "";
+      const key = `${object}:${objectName}`;
+      setDdlEvents((prev) => {
+        const updated = [
+          {
+            key,
+            object,
+            name: objectName,
+            status: msg.status ?? "unknown",
+            error: msg.error,
+          },
+          ...prev.filter((item) => item.key !== key),
+        ];
+        return updated.slice(0, 20);
+      });
+      return;
+    }
+
+    if (msg.type === "validation_start") {
+      if (!msg.table) return;
+      const table = msg.table;
+      setValidation((prev) => {
+        if (prev[table]) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [table]: {
+            sourceCount: 0,
+            targetCount: 0,
+            status: "running",
+            message: "",
+          },
+        };
+      });
+      return;
+    }
+
+    if (msg.type === "validation_result") {
+      if (!msg.table) return;
+      setValidation((prev) => ({
+        ...prev,
+        [msg.table!]: {
+          sourceCount: msg.total ?? 0,
+          targetCount: msg.count ?? 0,
+          status: msg.status ?? "unknown",
+          message: msg.message ?? "",
+        },
+      }));
+      return;
+    }
+
+    if (msg.type === "all_done") {
+      setMigrationBusy(false);
+      setRunEndedAt(Date.now());
+      setZipFileId(msg.zip_file_id ?? "");
+      setReportSummary(msg.report_summary ?? null);
+      setNotice({
+        text: runDryRunRef.current
+          ? "Verification completed."
+          : "Migration completed.",
+        tone: "info",
+      });
+      closeWebSocket();
+      setWsStatus("closed");
+      return;
+    }
+
+    if (!msg.table) {
+      return;
+    }
+
+    if (msg.type === "init") {
+      setTableProgress((prev) => {
+        const current = prev[msg.table!] ?? { total: 0, count: 0, status: "pending" };
+        return {
+          ...prev,
+          [msg.table!]: {
+            ...current,
+            total: msg.total ?? current.total,
+            status: "running",
+          },
+        };
+      });
+      return;
+    }
+
+    if (msg.type === "update") {
+      setTableProgress((prev) => {
+        const current = prev[msg.table!] ?? { total: 0, count: 0, status: "pending" };
+        return {
+          ...prev,
+          [msg.table!]: {
+            ...current,
+            count: msg.count ?? current.count,
+            status: "running",
+          },
+        };
+      });
+      return;
+    }
+
+    if (msg.type === "done") {
+      setTableProgress((prev) => {
+        const current = prev[msg.table!] ?? { total: 0, count: 0, status: "pending" };
+        return {
+          ...prev,
+          [msg.table!]: {
+            ...current,
+            count: current.total > 0 ? current.total : current.count,
+            status: "completed",
+            error: undefined,
+            details: undefined,
+          },
+        };
+      });
+      return;
+    }
+
+    if (msg.type === "dry_run_result") {
+      const ok = msg.connection_ok ?? false;
+      setTableProgress((prev) => {
+        const current = prev[msg.table!] ?? { total: 0, count: 0, status: "pending" };
+        const rowCount = msg.total ?? current.total ?? current.count;
+        return {
+          ...prev,
+          [msg.table!]: {
+            ...current,
+            total: rowCount,
+            count: rowCount,
+            status: ok ? "completed" : "error",
+            error: ok ? undefined : "Target connection failed",
+            details: ok ? undefined : "Target connection failed in dry-run.",
+          },
+        };
+      });
+      return;
+    }
+
+    if (msg.type === "error") {
+      const detailParts: string[] = [];
+      if (msg.phase) detailParts.push(`phase=${msg.phase}`);
+      if (msg.category) detailParts.push(`category=${msg.category}`);
+      if (msg.batch_num) detailParts.push(`batch=${msg.batch_num}`);
+      if (msg.row_offset) detailParts.push(`offset=${msg.row_offset}`);
+      if (msg.suggestion) detailParts.push(`suggestion=${msg.suggestion}`);
+      if (typeof msg.recoverable === "boolean") {
+        detailParts.push(`recoverable=${String(msg.recoverable)}`);
+      }
+
+      setTableProgress((prev) => {
+        const current = prev[msg.table!] ?? { total: 0, count: 0, status: "pending" };
+        return {
+          ...prev,
+          [msg.table!]: {
+            ...current,
+            status: "error",
+            error: msg.error ?? "Unknown error",
+            details: detailParts.join(" · "),
+          },
+        };
+      });
+    }
+  }
 
   async function boot() {
     setBooting(true);
@@ -215,6 +769,7 @@ export function App() {
 
   async function handleLogout() {
     await apiRequest("/api/auth/logout", { method: "POST" }, { allowUnauthorized: true });
+    resetRunState();
     setUser(null);
     setCredentialsPanelOpen(false);
     setHistoryPanelOpen(false);
@@ -321,7 +876,7 @@ export function App() {
       }
       applyReplayPayload(data.payload ?? {});
       setHistoryPanelOpen(false);
-      setNotice({ text: "History payload applied to forms.", tone: "info" });
+      setNotice({ text: "History payload applied to form.", tone: "info" });
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Replay failed.");
     }
@@ -329,30 +884,55 @@ export function App() {
 
   function applyReplayPayload(payload: Record<string, unknown>) {
     const direct = Boolean(payload.direct);
+    const replayOptions = {
+      outFile: toString(payload.outFile, options.outFile),
+      perTable: toBool(payload.perTable, options.perTable),
+      withDdl: toBool(payload.withDdl, options.withDdl),
+      withSequences: toBool(payload.withSequences, options.withSequences),
+      withIndexes: toBool(payload.withIndexes, options.withIndexes),
+      withConstraints: toBool(payload.withConstraints, options.withConstraints),
+      validate: toBool(payload.validate, options.validate),
+      oracleOwner: toString(payload.oracleOwner, options.oracleOwner),
+      batchSize: toNumber(payload.batchSize, options.batchSize),
+      workers: toNumber(payload.workers, options.workers),
+      copyBatch: toNumber(payload.copyBatch, options.copyBatch),
+      dbMaxOpen: toNumber(payload.dbMaxOpen, options.dbMaxOpen),
+      dbMaxIdle: toNumber(payload.dbMaxIdle, options.dbMaxIdle),
+      dbMaxLife: toNumber(payload.dbMaxLife, options.dbMaxLife),
+      logJson: toBool(payload.logJson, options.logJson),
+      dryRun: toBool(payload.dryRun, options.dryRun),
+    };
+    const replayTables = toStringArray(payload.tables);
+
     setSource((prev) => ({
       ...prev,
-      oracleUrl: String(payload.oracleUrl ?? ""),
-      username: String(payload.username ?? ""),
+      oracleUrl: toString(payload.oracleUrl, ""),
+      username: toString(payload.username, ""),
       password: "",
       like: "",
     }));
     setTarget((prev) => ({
       ...prev,
       mode: direct ? "direct" : "file",
-      targetDb: String(payload.targetDb ?? prev.targetDb),
-      targetUrl: String(payload.targetUrl ?? payload.pgUrl ?? ""),
-      schema: String(payload.schema ?? ""),
+      targetDb: toString(payload.targetDb, prev.targetDb),
+      targetUrl: toString(payload.targetUrl ?? payload.pgUrl, ""),
+      schema: toString(payload.schema, ""),
     }));
+    setOptions((prev) => ({ ...prev, ...replayOptions }));
+    if (replayTables.length > 0) {
+      setSelectedTables(replayTables);
+    }
   }
 
   async function connectSource() {
     setSourceConnectError("");
-    setTableCount(null);
-    setTablePreview([]);
+    setAllTables([]);
+    setSelectedTables([]);
     if (!source.oracleUrl || !source.username || !source.password) {
       setSourceConnectError("Oracle URL, username and password are required.");
       return;
     }
+
     setSourceConnectBusy(true);
     try {
       const { response, data } = await apiRequest<{ tables: string[]; error?: string }>(
@@ -372,8 +952,8 @@ export function App() {
         throw new Error(data.error ?? "Failed to load Oracle tables.");
       }
       const tables = data.tables ?? [];
-      setTableCount(tables.length);
-      setTablePreview(tables.slice(0, 8));
+      setAllTables(tables);
+      setTableSearch("");
       setNotice({ text: `Loaded ${tables.length} table(s).`, tone: "info" });
     } catch (error) {
       setSourceConnectError(
@@ -442,6 +1022,135 @@ export function App() {
     setNotice({ text: "Recent source values restored.", tone: "info" });
   }
 
+  function toggleTable(table: string, checked: boolean) {
+    setSelectedTables((prev) => {
+      if (checked) {
+        if (prev.includes(table)) return prev;
+        return [...prev, table];
+      }
+      return prev.filter((item) => item !== table);
+    });
+  }
+
+  function selectAllVisibleTables() {
+    setSelectedTables((prev) => {
+      const merged = new Set(prev);
+      filteredTables.forEach((table) => merged.add(table));
+      return Array.from(merged);
+    });
+  }
+
+  function deselectAllVisibleTables() {
+    const hiddenSet = new Set(filteredTables);
+    setSelectedTables((prev) => prev.filter((table) => !hiddenSet.has(table)));
+  }
+
+  async function startMigration() {
+    setMigrationError("");
+
+    if (!source.oracleUrl || !source.username || !source.password) {
+      setMigrationError("Source connection fields are required.");
+      return;
+    }
+    if (selectedTables.length === 0) {
+      setMigrationError("Select at least one table.");
+      return;
+    }
+    if (target.mode === "direct" && !target.targetUrl.trim()) {
+      setMigrationError("Target URL is required in direct mode.");
+      return;
+    }
+
+    warningSetRef.current = new Set();
+    setWarnings([]);
+    setValidation({});
+    setDdlEvents([]);
+    setMetrics({ cpu: "-", mem: "-" });
+    setZipFileId("");
+    setReportSummary(null);
+    setRunDryRun(options.dryRun);
+    runDryRunRef.current = options.dryRun;
+    setRunStartedAt(Date.now());
+    setRunEndedAt(null);
+    setClock(Date.now());
+
+    const initialState: Record<string, TableRunState> = {};
+    selectedTables.forEach((table) => {
+      initialState[table] = {
+        total: 0,
+        count: 0,
+        status: "pending",
+      };
+    });
+    setTableProgress(initialState);
+
+    setMigrationBusy(true);
+    const sessionId = createSessionId();
+    setRunSessionId(sessionId);
+
+    const wsConnected = await openWebSocket(sessionId);
+    const payloadSessionId = wsConnected ? sessionId : "";
+    if (!wsConnected) {
+      setNotice({
+        text: "WebSocket unavailable. Real-time progress might be limited.",
+        tone: "error",
+      });
+    }
+
+    try {
+      const { response, data } = await apiRequest<{ error?: string; message?: string }>(
+        "/api/migrate",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: payloadSessionId,
+            oracleUrl: source.oracleUrl,
+            username: source.username,
+            password: source.password,
+            tables: selectedTables,
+            direct: target.mode === "direct",
+            targetDb: target.targetDb,
+            targetUrl: target.targetUrl.trim(),
+            pgUrl: target.targetUrl.trim(),
+            withDdl: options.withDdl,
+            batchSize: options.batchSize,
+            workers: options.workers,
+            outFile: options.outFile,
+            perTable: options.perTable,
+            schema: target.schema,
+            dryRun: options.dryRun,
+            logJson: options.logJson,
+            withSequences: options.withSequences,
+            withIndexes: options.withIndexes,
+            withConstraints: options.withConstraints,
+            validate: options.validate,
+            oracleOwner: options.oracleOwner,
+            dbMaxOpen: options.dbMaxOpen,
+            dbMaxIdle: options.dbMaxIdle,
+            dbMaxLife: options.dbMaxLife,
+            copyBatch: options.copyBatch,
+          }),
+        },
+      );
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to start migration.");
+      }
+      setNotice({
+        text: options.dryRun ? "Verification started." : "Migration started.",
+        tone: "info",
+      });
+    } catch (error) {
+      setMigrationError(
+        error instanceof Error ? error.message : "Failed to start migration.",
+      );
+      setMigrationBusy(false);
+      setRunEndedAt(Date.now());
+      closeWebSocket();
+      setWsStatus("error");
+    }
+  }
+
   if (booting) {
     return (
       <div className="flex min-h-screen items-center justify-center text-slate-700">
@@ -476,9 +1185,9 @@ export function App() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
               DBMigrator
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">v16 Connection Workspace</h1>
+            <h1 className="text-2xl font-bold text-slate-900">v16 Migration Workspace</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Unified flow for source/target setup with saved connections.
+              Source/target setup, migration options, and real-time run status.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -617,14 +1326,12 @@ export function App() {
             {sourceConnectError && (
               <p className="mt-3 text-sm font-medium text-red-600">{sourceConnectError}</p>
             )}
-            {tableCount !== null && (
+            {allTables.length > 0 && (
               <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                <p className="font-semibold">Found {tableCount} table(s)</p>
-                {tablePreview.length > 0 && (
-                  <p className="mt-1 text-xs text-emerald-700">
-                    Preview: {tablePreview.join(", ")}
-                  </p>
-                )}
+                <p className="font-semibold">Found {allTables.length} table(s)</p>
+                <p className="mt-1 text-xs text-emerald-700">
+                  Step 2 is ready. Select tables and options below.
+                </p>
               </div>
             )}
           </div>
@@ -713,6 +1420,578 @@ export function App() {
             )}
           </div>
         </section>
+
+        {allTables.length > 0 && (
+          <section className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
+            <div className="card-surface p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-slate-900">3. Table Selection</h2>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {selectedTables.length} / {allTables.length} selected
+                </span>
+              </div>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <input
+                  className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  onChange={(event) => setTableSearch(event.target.value)}
+                  placeholder="Search table..."
+                  value={tableSearch}
+                />
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                  disabled={migrationBusy}
+                  onClick={selectAllVisibleTables}
+                  type="button"
+                >
+                  Select visible
+                </button>
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                  disabled={migrationBusy}
+                  onClick={deselectAllVisibleTables}
+                  type="button"
+                >
+                  Clear visible
+                </button>
+              </div>
+              <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full border-collapse text-sm">
+                  <thead className="sticky top-0 bg-slate-50">
+                    <tr>
+                      <th className="w-12 border-b border-slate-200 px-3 py-2 text-center">
+                        <input
+                          checked={allVisibleSelected}
+                          disabled={migrationBusy || filteredTables.length === 0}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              selectAllVisibleTables();
+                            } else {
+                              deselectAllVisibleTables();
+                            }
+                          }}
+                          type="checkbox"
+                        />
+                      </th>
+                      <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
+                        Table
+                      </th>
+                      <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTables.length === 0 && (
+                      <tr>
+                        <td
+                          className="px-3 py-6 text-center text-slate-500"
+                          colSpan={3}
+                        >
+                          No tables match your filter.
+                        </td>
+                      </tr>
+                    )}
+                    {filteredTables.map((table) => {
+                      const item = tableProgress[table];
+                      const status = item?.status ?? "pending";
+                      const badgeClass =
+                        status === "completed"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : status === "error"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : status === "running"
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-slate-50 text-slate-600";
+
+                      return (
+                        <tr className="border-b border-slate-100 last:border-b-0" key={table}>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              checked={selectedTableSet.has(table)}
+                              disabled={migrationBusy}
+                              onChange={(event) => toggleTable(table, event.target.checked)}
+                              type="checkbox"
+                            />
+                          </td>
+                          <td className="px-3 py-2 font-medium text-slate-800">{table}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                            >
+                              {tableStatusLabel(status)}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card-surface p-5">
+              <h2 className="mb-4 text-lg font-semibold text-slate-900">4. Migration Options</h2>
+              <div className="space-y-3">
+                {target.mode === "file" && (
+                  <>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">Output file</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({ ...prev, outFile: event.target.value }))
+                        }
+                        value={options.outFile}
+                      />
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        checked={options.perTable}
+                        onChange={(event) =>
+                          setOptions((prev) => ({ ...prev, perTable: event.target.checked }))
+                        }
+                        type="checkbox"
+                      />
+                      Per-table output files
+                    </label>
+                  </>
+                )}
+
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.withDdl}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Include CREATE TABLE DDL
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.withSequences}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Include sequences
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.withIndexes}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, withIndexes: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Include indexes
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.withConstraints}
+                    onChange={(event) =>
+                      setOptions((prev) => ({
+                        ...prev,
+                        withConstraints: event.target.checked,
+                      }))
+                    }
+                    type="checkbox"
+                  />
+                  Include constraints
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.validate}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, validate: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Validate row counts after migration
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-slate-700">Oracle owner (optional)</span>
+                  <input
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
+                    }
+                    placeholder="defaults to connected account"
+                    value={options.oracleOwner}
+                  />
+                </label>
+
+                <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                    Advanced
+                  </summary>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">Batch size</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            batchSize: toNumber(event.target.value, prev.batchSize),
+                          }))
+                        }
+                        type="number"
+                        value={options.batchSize}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">Workers</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            workers: toNumber(event.target.value, prev.workers),
+                          }))
+                        }
+                        type="number"
+                        value={options.workers}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">COPY batch</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            copyBatch: toNumber(event.target.value, prev.copyBatch),
+                          }))
+                        }
+                        type="number"
+                        value={options.copyBatch}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">DB max open</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            dbMaxOpen: toNumber(event.target.value, prev.dbMaxOpen),
+                          }))
+                        }
+                        type="number"
+                        value={options.dbMaxOpen}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">DB max idle</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            dbMaxIdle: toNumber(event.target.value, prev.dbMaxIdle),
+                          }))
+                        }
+                        type="number"
+                        value={options.dbMaxIdle}
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-slate-700">DB max life (sec)</span>
+                      <input
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                        onChange={(event) =>
+                          setOptions((prev) => ({
+                            ...prev,
+                            dbMaxLife: toNumber(event.target.value, prev.dbMaxLife),
+                          }))
+                        }
+                        type="number"
+                        value={options.dbMaxLife}
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        checked={options.logJson}
+                        onChange={(event) =>
+                          setOptions((prev) => ({ ...prev, logJson: event.target.checked }))
+                        }
+                        type="checkbox"
+                      />
+                      JSON logging
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        checked={options.dryRun}
+                        onChange={(event) =>
+                          setOptions((prev) => ({ ...prev, dryRun: event.target.checked }))
+                        }
+                        type="checkbox"
+                      />
+                      Dry-run mode
+                    </label>
+                  </div>
+                </details>
+
+                <button
+                  className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={migrationBusy || selectedTables.length === 0}
+                  onClick={() => void startMigration()}
+                  type="button"
+                >
+                  {migrationBusy
+                    ? options.dryRun
+                      ? "Verification running..."
+                      : "Migration running..."
+                    : options.dryRun
+                      ? "Run Verification"
+                      : "Start Migration"}
+                </button>
+              </div>
+              {migrationError && (
+                <p className="mt-3 text-sm font-medium text-red-600">{migrationError}</p>
+              )}
+            </div>
+          </section>
+        )}
+
+        {runReadyToShow && (
+          <section className="card-surface p-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  5. Run Status {runDryRun ? "(Dry-run)" : ""}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Session: {runSessionId || "untracked"} · {wsStatusLabel(wsStatus)}
+                </p>
+              </div>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                {runDoneTables} / {runTotalTables} done
+              </span>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600">
+                <span>Overall progress</span>
+                <span>{overallPercent}%</span>
+              </div>
+              <div className="h-3 rounded-full bg-slate-200">
+                <div
+                  className="h-3 rounded-full bg-brand-600 transition-all"
+                  style={{ width: `${overallPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Success
+                </p>
+                <p className="mt-1 text-xl font-bold text-emerald-700">{runSuccessCount}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Failed
+                </p>
+                <p className="mt-1 text-xl font-bold text-red-700">{runFailCount}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Warnings
+                </p>
+                <p className="mt-1 text-xl font-bold text-amber-700">{warnings.length}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Rows
+                </p>
+                <p className="mt-1 text-xl font-bold text-slate-900">
+                  {processedRows.toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Elapsed
+                </p>
+                <p className="mt-1 text-base font-bold text-slate-900">{elapsedSeconds}s</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Speed
+                </p>
+                <p className="mt-1 text-base font-bold text-slate-900">
+                  {rowsPerSecond.toLocaleString()} rows/s
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  ETA
+                </p>
+                <p className="mt-1 text-base font-bold text-slate-900">
+                  {etaSeconds === null ? "-" : `${etaSeconds}s`}
+                </p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  CPU / MEM
+                </p>
+                <p className="mt-1 text-base font-bold text-slate-900">
+                  {metrics.cpu} / {metrics.mem}
+                </p>
+              </div>
+            </div>
+
+            {warnings.length > 0 && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-800">Warnings</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+                  {warnings.slice(0, 8).map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {ddlEvents.length > 0 && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-sm font-semibold text-slate-800">DDL Events</p>
+                <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs">
+                  {ddlEvents.map((event) => (
+                    <p key={event.key}>
+                      <span className="font-semibold">[{event.object}]</span> {event.name} ·{" "}
+                      {event.status}
+                      {event.error ? ` · ${event.error}` : ""}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {Object.keys(validation).length > 0 && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                <p className="text-sm font-semibold text-slate-800">Validation</p>
+                <div className="mt-2 overflow-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className="border-b border-slate-200 px-2 py-1 text-left">Table</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-right">Source</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-right">Target</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(validation).map(([table, item]) => (
+                        <tr className="border-b border-slate-100 last:border-b-0" key={table}>
+                          <td className="px-2 py-1">{table}</td>
+                          <td className="px-2 py-1 text-right">
+                            {item.sourceCount.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            {item.targetCount.toLocaleString()}
+                          </td>
+                          <td className="px-2 py-1">
+                            {item.status}
+                            {item.message ? ` · ${item.message}` : ""}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2">
+              {runEntries.map(([table, item]) => {
+                const pct =
+                  item.total > 0
+                    ? Math.min(100, Math.floor((item.count / item.total) * 100))
+                    : item.status === "completed" || item.status === "error"
+                      ? 100
+                      : 0;
+                const barClass =
+                  item.status === "completed"
+                    ? "bg-emerald-500"
+                    : item.status === "error"
+                      ? "bg-red-500"
+                      : "bg-brand-600";
+
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white p-3" key={table}>
+                    <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+                      <span className="font-semibold text-slate-800">{table}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          item.status === "completed"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : item.status === "error"
+                              ? "bg-red-100 text-red-700"
+                              : item.status === "running"
+                                ? "bg-blue-100 text-blue-700"
+                                : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {tableStatusLabel(item.status)}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-200">
+                      <div
+                        className={`h-2 rounded-full transition-all ${barClass}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {pct}% · {item.count.toLocaleString()} / {item.total.toLocaleString()} rows
+                    </p>
+                    {item.error && (
+                      <p className="mt-1 text-xs font-medium text-red-600">
+                        {item.error}
+                        {item.details ? ` · ${item.details}` : ""}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {!migrationBusy && runStartedAt !== null && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                {!runDryRun && zipFileId && (
+                  <a
+                    className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+                    href={`/api/download/${zipFileId}`}
+                  >
+                    Download ZIP
+                  </a>
+                )}
+                {reportSummary?.report_id && (
+                  <a
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    href={`/api/report/${reportSummary.report_id}`}
+                  >
+                    Download Report
+                  </a>
+                )}
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  onClick={resetRunState}
+                  type="button"
+                >
+                  Clear Run Board
+                </button>
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {credentialsPanelOpen && (
@@ -726,6 +2005,14 @@ export function App() {
             >
               Close
             </button>
+          </div>
+          <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            Filter:{" "}
+            {credentialFilter === "all"
+              ? "All"
+              : credentialFilter === "source"
+                ? "Source only (Oracle)"
+                : "Target only (non-Oracle)"}
           </div>
           <div className="mb-4 flex gap-2">
             {(["all", "source", "target"] as RoleFilter[]).map((role) => (
@@ -746,7 +2033,13 @@ export function App() {
           {credentialsBusy && <p className="text-sm text-slate-600">Loading...</p>}
           {credentialsError && <p className="text-sm text-red-600">{credentialsError}</p>}
           {!credentialsBusy && !credentialsError && filteredCredentials.length === 0 && (
-            <p className="text-sm text-slate-500">No credentials found for this filter.</p>
+            <p className="text-sm text-slate-500">
+              {credentialFilter === "source"
+                ? "No saved source connections found."
+                : credentialFilter === "target"
+                  ? "No saved target connections found."
+                  : "No saved connections found."}
+            </p>
           )}
           <div className="space-y-3">
             {filteredCredentials.map((item) => (
