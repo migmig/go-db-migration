@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
+	"path"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -34,7 +36,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed templates/*
+//go:embed templates/* assets/v16
 var templateFS embed.FS
 
 var sessionManager = ws.NewSessionManager()
@@ -149,14 +151,23 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
 	r.SetHTMLTemplate(tmpl)
 
-	r.GET("/", func(c *gin.Context) {
+	serveLegacyIndex := func(c *gin.Context) {
 		sessionID := sessionManager.CreateSession()
 		c.HTML(http.StatusOK, "index.html", gin.H{
 			"title":       "Oracle DB Migrator",
 			"sessionId":   sessionID,
 			"AuthEnabled": authEnabled,
 		})
+	}
+
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/v16")
 	})
+	r.HEAD("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+	})
+	r.GET("/legacy", serveLegacyIndex)
+	r.GET("/v15", serveLegacyIndex)
 
 	r.StaticFS("/static", http.FS(templateFS))
 	registerV16Routes(r)
@@ -215,24 +226,29 @@ func registerV16Routes(r *gin.Engine) {
 		return
 	}
 
-	distDir := filepath.Join("frontend", "dist")
-	indexPath := filepath.Join(distDir, "index.html")
-
-	serveMissing := func(c *gin.Context) {
-		c.String(http.StatusServiceUnavailable, "v16 frontend build not found. run: cd frontend && npm install && npm run build")
-	}
-
-	if _, err := os.Stat(indexPath); err != nil {
-		r.GET("/v16", serveMissing)
-		r.GET("/v16/*path", serveMissing)
+	distFS, err := fs.Sub(templateFS, "assets/v16")
+	if err != nil {
+		serveUnavailable := func(c *gin.Context) {
+			c.String(http.StatusServiceUnavailable, "v16 frontend assets are unavailable in this binary")
+		}
+		r.GET("/v16", serveUnavailable)
+		r.HEAD("/v16", serveUnavailable)
+		r.GET("/v16/*path", serveUnavailable)
+		r.HEAD("/v16/*path", serveUnavailable)
 		return
 	}
 
 	serveIndex := func(c *gin.Context) {
-		c.File(indexPath)
+		indexHTML, readErr := fs.ReadFile(distFS, "index.html")
+		if readErr != nil {
+			c.String(http.StatusServiceUnavailable, "v16 frontend assets are unavailable in this binary")
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	}
 
 	r.GET("/v16", serveIndex)
+	r.HEAD("/v16", serveIndex)
 	r.GET("/v16/*path", func(c *gin.Context) {
 		reqPath := strings.TrimPrefix(c.Param("path"), "/")
 		if reqPath == "" {
@@ -240,15 +256,34 @@ func registerV16Routes(r *gin.Engine) {
 			return
 		}
 
-		cleaned := filepath.Clean(reqPath)
-		if cleaned == "." || strings.HasPrefix(cleaned, "..") {
+		cleaned := path.Clean(reqPath)
+		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 			serveIndex(c)
 			return
 		}
 
-		candidate := filepath.Join(distDir, cleaned)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			c.File(candidate)
+		if info, err := fs.Stat(distFS, cleaned); err == nil && !info.IsDir() {
+			c.FileFromFS(cleaned, http.FS(distFS))
+			return
+		}
+
+		serveIndex(c)
+	})
+	r.HEAD("/v16/*path", func(c *gin.Context) {
+		reqPath := strings.TrimPrefix(c.Param("path"), "/")
+		if reqPath == "" {
+			serveIndex(c)
+			return
+		}
+
+		cleaned := path.Clean(reqPath)
+		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+			serveIndex(c)
+			return
+		}
+
+		if info, err := fs.Stat(distFS, cleaned); err == nil && !info.IsDir() {
+			c.FileFromFS(cleaned, http.FS(distFS))
 			return
 		}
 

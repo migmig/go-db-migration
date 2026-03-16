@@ -92,9 +92,20 @@ export DBM_MASTER_KEY="replace-with-16-24-or-32-byte-key"
 ./dbmigrator -web -auth-enabled
 ```
 
-- 접속 URL: `http://localhost:8080/v16`
+- 기본 접속 URL: `http://localhost:8080/` -> 자동으로 `http://localhost:8080/v16`로 이동합니다.
+- 구 화면(legacy): `http://localhost:8080/legacy`
 - 런타임에는 Node/Vite dev server가 필요하지 않습니다(빌드 결과물만 사용).
-- `frontend/dist`가 없으면 `/v16`은 안내 메시지(`503`)를 반환합니다.
+- `go build`만 수행한 바이너리에는 placeholder v16 페이지가 포함되고, `make offline`으로 빌드한 바이너리에는 실제 v16 번들이 포함됩니다.
+
+단일 오프라인 바이너리로 묶으려면 아래처럼 한 번에 빌드할 수 있습니다.
+
+```bash
+make offline
+```
+
+- 이 타깃은 `frontend` 검증/빌드 후, v16 자산을 Go 바이너리에 임베드해서 `./dbmigrator` 하나만 생성합니다.
+- 생성된 바이너리는 런타임에 `frontend/dist`, Node, npm, 네트워크 연결이 필요하지 않습니다.
+- 다른 출력 파일명을 쓰려면 `make offline OUTPUT=./build/dbmigrator` 형식으로 실행하면 됩니다.
 
 프런트 개발 시 권장 체크 명령:
 

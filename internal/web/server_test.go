@@ -26,6 +26,7 @@ const testWebMasterKey = "0123456789abcdef0123456789abcdef"
 
 func setupTestRouter() *gin.Engine {
 	r := gin.New()
+	registerV16Routes(r)
 	api := r.Group("/api")
 	api.POST("/tables", getTables)
 	api.POST("/migrate", startMigration)
@@ -33,6 +34,47 @@ func setupTestRouter() *gin.Engine {
 	api.POST("/test-target", testTargetConnection)
 	api.GET("/download/:id", downloadZip)
 	return r
+}
+
+func TestRegisterV16Routes_ServesEmbeddedIndexAndFallback(t *testing.T) {
+	r := gin.New()
+	registerV16Routes(r)
+
+	for _, route := range []string{"/v16", "/v16/some/deep/link"} {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", route, nil)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", route, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "v16 frontend bundle") {
+			t.Fatalf("expected embedded placeholder content for %s, got %q", route, w.Body.String())
+		}
+	}
+}
+
+func TestRootRedirectsToV16(t *testing.T) {
+	r := gin.New()
+	r.GET("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+	})
+	r.HEAD("/", func(c *gin.Context) {
+		c.Redirect(http.StatusTemporaryRedirect, "/v16")
+	})
+
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(method, "/", nil)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected 307 for %s, got %d", method, w.Code)
+		}
+		if got := w.Header().Get("Location"); got != "/v16" {
+			t.Fatalf("expected redirect to /v16 for %s, got %q", method, got)
+		}
+	}
 }
 
 func setupAuthTestRouter(t *testing.T) (*gin.Engine, *db.UserStore) {
