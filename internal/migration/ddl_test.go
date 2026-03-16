@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DATA-DOG/go-sqlmock"
 	"dbmigrator/internal/dialect"
+	"github.com/DATA-DOG/go-sqlmock"
 )
 
 func TestMapOracleToPostgres(t *testing.T) {
@@ -110,6 +110,30 @@ func TestGenerateCreateTableDDL_EndsWithSemicolon(t *testing.T) {
 	trimmed := strings.TrimSpace(ddl)
 	if !strings.HasSuffix(trimmed, ";") {
 		t.Errorf("DDL should end with ';', got:\n%s", ddl)
+	}
+}
+
+func TestGenerateCreateTableDDL_PostgresDefaultNextvalConverted(t *testing.T) {
+	cols := []dialect.ColumnDef{
+		{Name: "ID", Type: "NUMBER", Nullable: "N", DefaultValue: sql.NullString{String: "USERS_SEQ.NEXTVAL", Valid: true}},
+	}
+	dia := &dialect.PostgresDialect{}
+
+	ddl := GenerateCreateTableDDL("USERS", "public", cols, dia)
+	if !strings.Contains(ddl, "DEFAULT nextval('users_seq')") {
+		t.Fatalf("expected Postgres nextval default conversion, got:\n%s", ddl)
+	}
+}
+
+func TestGenerateCreateTableDDL_PostgresDefaultSysdateConverted(t *testing.T) {
+	cols := []dialect.ColumnDef{
+		{Name: "CREATED_AT", Type: "DATE", Nullable: "N", DefaultValue: sql.NullString{String: "SYSDATE", Valid: true}},
+	}
+	dia := &dialect.PostgresDialect{}
+
+	ddl := GenerateCreateTableDDL("AUDIT_LOG", "", cols, dia)
+	if !strings.Contains(ddl, "DEFAULT CURRENT_TIMESTAMP") {
+		t.Fatalf("expected SYSDATE to become CURRENT_TIMESTAMP, got:\n%s", ddl)
 	}
 }
 
