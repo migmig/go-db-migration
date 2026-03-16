@@ -96,6 +96,26 @@ export DBM_MASTER_KEY="replace-with-16-24-or-32-byte-key"
 - 런타임에는 Node/Vite dev server가 필요하지 않습니다(빌드 결과물만 사용).
 - `frontend/dist`가 없으면 `/v16`은 안내 메시지(`503`)를 반환합니다.
 
+프런트 개발 시 권장 체크 명령:
+
+```bash
+cd frontend
+npm run test
+npm run typecheck
+npm run build
+```
+
+`tsgo`를 설치해두면 더 빠른 타입체크 경로를 사용할 수 있습니다(선택):
+
+```bash
+go install github.com/microsoft/typescript-go/cmd/tsgo@latest
+cd frontend
+npm run typecheck:fast
+npm run verify:fast
+```
+
+- `typecheck:fast`는 `tsgo`가 있으면 `tsgo -b`, 없으면 자동으로 `tsc -b`를 사용합니다.
+
 ### 관리자 CLI (v15)
 
 아래 계정 관리 커맨드를 통해 로컬 인증 사용자 계정을 관리할 수 있습니다.

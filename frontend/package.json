@@ -7,9 +7,13 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -b",
+    "typecheck:go": "sh -c 'if command -v tsgo >/dev/null 2>&1; then tsgo -b; elif [ -x \"$HOME/go/bin/tsgo\" ]; then \"$HOME/go/bin/tsgo\" -b; else echo \"tsgo not found\" >&2; exit 1; fi'",
+    "typecheck:fast": "sh -c 'if command -v tsgo >/dev/null 2>&1; then tsgo -b; elif [ -x \"$HOME/go/bin/tsgo\" ]; then \"$HOME/go/bin/tsgo\" -b; else tsc -b; fi'",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "npm run test && npm run typecheck && npm run build",
+    "verify:fast": "npm run test && npm run typecheck:fast && npm run build"
   },
   "dependencies": {
     "react": "^19.1.0",
