@@ -251,7 +251,7 @@ func TestParseFlags_ObjectGroup_InvalidFallsBackToAll(t *testing.T) {
 		t.Fatalf("ObjectGroup=%q, want all", cfg.ObjectGroup)
 	}
 }
-
+ 
 func TestParseFlags_ObjectGroup_TablesDisablesWithSequences(t *testing.T) {
 	resetFlags()
 	old := os.Args
@@ -269,7 +269,7 @@ func TestParseFlags_ObjectGroup_TablesDisablesWithSequences(t *testing.T) {
 		t.Fatal("expected WithSequences=false when object-group=tables")
 	}
 }
-
+ 
 func TestParseFlags_ObjectGroup_SequencesEnablesDDLOptions(t *testing.T) {
 	resetFlags()
 	old := os.Args
