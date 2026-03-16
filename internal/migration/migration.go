@@ -463,6 +463,28 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			}
 			slog.Info("DDL executed successfully", "table", tableName)
 		}
+
+		pk, err := GetPrimaryKeyMetadata(dbConn, tableName, owner)
+		if err != nil {
+			slog.Warn("failed to get primary key metadata", "table", tableName, "error", err)
+		} else if pk != nil {
+			ddl := GenerateIndexDDL(*pk, tableName, cfg.Schema, dia)
+			if ddl != "" {
+				var err error
+				if pgPool != nil {
+					_, err = pgPool.Exec(context.Background(), ddl)
+				} else if targetDB != nil {
+					_, err = targetDB.Exec(ddl)
+				}
+				if err != nil {
+					return 0, &MigrationError{
+						Table: tableName, Phase: "ddl", Category: classifyError(err),
+						RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
+					}
+				}
+				slog.Info("primary key DDL executed", "table", tableName, "constraint", pk.Name)
+			}
+		}
 	} else if tState.Offset == 0 {
 		// Validation check if not using DDL
 		if pgPool != nil {
@@ -510,33 +532,48 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 	if pgPool != nil {
 		if cfg.CopyBatch > 0 {
 			rows.Close()
-			return migrateTablePgBatchCopy(dbConn, pgPool, tableName, cols, cfg, tracker, mState)
-		}
-
-		// 기존 단일 COPY 모드
-		ctx := context.Background()
-		tx, err := pgPool.Begin(ctx)
-		if err != nil {
-			return 0, fmt.Errorf("failed to start pg transaction: %v", err)
-		}
-		defer tx.Rollback(ctx)
-
-		source := &oracleCopySource{rows: rows, cols: cols}
-		n, err := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, cols, source)
-		if err != nil {
-			return 0, &MigrationError{
-				Table: tableName, Phase: "data", Category: classifyError(err),
-				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+			rowCount, err = migrateTablePgBatchCopy(dbConn, pgPool, tableName, cols, cfg, tracker, mState)
+			if err != nil {
+				return rowCount, err
 			}
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return 0, &MigrationError{
-				Table: tableName, Phase: "data", Category: classifyError(err),
-				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+		} else {
+			// 기존 단일 COPY 모드
+			ctx := context.Background()
+			tx, err := pgPool.Begin(ctx)
+			if err != nil {
+				return 0, fmt.Errorf("failed to start pg transaction: %v", err)
 			}
+			defer tx.Rollback(ctx)
+
+			source := &oracleCopySource{rows: rows, cols: cols}
+			var ident pgx.Identifier
+			if cfg.Schema != "" {
+				ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
+			} else {
+				ident = pgx.Identifier{strings.ToLower(tableName)}
+			}
+
+			lowerCols := make([]string, len(cols))
+			for i, c := range cols {
+				lowerCols[i] = strings.ToLower(c)
+			}
+
+			n, err := tx.CopyFrom(ctx, ident, lowerCols, source)
+			if err != nil {
+				return 0, &MigrationError{
+					Table: tableName, Phase: "data", Category: classifyError(err),
+					RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+				}
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return 0, &MigrationError{
+					Table: tableName, Phase: "data", Category: classifyError(err),
+					RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+				}
+			}
+			rowCount += int(n)
+			mState.UpdateOffset(tableName, rowCount)
 		}
-		rowCount += int(n)
-		mState.UpdateOffset(tableName, rowCount)
 	} else if targetDB != nil {
 		tx, err := targetDB.Begin()
 		if err != nil {
@@ -786,6 +823,20 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 			writeToBuf(tableBuf, ddl+"\n", cfg.PerTable, outMutex)
 		}
 
+		pk, err := GetPrimaryKeyMetadata(dbConn, tableName, owner)
+		if err != nil {
+			slog.Warn("failed to get primary key metadata", "table", tableName, "error", err)
+		} else if pk != nil {
+			ddl := GenerateIndexDDL(*pk, tableName, cfg.Schema, dia)
+			if ddl != "" {
+				writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
+				if hasDDLTracker {
+					ddlTracker.DDLProgress("primary_key", pk.Name, "ok", nil)
+				}
+				slog.Info("primary key DDL written", "constraint", pk.Name)
+			}
+		}
+
 		// Index DDLs — written after CREATE TABLE, before INSERT
 		if cfg.WithIndexes {
 			indexes, err := GetIndexMetadata(dbConn, tableName, owner)
@@ -949,7 +1000,19 @@ func migrateTablePgBatchCopy(
 		}
 
 		source := &oracleCopySource{rows: rows, cols: batchCols}
-		n, copyErr := tx.CopyFrom(ctx, pgx.Identifier{cfg.Schema, tableName}, batchCols, source)
+		var ident pgx.Identifier
+		if cfg.Schema != "" {
+			ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
+		} else {
+			ident = pgx.Identifier{strings.ToLower(tableName)}
+		}
+
+		lowerBatchCols := make([]string, len(batchCols))
+		for i, c := range batchCols {
+			lowerBatchCols[i] = strings.ToLower(c)
+		}
+
+		n, copyErr := tx.CopyFrom(ctx, ident, lowerBatchCols, source)
 		rows.Close()
 
 		if copyErr != nil {

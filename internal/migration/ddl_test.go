@@ -216,6 +216,36 @@ func TestGetTableMetadata_TableNameUppercased(t *testing.T) {
 	}
 }
 
+func TestGetPrimaryKeyMetadata_SystemNamedConstraintIncluded(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT c.constraint_name").
+		WithArgs("MY_USER", "SAMPLE_DATA").
+		WillReturnRows(sqlmock.NewRows([]string{"constraint_name"}).AddRow("SYS_C008433"))
+
+	mock.ExpectQuery("SELECT column_name, position").
+		WithArgs("MY_USER", "SAMPLE_DATA", "SYS_C008433").
+		WillReturnRows(sqlmock.NewRows([]string{"column_name", "position"}).AddRow("ID", 1))
+
+	pk, err := GetPrimaryKeyMetadata(db, "SAMPLE_DATA", "MY_USER")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pk == nil {
+		t.Fatal("expected primary key metadata, got nil")
+	}
+	if !pk.IsPK || pk.Name != "SYS_C008433" {
+		t.Fatalf("unexpected PK metadata: %+v", pk)
+	}
+	if len(pk.Columns) != 1 || pk.Columns[0].Name != "ID" {
+		t.Fatalf("unexpected PK columns: %+v", pk.Columns)
+	}
+}
+
 // ── GenerateSequenceDDL ────────────────────────────────────────────────────────
 
 func TestGenerateSequenceDDL_Basic(t *testing.T) {

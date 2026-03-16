@@ -3,6 +3,7 @@ package migration
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"dbmigrator/internal/dialect"
@@ -140,13 +141,15 @@ func GetSequenceMetadata(db *sql.DB, tableName, owner string, extraNames []strin
 	ownerUpper := strings.ToUpper(owner)
 
 	// Collect candidate sequence names from DEFAULT column values (.NEXTVAL)
+	// data_default is a LONG type in Oracle, which cannot be used with string functions
+	// like UPPER() or REGEXP_REPLACE() directly in SQL without causing ORA-00932.
+	// We fetch it and parse it in Go instead.
 	defaultQuery := `
-		SELECT DISTINCT REGEXP_REPLACE(data_default, '.*?([A-Z0-9_$#]+)\.NEXTVAL.*', '\1')
+		SELECT data_default
 		FROM all_tab_columns
 		WHERE owner = :1
 		  AND table_name = :2
 		  AND data_default IS NOT NULL
-		  AND UPPER(data_default) LIKE '%.NEXTVAL%'
 	`
 	rows, err := db.Query(defaultQuery, ownerUpper, tableUpper)
 	if err != nil {
@@ -156,15 +159,24 @@ func GetSequenceMetadata(db *sql.DB, tableName, owner string, extraNames []strin
 
 	seen := make(map[string]bool)
 	var names []string
+
+	seqRegex := regexp.MustCompile(`(?i).*?([A-Z0-9_$#]+)\.NEXTVAL.*`)
+
 	for rows.Next() {
 		var n string
 		if err := rows.Scan(&n); err != nil {
 			continue
 		}
-		n = strings.ToUpper(strings.TrimSpace(n))
-		if n != "" && !seen[n] {
-			seen[n] = true
-			names = append(names, n)
+
+		if strings.Contains(strings.ToUpper(n), ".NEXTVAL") {
+			matches := seqRegex.FindStringSubmatch(n)
+			if len(matches) > 1 {
+				seqName := strings.ToUpper(strings.TrimSpace(matches[1]))
+				if seqName != "" && !seen[seqName] {
+					seen[seqName] = true
+					names = append(names, seqName)
+				}
+			}
 		}
 	}
 
@@ -234,6 +246,64 @@ func GenerateSequenceDDL(seq dialect.SequenceMetadata, schema string, dia dialec
 	return dia.CreateSequenceDDL(seq, schema)
 }
 
+// GetPrimaryKeyMetadata returns primary key metadata for the given table.
+func GetPrimaryKeyMetadata(db *sql.DB, tableName, owner string) (*dialect.IndexMetadata, error) {
+	tableUpper := strings.ToUpper(tableName)
+	ownerUpper := strings.ToUpper(owner)
+
+	pkQuery := `
+		SELECT c.constraint_name
+		FROM all_constraints c
+		WHERE c.owner = :1
+		  AND c.table_name = :2
+		  AND c.constraint_type = 'P'
+	`
+
+	var name string
+	if err := db.QueryRow(pkQuery, ownerUpper, tableUpper).Scan(&name); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("primary key query failed: %w", err)
+	}
+
+	pk := &dialect.IndexMetadata{
+		Name:       name,
+		Uniqueness: "UNIQUE",
+		IndexType:  "PRIMARY KEY",
+		IsPK:       true,
+	}
+
+	colQuery := `
+		SELECT column_name, position
+		FROM all_cons_columns
+		WHERE owner = :1
+		  AND table_name = :2
+		  AND constraint_name = :3
+		ORDER BY position
+	`
+	rows, err := db.Query(colQuery, ownerUpper, tableUpper, name)
+	if err != nil {
+		return nil, fmt.Errorf("primary key column query failed: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var col dialect.IndexColumn
+		if err := rows.Scan(&col.Name, &col.Position); err != nil {
+			return nil, err
+		}
+		col.Descend = "ASC"
+		pk.Columns = append(pk.Columns, col)
+	}
+
+	if len(pk.Columns) == 0 {
+		return nil, nil
+	}
+
+	return pk, nil
+}
+
 // GetIndexMetadata returns index metadata for the given table (excluding PK system indexes and LOB indexes).
 func GetIndexMetadata(db *sql.DB, tableName, owner string) ([]dialect.IndexMetadata, error) {
 	tableUpper := strings.ToUpper(tableName)
@@ -245,6 +315,14 @@ func GetIndexMetadata(db *sql.DB, tableName, owner string) ([]dialect.IndexMetad
 		WHERE i.table_owner = :1
 		  AND i.table_name  = :2
 		  AND i.index_type IN ('NORMAL', 'FUNCTION-BASED NORMAL')
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM all_constraints c
+		      WHERE c.owner = i.table_owner
+		        AND c.table_name = i.table_name
+		        AND c.index_name = i.index_name
+		        AND c.constraint_type = 'P'
+		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM all_lobs l
 		      WHERE l.owner = i.table_owner
@@ -265,7 +343,6 @@ func GetIndexMetadata(db *sql.DB, tableName, owner string) ([]dialect.IndexMetad
 		if err := rows.Scan(&idx.Name, &idx.Uniqueness, &idx.IndexType); err != nil {
 			return nil, err
 		}
-		idx.IsPK = strings.HasPrefix(idx.Name, "SYS_C")
 		indexes = append(indexes, idx)
 	}
 
