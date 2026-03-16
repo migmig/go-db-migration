@@ -36,7 +36,7 @@
 ### 4. 실행기(Executor) 그룹 선택 로직 (Execution)
 - [x] 실행 입력에 `object_group` 반영
 - [ ] 실행 모드별 대상 선택 구현
-  - [ ] `all`: `tables -> sequences` 순서 고정
+  - [ ] `all`: `tables -> sequences` 순서 고정 
   - [ ] `tables`: tables만 실행
   - [ ] `sequences`: sequences만 실행
 - [ ] 실패 격리 정책 반영

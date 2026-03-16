@@ -230,7 +230,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		if err := migrateSequencesOnly(dbConn, targetDB, pgPool, dia, cfg, mainBuf); err != nil {
 			return nil, err
 		}
-		PrintSummary(report)
+		report.PrintSummary()
 		return report, nil
 	}
 
@@ -353,6 +353,29 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 func migrateSequencesOnly(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, mainBuf *bufio.Writer) error {
 	owner := resolveOwner(cfg)
 	seen := make(map[string]struct{})
+
+	if pgPool == nil && targetDB == nil && cfg.PerTable {
+		fileName := "sequences.sql"
+		if cfg.OutputDir != "" {
+			fileName = cfg.OutputDir + "/" + fileName
+		}
+
+		flag := os.O_CREATE | os.O_WRONLY
+		if cfg.ResumeJobID != "" {
+			flag |= os.O_APPEND
+		} else {
+			flag |= os.O_TRUNC
+		}
+
+		out, err := os.OpenFile(fileName, flag, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to create sequences output file: %w", err)
+		}
+		defer out.Close()
+
+		mainBuf = bufio.NewWriter(out)
+		defer mainBuf.Flush()
+	}
 
 	for _, tableName := range cfg.Tables {
 		seqs, err := GetSequenceMetadata(dbConn, tableName, owner, splitNames(cfg.Sequences))

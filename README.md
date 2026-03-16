@@ -294,6 +294,21 @@ autoload -U compinit && compinit
 ./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS,ORDERS" -dry-run
 ```
 
+### 객체 그룹 실행 모드 (v17)
+
+`-object-group`으로 실행 대상을 분리할 수 있습니다.
+
+```bash
+# 기본값: all
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group all
+
+# tables 전용: 테이블/데이터 중심 경로 (sequence DDL 비활성)
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -with-sequences -object-group tables
+
+# sequences 전용: 시퀀스 DDL만 생성/실행
+./dbmigrator -url "localhost:1521/ORCL" -user "scott" -password "tiger" -tables "USERS" -with-ddl -object-group sequences
+```
+
 ## 플래그 (Flags)
 
 | 플래그 | 설명 | 기본값 | 필수 여부 |
