@@ -376,5 +376,18 @@ func ParseFlags() (*Config, error) {
 		}
 	}
 
+	normalizeDDLOptions(cfg)
+
 	return cfg, nil
+}
+
+func normalizeDDLOptions(cfg *Config) {
+	if cfg.WithDDL {
+		return
+	}
+
+	if cfg.WithSequences || cfg.WithIndexes || cfg.WithConstraints {
+		fmt.Println("Warning: -with-sequences/-with-indexes/-with-constraints requires -with-ddl. Enabling -with-ddl automatically.")
+		cfg.WithDDL = true
+	}
 }

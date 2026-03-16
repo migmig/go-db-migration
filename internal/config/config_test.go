@@ -203,6 +203,25 @@ func TestParseFlags_ExplicitFlags(t *testing.T) {
 	}
 }
 
+func TestParseFlags_DDLOptions_EnableWithDDLImplicitly(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T", "-with-indexes"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.WithIndexes {
+		t.Fatal("expected WithIndexes=true")
+	}
+	if !cfg.WithDDL {
+		t.Fatal("expected WithDDL=true when DDL sub-options are enabled")
+	}
+}
+
 func TestParseFlags_CompletionMode_SkipsRequiredFieldValidation(t *testing.T) {
 	resetFlags()
 	old := os.Args
