@@ -652,10 +652,193 @@
             color: var(--text-muted);
         }
 
+        .auth-nav {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .auth-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.45rem 0.7rem;
+            border-radius: 999px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .auth-chip small {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .gnb-btn {
+            width: auto;
+            padding: 0.55rem 0.85rem;
+            background: var(--bg-color);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            font-size: 0.88rem;
+            font-weight: 600;
+        }
+
+        .gnb-btn.active {
+            background: var(--primary-color);
+            color: #fff;
+            border-color: var(--primary-color);
+        }
+
+        .auth-panels {
+            display: none;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .auth-panel-grid {
+            display: grid;
+            grid-template-columns: 1.1fr 1.6fr;
+            gap: 1rem;
+        }
+
+        .auth-mini-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+
+        .auth-mini-table th,
+        .auth-mini-table td {
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.7rem 0.55rem;
+            vertical-align: top;
+            text-align: left;
+        }
+
+        .auth-mini-table th {
+            color: var(--text-muted);
+            font-size: 0.76rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .inline-actions {
+            display: flex;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+        }
+
+        .inline-actions button {
+            width: auto;
+            padding: 0.38rem 0.65rem;
+            font-size: 0.8rem;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            border-radius: 999px;
+            padding: 0.25rem 0.55rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .pill--success { background: rgba(16, 185, 129, 0.12); color: var(--success-color); }
+        .pill--failed { background: rgba(239, 68, 68, 0.12); color: var(--danger-color); }
+
+        .muted-note {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state {
+            border: 1px dashed var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-align: center;
+            background: var(--bg-color);
+        }
+
+        .history-pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .history-pagination button {
+            width: auto;
+            padding: 0.45rem 0.8rem;
+        }
+
+        .login-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            background:
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.2), transparent 28%),
+                radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.16), transparent 24%),
+                rgba(15, 23, 42, 0.58);
+            backdrop-filter: blur(12px);
+            z-index: 400;
+        }
+
+        .login-card {
+            width: min(420px, 100%);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
+            padding: 1.5rem;
+        }
+
+        .login-card h2 {
+            margin-bottom: 0.75rem;
+        }
+
+        .login-meta {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 1.25rem;
+        }
+
+        .toast {
+            position: fixed;
+            right: 1rem;
+            bottom: 1rem;
+            z-index: 450;
+            min-width: 240px;
+            max-width: 360px;
+            padding: 0.9rem 1rem;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            box-shadow: var(--shadow-md);
+            display: none;
+        }
+
+        .toast--error {
+            border-color: rgba(239, 68, 68, 0.35);
+        }
+
         /* ── Responsive 768px ── */
         @media (max-width: 768px) {
             .container { padding: 1rem 0.75rem 3rem; }
             button { padding: 0.85rem 1.5rem; }
+            .auth-panel-grid { grid-template-columns: 1fr; }
+            .auth-nav { justify-content: flex-end; }
         }
     </style>
 </head>
@@ -665,12 +848,131 @@
 <header class="app-header">
     <h1 class="app-title">{{ .title }}</h1>
     <div class="header-actions">
+        <div id="auth-nav" class="auth-nav" aria-label="인증 메뉴">
+            <span id="auth-user-chip" class="auth-chip"></span>
+            <button id="btn-nav-credentials" class="gnb-btn" type="button">내 정보</button>
+            <button id="btn-nav-history" class="gnb-btn" type="button">내 작업 내역</button>
+            <button id="btn-logout" class="gnb-btn" type="button">로그아웃</button>
+        </div>
         <span class="session-info">Session: <code id="currentSessionId">{{ .sessionId }}</code></span>
         <button id="theme-toggle" aria-label="다크모드 토글">🌙</button>
     </div>
 </header>
 
+<div id="auth-overlay" class="login-overlay" aria-hidden="true">
+    <div class="login-card">
+        <h2>Sign In</h2>
+        <div class="login-meta">멀티유저 인증 모드가 활성화되어 있습니다. 로그인 후 접속정보와 작업 이력을 사용자별로 분리해서 사용할 수 있습니다.</div>
+        <div class="form-group">
+            <label for="login-username">Username</label>
+            <input type="text" id="login-username" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" autocomplete="current-password">
+        </div>
+        <button id="btn-login" class="btn-primary" type="button">Login</button>
+        <div id="login-error" class="error-msg" role="alert"></div>
+    </div>
+</div>
+
+<div id="auth-toast" class="toast" role="status" aria-live="polite"></div>
+
 <div class="container">
+
+    <div id="auth-panels" class="auth-panels">
+        <div id="credentials-panel" class="card" style="display:none;">
+            <div class="auth-panel-grid">
+                <div>
+                    <h2>저장된 접속정보</h2>
+                    <div class="form-group">
+                        <label for="credential-role">구분</label>
+                        <select id="credential-role">
+                            <option value="source">Source (Oracle)</option>
+                            <option value="target">Target</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="credential-alias">Alias</label>
+                        <input type="text" id="credential-alias" placeholder="예: prod-oracle">
+                    </div>
+                    <div class="form-group" id="credential-dbtype-group" style="display:none;">
+                        <label for="credential-dbtype">Target DB</label>
+                        <select id="credential-dbtype">
+                            <option value="postgres">PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                            <option value="mariadb">MariaDB</option>
+                            <option value="sqlite">SQLite</option>
+                            <option value="mssql">MSSQL</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="credential-url">Connection Value</label>
+                        <input type="text" id="credential-url" placeholder="localhost:1521/XE 또는 target URL">
+                    </div>
+                    <div class="form-group" id="credential-username-group">
+                        <label for="credential-username">Username</label>
+                        <input type="text" id="credential-username" placeholder="scott">
+                    </div>
+                    <div class="form-group" id="credential-password-group">
+                        <label for="credential-password">Password</label>
+                        <input type="password" id="credential-password" placeholder="••••••">
+                    </div>
+                    <div class="inline-actions">
+                        <button id="btn-save-credential" class="btn-primary" type="button">저장</button>
+                        <button id="btn-reset-credential" class="btn-secondary" type="button">초기화</button>
+                    </div>
+                    <div id="credential-error" class="error-msg" role="alert"></div>
+                </div>
+                <div>
+                    <h2 style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+                        <span>목록</span>
+                        <span class="muted-note">Oracle 항목은 Source, 나머지는 Target으로 바로 불러옵니다.</span>
+                    </h2>
+                    <div id="credential-empty" class="empty-state">저장된 접속정보가 없습니다.</div>
+                    <table id="credential-table" class="auth-mini-table" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th>Alias</th>
+                                <th>Type</th>
+                                <th>Connection</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="credential-list"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="history-panel" class="card" style="display:none;">
+            <h2 style="display:flex;justify-content:space-between;align-items:center;gap:1rem;">
+                <span>내 작업 내역</span>
+                <span class="muted-note">재실행 불러오기는 비밀정보를 제외한 설정만 복원합니다.</span>
+            </h2>
+            <div id="history-empty" class="empty-state">저장된 작업 내역이 없습니다.</div>
+            <table id="history-table" class="auth-mini-table" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>실행 시각</th>
+                        <th>Source</th>
+                        <th>Target</th>
+                        <th>상태</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="history-list"></tbody>
+            </table>
+            <div class="history-pagination">
+                <span id="history-page-label" class="muted-note">Page 1</span>
+                <div class="inline-actions">
+                    <button id="btn-history-prev" class="btn-secondary" type="button">이전</button>
+                    <button id="btn-history-next" class="btn-secondary" type="button">다음</button>
+                </div>
+            </div>
+            <div id="history-error" class="error-msg" role="alert"></div>
+        </div>
+    </div>
 
     <div class="card shared-conn-card" id="shared-conn-card">
         <h2 style="margin-top:0; font-size:1rem;">Quick Shared Connection</h2>
@@ -1054,6 +1356,7 @@
 
 <script>
     // ── DOM refs ──
+    const authEnabled     = {{ if .AuthEnabled }}true{{ else }}false{{ end }};
     const btnConnect      = document.getElementById('btn-connect');
     const btnTestTarget   = document.getElementById('btn-test-target');
     const btnNextStep1    = document.getElementById('btn-next-step1');
@@ -1070,6 +1373,42 @@
     const rememberPassCb  = document.getElementById('rememberPass');
     const clearSharedBtn  = document.getElementById('btn-clear-shared');
     const clearHistoryBtn = document.getElementById('btn-clear-history');
+    const authNav         = document.getElementById('auth-nav');
+    const authUserChip    = document.getElementById('auth-user-chip');
+    const authPanels      = document.getElementById('auth-panels');
+    const credentialsPanel= document.getElementById('credentials-panel');
+    const historyPanel    = document.getElementById('history-panel');
+    const btnNavCredentials = document.getElementById('btn-nav-credentials');
+    const btnNavHistory   = document.getElementById('btn-nav-history');
+    const btnLogout       = document.getElementById('btn-logout');
+    const authOverlay     = document.getElementById('auth-overlay');
+    const loginUsername   = document.getElementById('login-username');
+    const loginPassword   = document.getElementById('login-password');
+    const btnLogin        = document.getElementById('btn-login');
+    const loginError      = document.getElementById('login-error');
+    const authToast       = document.getElementById('auth-toast');
+    const credentialRole  = document.getElementById('credential-role');
+    const credentialAlias = document.getElementById('credential-alias');
+    const credentialDbType= document.getElementById('credential-dbtype');
+    const credentialURL   = document.getElementById('credential-url');
+    const credentialUser  = document.getElementById('credential-username');
+    const credentialPass  = document.getElementById('credential-password');
+    const credentialError = document.getElementById('credential-error');
+    const credentialEmpty = document.getElementById('credential-empty');
+    const credentialTable = document.getElementById('credential-table');
+    const credentialList  = document.getElementById('credential-list');
+    const credentialDbTypeGroup = document.getElementById('credential-dbtype-group');
+    const credentialUserGroup = document.getElementById('credential-username-group');
+    const credentialPassGroup = document.getElementById('credential-password-group');
+    const btnSaveCredential = document.getElementById('btn-save-credential');
+    const btnResetCredential = document.getElementById('btn-reset-credential');
+    const historyEmpty     = document.getElementById('history-empty');
+    const historyTable     = document.getElementById('history-table');
+    const historyList      = document.getElementById('history-list');
+    const historyError     = document.getElementById('history-error');
+    const historyPageLabel = document.getElementById('history-page-label');
+    const btnHistoryPrev   = document.getElementById('btn-history-prev');
+    const btnHistoryNext   = document.getElementById('btn-history-next');
 
     let ws;
     let currentZipId  = '';
@@ -1082,6 +1421,14 @@
     let totalRowsProcessed = 0;
     let totalExpectedRows = 0;
     const sessionId   = document.getElementById('currentSessionId').innerText;
+    let currentUser   = null;
+    let activeAuthPanel = '';
+    let currentHistoryPage = 1;
+    const historyPageSize = 5;
+    let editingCredentialId = null;
+    let credentialCache = [];
+    let historyCache = [];
+    let pendingReplayTables = [];
 
     // ── Theme ──
     (function initTheme() {
@@ -1117,6 +1464,437 @@
         sharedDbId: 'username',
         sharedDbPass: 'password',
     };
+
+    function showToast(message, isError = false) {
+        authToast.textContent = message;
+        authToast.className = `toast${isError ? ' toast--error' : ''}`;
+        authToast.style.display = 'block';
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => {
+            authToast.style.display = 'none';
+        }, 3200);
+    }
+
+    async function apiRequest(url, options = {}, extra = {}) {
+        const { allowUnauthorized = false } = extra;
+        const response = await fetch(url, {
+            credentials: 'same-origin',
+            ...options,
+        });
+
+        const raw = await response.text();
+        let data = {};
+        if (raw) {
+            try {
+                data = JSON.parse(raw);
+            } catch (_) {
+                data = { raw };
+            }
+        }
+
+        if (authEnabled && response.status === 401 && !allowUnauthorized) {
+            handleSessionExpired();
+            throw new Error('세션이 만료되었습니다. 다시 로그인해 주세요.');
+        }
+
+        return { response, data };
+    }
+
+    function setAuthOverlayVisible(visible) {
+        authOverlay.style.display = visible ? 'flex' : 'none';
+        authOverlay.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    }
+
+    function renderAuthHeader() {
+        if (!authEnabled || !currentUser) {
+            authNav.style.display = 'none';
+            authPanels.style.display = 'none';
+            credentialsPanel.style.display = 'none';
+            historyPanel.style.display = 'none';
+            btnNavCredentials.classList.remove('active');
+            btnNavHistory.classList.remove('active');
+            activeAuthPanel = '';
+            return;
+        }
+
+        authNav.style.display = 'flex';
+        authUserChip.innerHTML = `<small>User</small> ${currentUser.username}`;
+        btnNavCredentials.classList.toggle('active', activeAuthPanel === 'credentials');
+        btnNavHistory.classList.toggle('active', activeAuthPanel === 'history');
+        authPanels.style.display = activeAuthPanel ? 'block' : 'none';
+        credentialsPanel.style.display = activeAuthPanel === 'credentials' ? 'block' : 'none';
+        historyPanel.style.display = activeAuthPanel === 'history' ? 'block' : 'none';
+    }
+
+    function handleSessionExpired() {
+        if (!authEnabled) return;
+        currentUser = null;
+        renderAuthHeader();
+        setAuthOverlayVisible(true);
+        loginError.innerText = '세션이 만료되었습니다. 다시 로그인해 주세요.';
+        showToast('세션이 만료되었습니다. 다시 로그인해 주세요.', true);
+    }
+
+    async function refreshSession() {
+        if (!authEnabled) return;
+
+        try {
+            const { response, data } = await apiRequest('/api/auth/me', {}, { allowUnauthorized: true });
+            if (!response.ok) {
+                currentUser = null;
+                renderAuthHeader();
+                setAuthOverlayVisible(true);
+                return;
+            }
+
+            currentUser = data;
+            loginError.innerText = '';
+            setAuthOverlayVisible(false);
+            renderAuthHeader();
+            await Promise.all([loadCredentials(), loadHistoryPage(1)]);
+        } catch (err) {
+            currentUser = null;
+            renderAuthHeader();
+            setAuthOverlayVisible(true);
+            loginError.innerText = err.message || '로그인 상태를 확인할 수 없습니다.';
+        }
+    }
+
+    async function login() {
+        loginError.innerText = '';
+        btnLogin.disabled = true;
+        btnLogin.innerText = 'Logging in...';
+
+        try {
+            const { response, data } = await apiRequest('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    username: loginUsername.value.trim(),
+                    password: loginPassword.value,
+                }),
+            }, { allowUnauthorized: true });
+
+            if (!response.ok) {
+                throw new Error(data.error || '로그인에 실패했습니다.');
+            }
+
+            loginPassword.value = '';
+            currentUser = data;
+            activeAuthPanel = '';
+            renderAuthHeader();
+            setAuthOverlayVisible(false);
+            await Promise.all([loadCredentials(), loadHistoryPage(1)]);
+            showToast(`${data.username} 계정으로 로그인되었습니다.`);
+        } catch (err) {
+            loginError.innerText = err.message || '로그인에 실패했습니다.';
+        } finally {
+            btnLogin.disabled = false;
+            btnLogin.innerText = 'Login';
+        }
+    }
+
+    async function logout() {
+        if (!authEnabled) return;
+        try {
+            await apiRequest('/api/auth/logout', { method: 'POST' }, { allowUnauthorized: true });
+        } finally {
+            currentUser = null;
+            activeAuthPanel = '';
+            renderAuthHeader();
+            setAuthOverlayVisible(true);
+            showToast('로그아웃되었습니다.');
+        }
+    }
+
+    function toggleAuthPanel(panelName) {
+        if (!currentUser) return;
+        activeAuthPanel = activeAuthPanel === panelName ? '' : panelName;
+        renderAuthHeader();
+        if (activeAuthPanel === 'credentials') {
+            populateCredentialEditorFromCurrent();
+            loadCredentials();
+        } else if (activeAuthPanel === 'history') {
+            loadHistoryPage(currentHistoryPage);
+        }
+    }
+
+    function resetCredentialEditor() {
+        editingCredentialId = null;
+        credentialAlias.value = '';
+        credentialURL.value = '';
+        credentialUser.value = '';
+        credentialPass.value = '';
+        credentialRole.value = 'source';
+        credentialDbType.value = document.getElementById('targetDb').value || 'postgres';
+        credentialError.innerText = '';
+        syncCredentialRoleUI();
+    }
+
+    function populateCredentialEditorFromCurrent(role = credentialRole.value) {
+        credentialRole.value = role;
+        credentialAlias.value = '';
+        if (role === 'source') {
+            credentialURL.value = document.getElementById('oracleUrl').value;
+            credentialUser.value = document.getElementById('username').value;
+            credentialPass.value = document.getElementById('password').value;
+        } else {
+            credentialDbType.value = document.getElementById('targetDb').value || 'postgres';
+            credentialURL.value = document.getElementById('pgUrl').value;
+            credentialUser.value = '';
+            credentialPass.value = '';
+        }
+        editingCredentialId = null;
+        credentialError.innerText = '';
+        syncCredentialRoleUI();
+    }
+
+    function syncCredentialRoleUI() {
+        const isSource = credentialRole.value === 'source';
+        credentialDbTypeGroup.style.display = isSource ? 'none' : 'block';
+        credentialUserGroup.style.display = isSource ? 'block' : 'none';
+        credentialPassGroup.style.display = isSource ? 'block' : 'none';
+    }
+
+    function renderCredentialList(items = []) {
+        credentialCache = items;
+        credentialEmpty.style.display = items.length ? 'none' : 'block';
+        credentialTable.style.display = items.length ? 'table' : 'none';
+        credentialList.innerHTML = items.map(item => {
+            const role = item.dbType === 'oracle' ? 'Source' : 'Target';
+            const connection = item.host || '-';
+            return `
+                <tr>
+                    <td>
+                        <strong>${item.alias}</strong><br>
+                        <span class="muted-note">${role}</span>
+                    </td>
+                    <td>${item.dbType}</td>
+                    <td style="word-break:break-all;">${connection}</td>
+                    <td>
+                        <div class="inline-actions">
+                            <button class="btn-secondary" type="button" onclick="applyCredentialToApp(${item.id})">불러오기</button>
+                            <button class="btn-secondary" type="button" onclick="editCredential(${item.id})">수정</button>
+                            <button class="btn-secondary" type="button" onclick="deleteCredential(${item.id})">삭제</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function loadCredentials() {
+        if (!authEnabled || !currentUser) return;
+        try {
+            const { response, data } = await apiRequest('/api/credentials');
+            if (!response.ok) {
+                throw new Error(data.error || '접속정보를 불러오지 못했습니다.');
+            }
+            renderCredentialList(data.items || []);
+        } catch (err) {
+            credentialError.innerText = err.message || '접속정보를 불러오지 못했습니다.';
+        }
+    }
+
+    function editCredential(id) {
+        const item = credentialCache.find(entry => entry.id === id);
+        if (!item) return;
+        editingCredentialId = id;
+        credentialRole.value = item.dbType === 'oracle' ? 'source' : 'target';
+        credentialAlias.value = item.alias || '';
+        credentialURL.value = item.host || '';
+        credentialUser.value = item.username || '';
+        credentialPass.value = item.dbType === 'oracle' ? (item.password || '') : '';
+        credentialDbType.value = item.dbType === 'oracle' ? 'postgres' : item.dbType;
+        credentialError.innerText = '';
+        syncCredentialRoleUI();
+        if (activeAuthPanel !== 'credentials') {
+            activeAuthPanel = 'credentials';
+            renderAuthHeader();
+        }
+    }
+
+    async function saveCredential() {
+        credentialError.innerText = '';
+        const isSource = credentialRole.value === 'source';
+        const payload = {
+            alias: credentialAlias.value.trim(),
+            dbType: isSource ? 'oracle' : credentialDbType.value,
+            host: credentialURL.value.trim(),
+            username: isSource ? credentialUser.value.trim() : '',
+            password: isSource ? credentialPass.value : '',
+        };
+
+        if (!payload.alias || !payload.host) {
+            credentialError.innerText = 'Alias와 Connection Value를 입력하세요.';
+            return;
+        }
+        if (isSource && (!payload.username || !payload.password)) {
+            credentialError.innerText = 'Source 접속정보는 Username과 Password가 필요합니다.';
+            return;
+        }
+
+        btnSaveCredential.disabled = true;
+        btnSaveCredential.innerText = editingCredentialId ? '저장 중...' : '추가 중...';
+
+        try {
+            const { response, data } = await apiRequest(editingCredentialId ? `/api/credentials/${editingCredentialId}` : '/api/credentials', {
+                method: editingCredentialId ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+                throw new Error(data.error || '접속정보 저장에 실패했습니다.');
+            }
+
+            resetCredentialEditor();
+            await loadCredentials();
+            showToast(editingCredentialId ? '접속정보를 수정했습니다.' : '접속정보를 저장했습니다.');
+        } catch (err) {
+            credentialError.innerText = err.message || '접속정보 저장에 실패했습니다.';
+        } finally {
+            btnSaveCredential.disabled = false;
+            btnSaveCredential.innerText = '저장';
+        }
+    }
+
+    async function deleteCredential(id) {
+        if (!confirm('이 접속정보를 삭제하시겠습니까?')) return;
+        try {
+            const { response, data } = await apiRequest(`/api/credentials/${id}`, { method: 'DELETE' });
+            if (!response.ok) {
+                throw new Error(data.error || '접속정보 삭제에 실패했습니다.');
+            }
+            if (editingCredentialId === id) resetCredentialEditor();
+            await loadCredentials();
+            showToast('접속정보를 삭제했습니다.');
+        } catch (err) {
+            credentialError.innerText = err.message || '접속정보 삭제에 실패했습니다.';
+        }
+    }
+
+    function applyCredentialToApp(id) {
+        const item = credentialCache.find(entry => entry.id === id);
+        if (!item) return;
+
+        if (item.dbType === 'oracle') {
+            document.getElementById('oracleUrl').value = item.host || '';
+            document.getElementById('username').value = item.username || '';
+            document.getElementById('password').value = item.password || '';
+            syncMainToShared();
+            sourceConnected = false;
+        } else {
+            document.getElementById('modeDirect').checked = true;
+            document.getElementById('modeDirect').dispatchEvent(new Event('change'));
+            document.getElementById('targetDb').value = item.dbType || 'postgres';
+            handleTargetDbChange();
+            document.getElementById('pgUrl').value = item.host || '';
+            targetConnected = false;
+        }
+
+        updateNextButtonState();
+        showToast(`${item.alias} 접속정보를 현재 폼에 불러왔습니다.`);
+    }
+
+    function renderHistoryList(data) {
+        const items = data.items || [];
+        historyCache = items;
+        historyEmpty.style.display = items.length ? 'none' : 'block';
+        historyTable.style.display = items.length ? 'table' : 'none';
+        historyPageLabel.textContent = `Page ${data.page} · Total ${data.total}`;
+        btnHistoryPrev.disabled = data.page <= 1;
+        btnHistoryNext.disabled = (data.page * data.pageSize) >= data.total;
+
+        historyList.innerHTML = items.map(item => {
+            const statusClass = item.status === 'success' ? 'pill--success' : 'pill--failed';
+            return `
+                <tr>
+                    <td>${new Date(item.createdAt).toLocaleString()}</td>
+                    <td>${item.sourceSummary}</td>
+                    <td>${item.targetSummary}</td>
+                    <td><span class="pill ${statusClass}">${item.status}</span></td>
+                    <td>
+                        <div class="inline-actions">
+                            <button class="btn-secondary" type="button" onclick="replayHistoryToApp(${item.id})">불러오기</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function loadHistoryPage(page = 1) {
+        if (!authEnabled || !currentUser) return;
+        historyError.innerText = '';
+        try {
+            const { response, data } = await apiRequest(`/api/history?page=${page}&pageSize=${historyPageSize}`);
+            if (!response.ok) {
+                throw new Error(data.error || '작업 이력을 불러오지 못했습니다.');
+            }
+            currentHistoryPage = data.page || page;
+            renderHistoryList(data);
+        } catch (err) {
+            historyError.innerText = err.message || '작업 이력을 불러오지 못했습니다.';
+        }
+    }
+
+    async function replayHistoryToApp(id) {
+        historyError.innerText = '';
+        try {
+            const { response, data } = await apiRequest(`/api/history/${id}/replay`, { method: 'POST' });
+            if (!response.ok) {
+                throw new Error(data.error || '작업 이력을 불러오지 못했습니다.');
+            }
+            applyReplayPayload(data.payload || {});
+            showStep(1);
+            showToast('작업 설정을 현재 폼에 복원했습니다. 비밀정보는 다시 입력해 주세요.');
+        } catch (err) {
+            historyError.innerText = err.message || '작업 이력을 불러오지 못했습니다.';
+        }
+    }
+
+    function applyReplayPayload(payload) {
+        document.getElementById('oracleUrl').value = payload.oracleUrl || '';
+        document.getElementById('username').value = payload.username || '';
+        document.getElementById('password').value = '';
+        document.getElementById('likeQuery').value = '';
+        sourceConnected = false;
+        targetConnected = false;
+        syncMainToShared();
+
+        const directMode = Boolean(payload.direct);
+        document.getElementById(directMode ? 'modeDirect' : 'modeFile').checked = true;
+        document.getElementById(directMode ? 'modeDirect' : 'modeFile').dispatchEvent(new Event('change'));
+
+        if (payload.targetDb) {
+            document.getElementById('targetDb').value = payload.targetDb;
+            handleTargetDbChange();
+        }
+        document.getElementById('pgUrl').value = payload.targetUrl || payload.pgUrl || '';
+        document.getElementById('schema').value = payload.schema || '';
+        document.getElementById('outFile').value = payload.outFile || 'migration.sql';
+        document.getElementById('perTable').checked = payload.perTable !== false;
+        document.getElementById('withDdl').checked = payload.withDdl !== false;
+        document.getElementById('withSequences').checked = Boolean(payload.withSequences);
+        document.getElementById('withIndexes').checked = Boolean(payload.withIndexes);
+        document.getElementById('withConstraints').checked = Boolean(payload.withConstraints);
+        document.getElementById('validate').checked = Boolean(payload.validate);
+        document.getElementById('batchSize').value = payload.batchSize || 1000;
+        document.getElementById('workers').value = payload.workers || 4;
+        document.getElementById('copyBatch').value = payload.copyBatch || 10000;
+        document.getElementById('dbMaxOpen').value = payload.dbMaxOpen || 0;
+        document.getElementById('dbMaxIdle').value = payload.dbMaxIdle || 2;
+        document.getElementById('dbMaxLife').value = payload.dbMaxLife || 0;
+        document.getElementById('oracleOwner').value = payload.oracleOwner || '';
+        document.getElementById('dryRun').checked = Boolean(payload.dryRun);
+        document.getElementById('logJson').checked = Boolean(payload.logJson);
+        document.getElementById('dryRun').dispatchEvent(new Event('change'));
+        document.getElementById('withDdl').dispatchEvent(new Event('change'));
+
+        pendingReplayTables = Array.isArray(payload.tables) ? payload.tables : [];
+        applyPendingReplaySelection();
+        updateNextButtonState();
+    }
 
     function safeStorageGet(key) {
         try { return localStorage.getItem(key); } catch (_) { return null; }
@@ -1262,6 +2040,23 @@
     }
 
     initPersistence();
+    syncCredentialRoleUI();
+    btnSaveCredential.addEventListener('click', saveCredential);
+    btnResetCredential.addEventListener('click', resetCredentialEditor);
+    credentialRole.addEventListener('change', () => populateCredentialEditorFromCurrent(credentialRole.value));
+    btnNavCredentials.addEventListener('click', () => toggleAuthPanel('credentials'));
+    btnNavHistory.addEventListener('click', () => toggleAuthPanel('history'));
+    btnLogout.addEventListener('click', logout);
+    btnLogin.addEventListener('click', login);
+    loginPassword.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') login();
+    });
+    btnHistoryPrev.addEventListener('click', () => loadHistoryPage(Math.max(1, currentHistoryPage - 1)));
+    btnHistoryNext.addEventListener('click', () => loadHistoryPage(currentHistoryPage + 1));
+    if (authEnabled) {
+        setAuthOverlayVisible(true);
+        refreshSession();
+    }
 
     // ── Stepper ──
     let currentStep = 1;
@@ -1403,13 +2198,12 @@
         btnTestTarget.innerHTML = '<span style="opacity:0.8;">Testing...</span>';
 
         try {
-            const res = await fetch('/api/test-target', {
+            const { response, data } = await apiRequest('/api/test-target', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ targetDb, targetUrl })
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to connect to target DB');
+            if (!response.ok) throw new Error(data.error || 'Failed to connect to target DB');
 
             targetConnected = true;
             successDiv.innerHTML = `<svg style="width:16px;height:16px;flex-shrink:0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg> Target DB Connected`;
@@ -1558,13 +2352,12 @@
         btnConnect.innerHTML = '<span style="opacity:0.8;">Connecting...</span>';
 
         try {
-            const res  = await fetch('/api/tables', {
+            const { response, data } = await apiRequest('/api/tables', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({ oracleUrl, username, password, like: likeQuery })
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to fetch tables');
+            if (!response.ok) throw new Error(data.error || 'Failed to fetch tables');
 
             const tables = data.tables || [];
             renderTableList(tables);
@@ -1638,6 +2431,28 @@
         });
 
         updateSelectedCount();
+        applyPendingReplaySelection();
+    }
+
+    function applyPendingReplaySelection() {
+        if (!Array.isArray(pendingReplayTables) || pendingReplayTables.length === 0) return;
+        const checkboxes = Array.from(document.querySelectorAll('.table-cb'));
+        if (checkboxes.length === 0) return;
+
+        const wanted = new Set(pendingReplayTables);
+        let matched = 0;
+        checkboxes.forEach(cb => {
+            const selected = wanted.has(cb.value);
+            cb.checked = selected;
+            if (selected) matched++;
+        });
+        updateSelectedCount();
+
+        if (matched > 0) {
+            pendingReplayTables = [];
+        } else {
+            showToast('소스 연결 후 테이블을 다시 조회하면 저장된 테이블 선택을 적용합니다.', true);
+        }
     }
 
     // Bind cb-all-table
@@ -1763,7 +2578,7 @@
         showStep(3);
 
         try {
-            const res = await fetch('/api/migrate', {
+            const { response, data } = await apiRequest('/api/migrate', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({
@@ -1777,8 +2592,7 @@
                     dbMaxOpen, dbMaxIdle, dbMaxLife, copyBatch
                 })
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to start migration');
+            if (!response.ok) throw new Error(data.error || 'Failed to start migration');
         } catch (err) {
             errorDiv.innerText = err.message;
             btnMigrate.disabled = false;
@@ -2407,7 +3221,7 @@
         const copyBatch       = parseInt(document.getElementById('copyBatch').value)  || 10000;
 
         try {
-            const res = await fetch('/api/migrate/retry', {
+            const { response, data } = await apiRequest('/api/migrate/retry', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body:    JSON.stringify({
@@ -2421,8 +3235,7 @@
                     dbMaxOpen, dbMaxIdle, dbMaxLife, copyBatch
                 })
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to retry migration');
+            if (!response.ok) throw new Error(data.error || 'Failed to retry migration');
         } catch (err) {
             console.error('Retry failed:', err);
             if (textEl) {

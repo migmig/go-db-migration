@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -16,6 +18,8 @@ import (
 	"dbmigrator/internal/security"
 	"dbmigrator/internal/web"
 )
+
+var userCommandExit = os.Exit
 
 func main() {
 	if handled := handleUserCommand(os.Args[1:]); handled {
@@ -99,31 +103,43 @@ func handleUserCommand(args []string) bool {
 	store, err := db.OpenUserStore(os.Getenv("DBM_AUTH_DB_PATH"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open user store: %v\n", err)
-		os.Exit(1)
+		userCommandExit(1)
 	}
 	defer store.Close()
 
-	if len(args) < 2 {
-		printUsersUsageAndExit()
+	exitCode := executeUserCommand(store, args[1:], os.Stdout, os.Stderr)
+	if exitCode != 0 {
+		userCommandExit(exitCode)
 	}
 
-	sub := args[1]
-	cmdArgs := args[2:]
+	return true
+}
+
+func executeUserCommand(store *db.UserStore, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		printUsersUsage(stderr)
+		return 1
+	}
+
+	sub := args[0]
+	cmdArgs := args[1:]
 
 	switch sub {
 	case "list":
 		users, err := store.ListUsers()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to list users: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "failed to list users: %v\n", err)
+			return 1
 		}
-		fmt.Println("ID\tUSERNAME\tADMIN\tCREATED_AT")
+		fmt.Fprintln(stdout, "ID\tUSERNAME\tADMIN\tCREATED_AT")
 		for _, user := range users {
-			fmt.Printf("%d\t%s\t%t\t%s\n", user.ID, user.Username, user.IsAdmin, user.CreatedAt.Format("2006-01-02 15:04:05"))
+			fmt.Fprintf(stdout, "%d\t%s\t%t\t%s\n", user.ID, user.Username, user.IsAdmin, user.CreatedAt.Format("2006-01-02 15:04:05"))
 		}
+		return 0
 	case "add":
 		if len(cmdArgs) < 2 || len(cmdArgs) > 3 {
-			printUsersUsageAndExit()
+			printUsersUsage(stderr)
+			return 1
 		}
 		username := strings.TrimSpace(cmdArgs[0])
 		password := cmdArgs[1]
@@ -131,60 +147,70 @@ func handleUserCommand(args []string) bool {
 
 		hash, err := security.HashPassword(password)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "invalid password: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "invalid password: %v\n", err)
+			return 1
 		}
 		if err := store.CreateUser(username, hash, isAdmin); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to add user: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "failed to add user: %v\n", err)
+			return 1
 		}
-		fmt.Printf("user %q created\n", username)
+		fmt.Fprintf(stdout, "user %q created\n", username)
+		return 0
 	case "reset-password":
 		if len(cmdArgs) != 2 {
-			printUsersUsageAndExit()
+			printUsersUsage(stderr)
+			return 1
 		}
 		username := strings.TrimSpace(cmdArgs[0])
 		newPassword := cmdArgs[1]
 		hash, err := security.HashPassword(newPassword)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "invalid password: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "invalid password: %v\n", err)
+			return 1
 		}
 		if err := store.ResetPassword(username, hash); err != nil {
 			if errors.Is(err, db.ErrUserNotFound) {
-				fmt.Fprintf(os.Stderr, "user %q not found\n", username)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "user %q not found\n", username)
+				return 1
 			}
-			fmt.Fprintf(os.Stderr, "failed to reset password: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "failed to reset password: %v\n", err)
+			return 1
 		}
-		fmt.Printf("password reset for %q\n", username)
+		fmt.Fprintf(stdout, "password reset for %q\n", username)
+		return 0
 	case "delete":
 		if len(cmdArgs) != 1 {
-			printUsersUsageAndExit()
+			printUsersUsage(stderr)
+			return 1
 		}
 		username := strings.TrimSpace(cmdArgs[0])
 		if err := store.DeleteUser(username); err != nil {
 			if errors.Is(err, db.ErrUserNotFound) {
-				fmt.Fprintf(os.Stderr, "user %q not found\n", username)
-				os.Exit(1)
+				fmt.Fprintf(stderr, "user %q not found\n", username)
+				return 1
 			}
-			fmt.Fprintf(os.Stderr, "failed to delete user: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "failed to delete user: %v\n", err)
+			return 1
 		}
-		fmt.Printf("user %q deleted\n", username)
+		fmt.Fprintf(stdout, "user %q deleted\n", username)
+		return 0
 	default:
-		printUsersUsageAndExit()
+		printUsersUsage(stderr)
+		return 1
 	}
-
-	return true
 }
 
-func printUsersUsageAndExit() {
-	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  dbmigrator users list")
-	fmt.Fprintln(os.Stderr, "  dbmigrator users add <username> <password> [--admin]")
-	fmt.Fprintln(os.Stderr, "  dbmigrator users reset-password <username> <newPassword>")
-	fmt.Fprintln(os.Stderr, "  dbmigrator users delete <username>")
-	os.Exit(1)
+func printUsersUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  dbmigrator users list")
+	fmt.Fprintln(w, "  dbmigrator users add <username> <password> [--admin]")
+	fmt.Fprintln(w, "  dbmigrator users reset-password <username> <newPassword>")
+	fmt.Fprintln(w, "  dbmigrator users delete <username>")
+}
+
+func runUserCommandForTest(store *db.UserStore, args []string) (int, string, string) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := executeUserCommand(store, args, &stdout, &stderr)
+	return exitCode, stdout.String(), stderr.String()
 }

@@ -6,12 +6,14 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -40,21 +42,30 @@ var sessionManager = ws.NewSessionManager()
 const authSessionCookieName = "dbm_auth_session"
 
 type authSession struct {
-	UserID    int64
-	Username  string
-	ExpiresAt time.Time
+	UserID     int64
+	Username   string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
 }
 
 type authSessionManager struct {
-	mu       sync.RWMutex
-	sessions map[string]authSession
-	ttl      time.Duration
+	mu          sync.RWMutex
+	sessions    map[string]authSession
+	idleTTL     time.Duration
+	absoluteTTL time.Duration
+	metrics     *monitoringMetrics
 }
 
-func newAuthSessionManager(ttl time.Duration) *authSessionManager {
+func newAuthSessionManager(idleTTL, absoluteTTL time.Duration, metrics ...*monitoringMetrics) *authSessionManager {
+	collector := newMonitoringMetrics()
+	if len(metrics) > 0 && metrics[0] != nil {
+		collector = metrics[0]
+	}
 	return &authSessionManager{
-		sessions: make(map[string]authSession),
-		ttl:      ttl,
+		sessions:    make(map[string]authSession),
+		idleTTL:     idleTTL,
+		absoluteTTL: absoluteTTL,
+		metrics:     collector,
 	}
 }
 
@@ -65,7 +76,8 @@ func (m *authSessionManager) createSession(userID int64, username string) (strin
 	}
 
 	token := hex.EncodeToString(tokenBytes)
-	s := authSession{UserID: userID, Username: username, ExpiresAt: time.Now().Add(m.ttl)}
+	now := time.Now()
+	s := authSession{UserID: userID, Username: username, CreatedAt: now, LastSeenAt: now}
 
 	m.mu.Lock()
 	m.sessions[token] = s
@@ -75,17 +87,31 @@ func (m *authSessionManager) createSession(userID int64, username string) (strin
 }
 
 func (m *authSessionManager) getSession(token string) (authSession, bool) {
-	m.mu.RLock()
+	m.metrics.recordSessionCheck()
+
+	m.mu.Lock()
 	s, ok := m.sessions[token]
-	m.mu.RUnlock()
 	if !ok {
+		m.mu.Unlock()
 		return authSession{}, false
 	}
-	if time.Now().After(s.ExpiresAt) {
-		m.deleteSession(token)
+
+	now := time.Now()
+	if now.Sub(s.CreatedAt) > m.absoluteTTL || now.Sub(s.LastSeenAt) > m.idleTTL {
+		delete(m.sessions, token)
+		m.mu.Unlock()
+		m.metrics.recordSessionExpired()
 		return authSession{}, false
 	}
+
+	s.LastSeenAt = now
+	m.sessions[token] = s
+	m.mu.Unlock()
 	return s, true
+}
+
+func (m *authSessionManager) cookieMaxAge() int {
+	return int(m.absoluteTTL.Seconds())
 }
 
 func (m *authSessionManager) deleteSession(token string) {
@@ -102,15 +128,22 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	r := gin.Default()
 	var userStore *db.UserStore
 	var authSessions *authSessionManager
+	var metrics *monitoringMetrics
 
 	if authEnabled {
-		store, err := db.OpenUserStore(os.Getenv("DBM_AUTH_DB_PATH"))
+		masterKey := strings.TrimSpace(os.Getenv("DBM_MASTER_KEY"))
+		if masterKey == "" {
+			log.Fatal("DBM_MASTER_KEY is required when auth mode is enabled")
+		}
+
+		store, err := db.OpenAuthStore(os.Getenv("DBM_AUTH_DB_PATH"), masterKey)
 		if err != nil {
 			log.Fatalf("Failed to open auth user store: %v", err)
 		}
 		userStore = store
 		defer userStore.Close()
-		authSessions = newAuthSessionManager(12 * time.Hour)
+		metrics = newMonitoringMetrics()
+		authSessions = newAuthSessionManager(30*time.Minute, 24*time.Hour, metrics)
 	}
 
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
@@ -119,8 +152,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	r.GET("/", func(c *gin.Context) {
 		sessionID := sessionManager.CreateSession()
 		c.HTML(http.StatusOK, "index.html", gin.H{
-			"title":     "Oracle DB Migrator",
-			"sessionId": sessionID,
+			"title":       "Oracle DB Migrator",
+			"sessionId":   sessionID,
+			"AuthEnabled": authEnabled,
 		})
 	})
 
@@ -137,10 +171,25 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected := api.Group("")
 		if authEnabled {
 			protected.Use(requireAuth(authSessions))
+
+			credentialRoutes := protected.Group("/credentials")
+			credentialRoutes.Use(monitoringAPIErrorsMiddleware(metrics, monitoredAPICredentials))
+			credentialRoutes.GET("", listCredentialsHandler(userStore))
+			credentialRoutes.POST("", createCredentialHandler(userStore))
+			credentialRoutes.PUT("/:id", updateCredentialHandler(userStore))
+			credentialRoutes.DELETE("/:id", deleteCredentialHandler(userStore))
+
+			historyRoutes := protected.Group("/history")
+			historyRoutes.Use(monitoringAPIErrorsMiddleware(metrics, monitoredAPIHistory))
+			historyRoutes.GET("", listHistoryHandler(userStore))
+			historyRoutes.GET("/:id", getHistoryHandler(userStore))
+			historyRoutes.POST("/:id/replay", replayHistoryHandler(userStore))
+
+			protected.GET("/monitoring/metrics", monitoringMetricsHandler(metrics))
 		}
 		protected.POST("/tables", getTables)
-		protected.POST("/migrate", startMigration)
-		protected.POST("/migrate/retry", retryMigration)
+		protected.POST("/migrate", startMigrationHandler(userStore))
+		protected.POST("/migrate/retry", retryMigrationHandler(userStore))
 		protected.POST("/test-target", testTargetConnection)
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
@@ -160,25 +209,30 @@ type loginRequest struct {
 
 func loginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		sessions.metrics.recordLoginAttempt()
+
 		var req loginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
+			sessions.metrics.recordLoginFailure()
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 			return
 		}
 
 		user, err := userStore.GetUserByUsername(strings.TrimSpace(req.Username))
 		if err != nil || !security.VerifyPassword(user.PasswordHash, req.Password) {
+			sessions.metrics.recordLoginFailure()
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
 		}
 
-		token, s, err := sessions.createSession(user.ID, user.Username)
+		token, _, err := sessions.createSession(user.ID, user.Username)
 		if err != nil {
+			sessions.metrics.recordLoginFailure()
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 			return
 		}
 
-		c.SetCookie(authSessionCookieName, token, int(time.Until(s.ExpiresAt).Seconds()), "/", "", false, true)
+		setAuthCookie(c, token, sessions.cookieMaxAge())
 		c.JSON(http.StatusOK, gin.H{"username": user.Username, "userId": user.ID})
 	}
 }
@@ -189,7 +243,7 @@ func logoutHandler(sessions *authSessionManager) gin.HandlerFunc {
 		if token != "" {
 			sessions.deleteSession(token)
 		}
-		c.SetCookie(authSessionCookieName, "", -1, "/", "", false, true)
+		setAuthCookie(c, "", -1)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	}
 }
@@ -231,6 +285,236 @@ func requireAuth(sessions *authSessionManager) gin.HandlerFunc {
 		c.Set("user_id", s.UserID)
 		c.Set("username", s.Username)
 		c.Next()
+	}
+}
+
+type credentialRequest struct {
+	Alias        string `json:"alias" binding:"required"`
+	DBType       string `json:"dbType" binding:"required"`
+	Host         string `json:"host" binding:"required"`
+	Port         *int   `json:"port"`
+	DatabaseName string `json:"databaseName"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+}
+
+func setAuthCookie(c *gin.Context, value string, maxAge int) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(authSessionCookieName, value, maxAge, "/", "", isSecureRequest(c.Request), true)
+}
+
+func isSecureRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+func currentUserID(c *gin.Context) int64 {
+	value, ok := c.Get("user_id")
+	if !ok {
+		return 0
+	}
+
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	default:
+		return 0
+	}
+}
+
+func parseInt64Param(c *gin.Context, name string) (int64, bool) {
+	value, err := strconv.ParseInt(c.Param(name), 10, 64)
+	if err != nil || value <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID"})
+		return 0, false
+	}
+	return value, true
+}
+
+func listCredentialsHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		credentials, err := store.ListCredentialsByUser(currentUserID(c))
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, db.ErrCredentialCipherUnavailable) {
+				status = http.StatusServiceUnavailable
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": credentials})
+	}
+}
+
+func createCredentialHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req credentialRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+			return
+		}
+
+		credential, err := store.CreateCredential(currentUserID(c), db.Credential{
+			Alias:        strings.TrimSpace(req.Alias),
+			DBType:       strings.TrimSpace(req.DBType),
+			Host:         strings.TrimSpace(req.Host),
+			Port:         req.Port,
+			DatabaseName: strings.TrimSpace(req.DatabaseName),
+			Username:     strings.TrimSpace(req.Username),
+			Password:     req.Password,
+		})
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, db.ErrCredentialCipherUnavailable) {
+				status = http.StatusServiceUnavailable
+			}
+			c.JSON(status, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, credential)
+	}
+}
+
+func updateCredentialHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		credentialID, ok := parseInt64Param(c, "id")
+		if !ok {
+			return
+		}
+
+		var req credentialRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+			return
+		}
+
+		credential, err := store.UpdateCredential(currentUserID(c), credentialID, db.Credential{
+			Alias:        strings.TrimSpace(req.Alias),
+			DBType:       strings.TrimSpace(req.DBType),
+			Host:         strings.TrimSpace(req.Host),
+			Port:         req.Port,
+			DatabaseName: strings.TrimSpace(req.DatabaseName),
+			Username:     strings.TrimSpace(req.Username),
+			Password:     req.Password,
+		})
+		if err != nil {
+			switch {
+			case errors.Is(err, db.ErrCredentialNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
+			case errors.Is(err, db.ErrCredentialCipherUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, credential)
+	}
+}
+
+func deleteCredentialHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		credentialID, ok := parseInt64Param(c, "id")
+		if !ok {
+			return
+		}
+
+		if err := store.DeleteCredential(currentUserID(c), credentialID); err != nil {
+			if errors.Is(err, db.ErrCredentialNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+func listHistoryHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+
+		items, total, err := store.ListHistoryByUser(currentUserID(c), page, pageSize)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		if page <= 0 {
+			page = 1
+		}
+		if pageSize <= 0 {
+			pageSize = 20
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"items":    items,
+			"page":     page,
+			"pageSize": pageSize,
+			"total":    total,
+		})
+	}
+}
+
+func getHistoryHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		historyID, ok := parseInt64Param(c, "id")
+		if !ok {
+			return
+		}
+
+		entry, err := store.GetHistoryByID(currentUserID(c), historyID)
+		if err != nil {
+			if errors.Is(err, db.ErrHistoryNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "History not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, entry)
+	}
+}
+
+func replayHistoryHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		historyID, ok := parseInt64Param(c, "id")
+		if !ok {
+			return
+		}
+
+		entry, err := store.GetHistoryByID(currentUserID(c), historyID)
+		if err != nil {
+			if errors.Is(err, db.ErrHistoryNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "History not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(entry.OptionsJSON), &payload); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decode history payload"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"history": entry,
+			"payload": payload,
+		})
 	}
 }
 
@@ -337,14 +621,26 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 }
 
 func startMigration(c *gin.Context) {
-	handleMigration(c, false)
+	handleMigration(c, false, nil)
+}
+
+func startMigrationHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		handleMigration(c, false, store)
+	}
 }
 
 func retryMigration(c *gin.Context) {
-	handleMigration(c, true)
+	handleMigration(c, true, nil)
 }
 
-func handleMigration(c *gin.Context, isRetry bool) {
+func retryMigrationHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		handleMigration(c, true, store)
+	}
+}
+
+func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 	var req startMigrationRequest
 	// set defaults for db max idle to be safe
 	req.DBMaxIdle = 2
@@ -367,6 +663,8 @@ func handleMigration(c *gin.Context, isRetry bool) {
 	if tracker == nil {
 		tracker = ws.NewWebSocketTracker()
 	}
+
+	authUserID := currentUserID(c)
 
 	go func() {
 		if req.LogJSON {
@@ -476,6 +774,7 @@ func handleMigration(c *gin.Context, isRetry bool) {
 		}
 
 		cfg := &config.Config{
+			UserID:          authUserID,
 			Tables:          req.Tables,
 			Parallel:        true,
 			Workers:         workers,
@@ -533,6 +832,7 @@ func handleMigration(c *gin.Context, isRetry bool) {
 		}()
 
 		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
+		saveHistoryForRequest(store, authUserID, req, targetDBName, targetURL, report, err)
 
 		buildSummary := func() *ws.ReportSummary {
 			if report == nil {
@@ -587,6 +887,96 @@ func handleMigration(c *gin.Context, isRetry bool) {
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Migration started"})
+}
+
+func saveHistoryForRequest(store *db.UserStore, userID int64, req startMigrationRequest, targetDBName, targetURL string, report *migration.MigrationReport, runErr error) {
+	if store == nil || userID <= 0 {
+		return
+	}
+
+	payload, err := json.Marshal(buildReplayPayload(req))
+	if err != nil {
+		log.Printf("Failed to encode migration history payload: %v", err)
+		return
+	}
+
+	status := "success"
+	logSummary := "completed"
+	if runErr != nil {
+		status = "failed"
+		logSummary = runErr.Error()
+	} else if report != nil {
+		totalRows, successCount, errorCount, duration, reportID := report.ToSummary()
+		logSummary = fmt.Sprintf("report=%s rows=%d success=%d error=%d duration=%s", reportID, totalRows, successCount, errorCount, duration)
+	}
+
+	if _, err := store.InsertHistory(userID, db.HistoryEntry{
+		Status:        status,
+		SourceSummary: buildSourceSummary(req),
+		TargetSummary: buildTargetSummary(req, targetDBName, targetURL),
+		OptionsJSON:   string(payload),
+		LogSummary:    logSummary,
+	}); err != nil {
+		log.Printf("Failed to persist migration history: %v", err)
+	}
+}
+
+func buildReplayPayload(req startMigrationRequest) map[string]any {
+	targetURL := maskedURL(req.TargetURL)
+	if targetURL == "" {
+		targetURL = maskedURL(req.PGURL)
+	}
+
+	return map[string]any{
+		"oracleUrl":       req.OracleURL,
+		"username":        req.Username,
+		"tables":          req.Tables,
+		"direct":          req.Direct,
+		"pgUrl":           maskedURL(req.PGURL),
+		"targetDb":        req.TargetDB,
+		"targetUrl":       targetURL,
+		"withDdl":         req.WithDDL,
+		"batchSize":       req.BatchSize,
+		"workers":         req.Workers,
+		"outFile":         req.OutFile,
+		"perTable":        req.PerTable,
+		"schema":          req.Schema,
+		"dryRun":          req.DryRun,
+		"logJson":         req.LogJSON,
+		"withSequences":   req.WithSequences,
+		"withIndexes":     req.WithIndexes,
+		"oracleOwner":     req.OracleOwner,
+		"withConstraints": req.WithConstraints,
+		"dbMaxOpen":       req.DBMaxOpen,
+		"dbMaxIdle":       req.DBMaxIdle,
+		"dbMaxLife":       req.DBMaxLife,
+		"validate":        req.Validate,
+		"copyBatch":       req.CopyBatch,
+	}
+}
+
+func buildSourceSummary(req startMigrationRequest) string {
+	return fmt.Sprintf("%s@%s", strings.TrimSpace(req.Username), strings.TrimSpace(req.OracleURL))
+}
+
+func buildTargetSummary(req startMigrationRequest, targetDBName, targetURL string) string {
+	if req.Direct {
+		return fmt.Sprintf("%s:%s", targetDBName, maskedURL(targetURL))
+	}
+	outFile := req.OutFile
+	if outFile == "" {
+		outFile = "migration.sql"
+	}
+	return fmt.Sprintf("file:%s", outFile)
+}
+
+func maskedURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	replacer := regexp.MustCompile(`(://[^:@]+):([^@]+)@`)
+	return replacer.ReplaceAllString(raw, "$1:***@")
 }
 
 func downloadReport(c *gin.Context) {

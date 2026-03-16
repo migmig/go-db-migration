@@ -2,10 +2,12 @@ package web
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,8 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+const testWebMasterKey = "0123456789abcdef0123456789abcdef"
+
 func setupTestRouter() *gin.Engine {
 	r := gin.New()
 	api := r.Group("/api")
@@ -31,9 +35,18 @@ func setupTestRouter() *gin.Engine {
 	return r
 }
 
-func setupAuthTestRouter(t *testing.T) *gin.Engine {
+func setupAuthTestRouter(t *testing.T) (*gin.Engine, *db.UserStore) {
+	r, store, _ := setupAuthTestRouterWithOptions(t, time.Hour, 24*time.Hour)
+	return r, store
+}
+
+func setupAuthTestRouterWithMetrics(t *testing.T) (*gin.Engine, *db.UserStore, *monitoringMetrics) {
+	return setupAuthTestRouterWithOptions(t, time.Hour, 24*time.Hour)
+}
+
+func setupAuthTestRouterWithOptions(t *testing.T, idleTTL, absoluteTTL time.Duration) (*gin.Engine, *db.UserStore, *monitoringMetrics) {
 	t.Helper()
-	store, err := db.OpenUserStore(filepath.Join(t.TempDir(), "auth.db"))
+	store, err := db.OpenAuthStore(filepath.Join(t.TempDir(), "auth.db"), testWebMasterKey)
 	if err != nil {
 		t.Fatalf("open user store: %v", err)
 	}
@@ -46,8 +59,12 @@ func setupAuthTestRouter(t *testing.T) *gin.Engine {
 	if err := store.CreateUser("alice", hash, false); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
+	if err := store.CreateUser("bob", hash, false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
 
-	sessions := newAuthSessionManager(time.Hour)
+	metrics := newMonitoringMetrics()
+	sessions := newAuthSessionManager(idleTTL, absoluteTTL, metrics)
 
 	r := gin.New()
 	api := r.Group("/api")
@@ -57,9 +74,42 @@ func setupAuthTestRouter(t *testing.T) *gin.Engine {
 
 	protected := api.Group("")
 	protected.Use(requireAuth(sessions))
-	protected.POST("/migrate", startMigration)
+	credentials := protected.Group("/credentials")
+	credentials.Use(monitoringAPIErrorsMiddleware(metrics, monitoredAPICredentials))
+	credentials.GET("", listCredentialsHandler(store))
+	credentials.POST("", createCredentialHandler(store))
+	credentials.PUT("/:id", updateCredentialHandler(store))
+	credentials.DELETE("/:id", deleteCredentialHandler(store))
 
-	return r
+	history := protected.Group("/history")
+	history.Use(monitoringAPIErrorsMiddleware(metrics, monitoredAPIHistory))
+	history.GET("", listHistoryHandler(store))
+	history.GET("/:id", getHistoryHandler(store))
+	history.POST("/:id/replay", replayHistoryHandler(store))
+
+	protected.GET("/monitoring/metrics", monitoringMetricsHandler(metrics))
+	protected.POST("/migrate", startMigrationHandler(store))
+
+	return r, store, metrics
+}
+
+func loginAs(t *testing.T, r *gin.Engine, username, password string) string {
+	t.Helper()
+	loginReq := httptest.NewRecorder()
+	body := `{"username":"` + username + `","password":"` + password + `"}`
+	req, _ := http.NewRequest("POST", "/api/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(loginReq, req)
+
+	if loginReq.Code != http.StatusOK {
+		t.Fatalf("expected login 200 for %s, got %d (%s)", username, loginReq.Code, loginReq.Body.String())
+	}
+
+	cookie := loginReq.Header().Get("Set-Cookie")
+	if cookie == "" {
+		t.Fatalf("expected session cookie for %s", username)
+	}
+	return cookie
 }
 
 // ── validateMigrationRequest ─────────────────────────────────────────────────
@@ -322,25 +372,11 @@ func TestGetTables_EmptyBody(t *testing.T) {
 }
 
 func TestAuth_LoginMeLogoutFlow(t *testing.T) {
-	r := setupAuthTestRouter(t)
-
-	loginReq := httptest.NewRecorder()
-	body := `{"username":"alice","password":"password123"}`
-	req, _ := http.NewRequest("POST", "/api/auth/login", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(loginReq, req)
-
-	if loginReq.Code != http.StatusOK {
-		t.Fatalf("expected login 200, got %d (%s)", loginReq.Code, loginReq.Body.String())
-	}
-
-	cookie := loginReq.Header().Get("Set-Cookie")
-	if cookie == "" {
-		t.Fatal("expected session cookie on login")
-	}
+	r, _ := setupAuthTestRouter(t)
+	cookie := loginAs(t, r, "alice", "password123")
 
 	meReq := httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/api/auth/me", nil)
+	req, _ := http.NewRequest("GET", "/api/auth/me", nil)
 	req.Header.Set("Cookie", cookie)
 	r.ServeHTTP(meReq, req)
 
@@ -376,7 +412,7 @@ func TestAuth_LoginMeLogoutFlow(t *testing.T) {
 }
 
 func TestAuth_ProtectedEndpointRequiresSession(t *testing.T) {
-	r := setupAuthTestRouter(t)
+	r, _ := setupAuthTestRouter(t)
 
 	w := httptest.NewRecorder()
 	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["T"]}`
@@ -387,6 +423,301 @@ func TestAuth_ProtectedEndpointRequiresSession(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 without session, got %d", w.Code)
 	}
+}
+
+func TestAuth_CredentialsAreScopedPerUser(t *testing.T) {
+	r, store := setupAuthTestRouter(t)
+	aliceCookie := loginAs(t, r, "alice", "password123")
+	bobCookie := loginAs(t, r, "bob", "password123")
+
+	bob := mustGetUser(t, store, "bob")
+	_, err := store.CreateCredential(bob.ID, db.Credential{
+		Alias:        "bob-main",
+		DBType:       "postgres",
+		Host:         "bob-db",
+		Username:     "bob",
+		Password:     "bob-secret",
+		DatabaseName: "bobdb",
+	})
+	if err != nil {
+		t.Fatalf("seed bob credential: %v", err)
+	}
+
+	createReq := httptest.NewRecorder()
+	body := `{"alias":"alice-main","dbType":"postgres","host":"localhost","port":5432,"databaseName":"appdb","username":"alice","password":"secret"}`
+	req, _ := http.NewRequest("POST", "/api/credentials", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", aliceCookie)
+	r.ServeHTTP(createReq, req)
+
+	if createReq.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d (%s)", createReq.Code, createReq.Body.String())
+	}
+
+	var created db.Credential
+	if err := json.Unmarshal(createReq.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create credential response: %v", err)
+	}
+	if created.Password != "secret" {
+		t.Fatalf("expected decrypted password in response, got %q", created.Password)
+	}
+
+	listAlice := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/credentials", nil)
+	req.Header.Set("Cookie", aliceCookie)
+	r.ServeHTTP(listAlice, req)
+
+	if listAlice.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", listAlice.Code)
+	}
+
+	var aliceResp struct {
+		Items []db.Credential `json:"items"`
+	}
+	if err := json.Unmarshal(listAlice.Body.Bytes(), &aliceResp); err != nil {
+		t.Fatalf("decode alice credential list: %v", err)
+	}
+	if len(aliceResp.Items) != 1 || aliceResp.Items[0].Alias != "alice-main" {
+		t.Fatalf("unexpected alice credentials: %+v", aliceResp.Items)
+	}
+
+	listBob := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/credentials", nil)
+	req.Header.Set("Cookie", bobCookie)
+	r.ServeHTTP(listBob, req)
+
+	if listBob.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", listBob.Code)
+	}
+
+	var bobResp struct {
+		Items []db.Credential `json:"items"`
+	}
+	if err := json.Unmarshal(listBob.Body.Bytes(), &bobResp); err != nil {
+		t.Fatalf("decode bob credential list: %v", err)
+	}
+	if len(bobResp.Items) != 1 || bobResp.Items[0].Alias != "bob-main" {
+		t.Fatalf("unexpected bob credentials: %+v", bobResp.Items)
+	}
+
+	deleteReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("DELETE", "/api/credentials/"+strconv.FormatInt(created.ID, 10), nil)
+	req.Header.Set("Cookie", bobCookie)
+	r.ServeHTTP(deleteReq, req)
+
+	if deleteReq.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-user delete, got %d", deleteReq.Code)
+	}
+
+}
+
+func TestAuth_HistoryPaginationAndReplayAreScopedPerUser(t *testing.T) {
+	r, store := setupAuthTestRouter(t)
+	aliceCookie := loginAs(t, r, "alice", "password123")
+	bobCookie := loginAs(t, r, "bob", "password123")
+
+	alice := mustGetUser(t, store, "alice")
+	bob := mustGetUser(t, store, "bob")
+
+	firstID, err := store.InsertHistory(alice.ID, db.HistoryEntry{
+		Status:        "success",
+		SourceSummary: "alice@oracle",
+		TargetSummary: "postgres://local",
+		OptionsJSON:   `{"tables":["USERS"],"schema":"public"}`,
+		LogSummary:    "rows=10",
+	})
+	if err != nil {
+		t.Fatalf("seed alice history 1: %v", err)
+	}
+	_, err = store.InsertHistory(alice.ID, db.HistoryEntry{
+		Status:        "failed",
+		SourceSummary: "alice@oracle",
+		TargetSummary: "postgres://local",
+		OptionsJSON:   `{"tables":["ORDERS"],"schema":"audit"}`,
+		LogSummary:    "rows=0",
+	})
+	if err != nil {
+		t.Fatalf("seed alice history 2: %v", err)
+	}
+	bobHistoryID, err := store.InsertHistory(bob.ID, db.HistoryEntry{
+		Status:        "success",
+		SourceSummary: "bob@oracle",
+		TargetSummary: "mysql://target",
+		OptionsJSON:   `{"tables":["PAYMENTS"]}`,
+	})
+	if err != nil {
+		t.Fatalf("seed bob history: %v", err)
+	}
+
+	listReq := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/history?page=1&pageSize=1", nil)
+	req.Header.Set("Cookie", aliceCookie)
+	r.ServeHTTP(listReq, req)
+
+	if listReq.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", listReq.Code, listReq.Body.String())
+	}
+
+	var listResp struct {
+		Items    []db.HistoryEntry `json:"items"`
+		Page     int               `json:"page"`
+		PageSize int               `json:"pageSize"`
+		Total    int               `json:"total"`
+	}
+	if err := json.Unmarshal(listReq.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("decode history list: %v", err)
+	}
+	if listResp.Total != 2 || len(listResp.Items) != 1 {
+		t.Fatalf("unexpected history pagination response: %+v", listResp)
+	}
+
+	replayReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("POST", "/api/history/"+strconv.FormatInt(firstID, 10)+"/replay", nil)
+	req.Header.Set("Cookie", aliceCookie)
+	r.ServeHTTP(replayReq, req)
+
+	if replayReq.Code != http.StatusOK {
+		t.Fatalf("expected 200 replay, got %d (%s)", replayReq.Code, replayReq.Body.String())
+	}
+
+	var replayResp struct {
+		History db.HistoryEntry `json:"history"`
+		Payload map[string]any  `json:"payload"`
+	}
+	if err := json.Unmarshal(replayReq.Body.Bytes(), &replayResp); err != nil {
+		t.Fatalf("decode replay response: %v", err)
+	}
+	if replayResp.Payload["schema"] != "public" {
+		t.Fatalf("expected replay schema public, got %v", replayResp.Payload["schema"])
+	}
+
+	crossUserReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/history/"+strconv.FormatInt(bobHistoryID, 10), nil)
+	req.Header.Set("Cookie", aliceCookie)
+	r.ServeHTTP(crossUserReq, req)
+
+	if crossUserReq.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-user history access, got %d", crossUserReq.Code)
+	}
+
+	bobList := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/history", nil)
+	req.Header.Set("Cookie", bobCookie)
+	r.ServeHTTP(bobList, req)
+
+	if bobList.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", bobList.Code)
+	}
+}
+
+func TestMonitoring_LoginFailureAndSessionExpiration(t *testing.T) {
+	r, _, metrics := setupAuthTestRouterWithOptions(t, 2*time.Millisecond, time.Hour)
+
+	loginFail := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"username":"alice","password":"wrong"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(loginFail, req)
+	if loginFail.Code != http.StatusUnauthorized {
+		t.Fatalf("expected login failure 401, got %d", loginFail.Code)
+	}
+
+	cookie := loginAs(t, r, "alice", "password123")
+	time.Sleep(5 * time.Millisecond)
+
+	expiredReq := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/auth/me", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(expiredReq, req)
+	if expiredReq.Code != http.StatusUnauthorized {
+		t.Fatalf("expected expired session 401, got %d", expiredReq.Code)
+	}
+
+	snapshot := metrics.snapshot()
+	if snapshot.Login.Attempts != 2 || snapshot.Login.Failures != 1 {
+		t.Fatalf("unexpected login metrics: %+v", snapshot.Login)
+	}
+	if !nearlyEqual(snapshot.Login.FailureRatePct, 50.0) {
+		t.Fatalf("expected login failure rate 50.0, got %.2f", snapshot.Login.FailureRatePct)
+	}
+	if snapshot.Session.Checks != 1 || snapshot.Session.Expired != 1 {
+		t.Fatalf("unexpected session metrics: %+v", snapshot.Session)
+	}
+	if !nearlyEqual(snapshot.Session.ExpirationRatePct, 100.0) {
+		t.Fatalf("expected session expiration rate 100.0, got %.2f", snapshot.Session.ExpirationRatePct)
+	}
+}
+
+func TestMonitoring_CredentialsAndHistoryAPIErrorRates(t *testing.T) {
+	r, _, _ := setupAuthTestRouterWithMetrics(t)
+	cookie := loginAs(t, r, "alice", "password123")
+
+	createReq := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/credentials", strings.NewReader(`{"alias":"main","dbType":"postgres","host":"localhost","port":5432,"databaseName":"appdb","username":"alice","password":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(createReq, req)
+	if createReq.Code != http.StatusCreated {
+		t.Fatalf("expected credential create 201, got %d (%s)", createReq.Code, createReq.Body.String())
+	}
+
+	credentialErr := httptest.NewRecorder()
+	req, _ = http.NewRequest("DELETE", "/api/credentials/999999", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(credentialErr, req)
+	if credentialErr.Code != http.StatusNotFound {
+		t.Fatalf("expected credential delete miss 404, got %d", credentialErr.Code)
+	}
+
+	historyErr := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/history/999999", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(historyErr, req)
+	if historyErr.Code != http.StatusNotFound {
+		t.Fatalf("expected history miss 404, got %d", historyErr.Code)
+	}
+
+	historyOK := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/history?page=1&pageSize=20", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(historyOK, req)
+	if historyOK.Code != http.StatusOK {
+		t.Fatalf("expected history list 200, got %d", historyOK.Code)
+	}
+
+	metricsRes := httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/monitoring/metrics", nil)
+	req.Header.Set("Cookie", cookie)
+	r.ServeHTTP(metricsRes, req)
+	if metricsRes.Code != http.StatusOK {
+		t.Fatalf("expected monitoring endpoint 200, got %d (%s)", metricsRes.Code, metricsRes.Body.String())
+	}
+
+	var snapshot monitoringSnapshot
+	if err := json.Unmarshal(metricsRes.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode monitoring snapshot: %v", err)
+	}
+
+	if snapshot.Credentials.Requests != 2 || snapshot.Credentials.Errors != 1 {
+		t.Fatalf("unexpected credential API metrics: %+v", snapshot.Credentials)
+	}
+	if !nearlyEqual(snapshot.Credentials.ErrorRatePct, 50.0) {
+		t.Fatalf("expected credential API error rate 50.0, got %.2f", snapshot.Credentials.ErrorRatePct)
+	}
+	if snapshot.History.Requests != 2 || snapshot.History.Errors != 1 {
+		t.Fatalf("unexpected history API metrics: %+v", snapshot.History)
+	}
+	if !nearlyEqual(snapshot.History.ErrorRatePct, 50.0) {
+		t.Fatalf("expected history API error rate 50.0, got %.2f", snapshot.History.ErrorRatePct)
+	}
+}
+
+func mustGetUser(t *testing.T, store *db.UserStore, username string) *db.User {
+	t.Helper()
+	user, err := store.GetUserByUsername(username)
+	if err != nil {
+		t.Fatalf("get user %s: %v", username, err)
+	}
+	return user
 }
 
 // ── /api/migrate ─────────────────────────────────────────────────────────────
@@ -507,4 +838,8 @@ func TestDownloadZip_EmptyID(t *testing.T) {
 	if w.Code == http.StatusOK {
 		t.Errorf("dot-only id should not return 200, got %d", w.Code)
 	}
+}
+
+func nearlyEqual(got, want float64) bool {
+	return math.Abs(got-want) <= 0.0001
 }

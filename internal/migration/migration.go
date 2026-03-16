@@ -118,6 +118,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 
 	sourceURL := fmt.Sprintf("oracle://%s:%s@%s", cfg.User, cfg.Password, cfg.OracleURL)
 	report := NewMigrationReport(jobID, sourceURL, cfg.TargetDB, cfg.TargetURL)
+	report.UserID = cfg.UserID
 
 	if len(cfg.Tables) == 0 && cfg.ResumeJobID != "" {
 		for tableName := range mState.Tables {
@@ -415,27 +416,27 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 					}
 					if err != nil {
 						slog.Warn("failed to execute sequence DDL", "sequence", seq.Name, "error", err)
-					if tracker != nil && tracker.EventBus() != nil {
-						tracker.EventBus().Publish(bus.Event{
-							Type:       bus.EventDDLProgress,
-							Object:     "sequence",
-							ObjectName: seq.Name,
-							Status:     "error",
-							Error:      err,
-						})
-					} else if hasDDLTracker {
+						if tracker != nil && tracker.EventBus() != nil {
+							tracker.EventBus().Publish(bus.Event{
+								Type:       bus.EventDDLProgress,
+								Object:     "sequence",
+								ObjectName: seq.Name,
+								Status:     "error",
+								Error:      err,
+							})
+						} else if hasDDLTracker {
 							ddlTracker.DDLProgress("sequence", seq.Name, "error", err)
 						}
 					} else {
 						slog.Info("sequence DDL executed", "sequence", seq.Name)
-					if tracker != nil && tracker.EventBus() != nil {
-						tracker.EventBus().Publish(bus.Event{
-							Type:       bus.EventDDLProgress,
-							Object:     "sequence",
-							ObjectName: seq.Name,
-							Status:     "ok",
-						})
-					} else if hasDDLTracker {
+						if tracker != nil && tracker.EventBus() != nil {
+							tracker.EventBus().Publish(bus.Event{
+								Type:       bus.EventDDLProgress,
+								Object:     "sequence",
+								ObjectName: seq.Name,
+								Status:     "ok",
+							})
+						} else if hasDDLTracker {
 							ddlTracker.DDLProgress("sequence", seq.Name, "ok", nil)
 						}
 					}
@@ -911,7 +912,7 @@ func migrateTablePgBatchCopy(
 	batchSize := cfg.CopyBatch
 	quotedTable := dialect.QuoteOracleIdentifier(tableName)
 
-	for batchNum := (offset/batchSize) + 1; ; batchNum++ {
+	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		query := fmt.Sprintf(
 			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
 			quotedTable, offset, batchSize,

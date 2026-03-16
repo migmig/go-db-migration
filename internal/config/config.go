@@ -105,6 +105,7 @@ type Config struct {
 	// v15 flags
 	AuthEnabled bool
 	MasterKey   string
+	UserID      int64
 }
 
 func generateCompletionScript(shell string) (string, error) {

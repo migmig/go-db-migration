@@ -14,19 +14,20 @@ import (
 
 // TableReport는 단일 테이블 마이그레이션 결과를 담는다.
 type TableReport struct {
-	Name          string  `json:"name"`
-	RowCount      int     `json:"row_count"`
-	DurationNs    int64   `json:"duration_ns"`
-	DurationHuman string  `json:"duration"`
-	RowsPerSec    float64 `json:"rows_per_sec"`
-	DDLExecuted   bool    `json:"ddl_executed"`
-	Status        string  `json:"status"` // "ok", "error"
+	Name          string   `json:"name"`
+	RowCount      int      `json:"row_count"`
+	DurationNs    int64    `json:"duration_ns"`
+	DurationHuman string   `json:"duration"`
+	RowsPerSec    float64  `json:"rows_per_sec"`
+	DDLExecuted   bool     `json:"ddl_executed"`
+	Status        string   `json:"status"` // "ok", "error"
 	Errors        []string `json:"errors,omitempty"`
 }
 
 // MigrationReport는 마이그레이션 전체 실행 결과 감사 로그이다.
 type MigrationReport struct {
 	JobID         string        `json:"job_id"`
+	UserID        int64         `json:"user_id,omitempty"`
 	StartedAt     time.Time     `json:"started_at"`
 	FinishedAt    time.Time     `json:"finished_at,omitempty"`
 	DurationHuman string        `json:"duration,omitempty"`

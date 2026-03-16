@@ -20,7 +20,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **데이터 타입 매핑 (Data Type Mapping):** VARCHAR2, CLOB, BLOB, RAW, DATE, TIMESTAMP, NUMBER(정밀도 포함) 등 복잡한 타입을 안전하게 매핑합니다.
 - **쉘 자동완성 (Shell Completion) (v12, v13):** `-completion` 플래그로 Bash/Zsh/Fish/PowerShell 자동완성 스크립트를 생성할 수 있습니다. 단독으로 입력 시 현재 쉘을 자동 감지합니다.
 - **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
-- **인증 기반 멀티유저 (v15):** `-auth-enabled` 플래그로 Web UI의 로그인/로그아웃과 세션 기반 접근 제어를 활성화할 수 있습니다.
+- **인증 기반 멀티유저 (v15):** `-auth-enabled` 플래그로 Web UI의 로그인/로그아웃, 세션 기반 접근 제어, 사용자별 접속정보 저장, 사용자별 작업 이력 조회를 활성화할 수 있습니다.
 
 ## 설치 (Installation)
 
@@ -66,7 +66,7 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 v15 멀티유저 인증 기능을 활성화할 수 있습니다.
 
 - `-auth-enabled`: 인증 기반 멀티유저 모드 활성화 플래그 (기본값 `false`)
-- `DBM_MASTER_KEY`: DB 접속정보 암호화에 사용할 마스터 키 환경변수
+- `DBM_MASTER_KEY`: DB 접속정보 암호화에 사용할 마스터 키 환경변수 (`-auth-enabled` 사용 시 필요)
 
 예시:
 ```bash
@@ -74,7 +74,9 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 ./dbmigrator -web -auth-enabled
 ```
 
-> 참고: `-auth-enabled` 사용 시 `/api/tables`, `/api/migrate` 등 주요 API는 로그인 세션이 있어야 접근할 수 있습니다.
+> 참고: `-auth-enabled` 사용 시 `/api/tables`, `/api/migrate`, `/api/credentials`, `/api/history` 등 주요 API는 로그인 세션이 있어야 접근할 수 있습니다.
+> 인증 세션은 `SameSite=Lax`, `HttpOnly` 쿠키를 사용하며 idle timeout 30분, absolute timeout 24시간 정책을 따릅니다. HTTPS 환경에서는 `Secure` 쿠키가 적용됩니다.
+> 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율 및 `credentials`/`history` API 오류율을 제공합니다.
 
 ### 관리자 CLI (v15)
 
@@ -94,6 +96,32 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 export DBM_AUTH_DB_PATH=./my-auth.db
 ./dbmigrator users list
 ```
+
+### 배포 전 체크리스트 (v15)
+
+인증 모드 배포 전에는 아래 항목을 확인하세요.
+
+1. `DBM_MASTER_KEY`가 운영 환경에 주입되어 있는지 확인합니다.
+2. 인증 DB 경로(`DBM_AUTH_DB_PATH`)가 운영 서버에서 지속 저장되는 위치인지 확인합니다.
+3. 초기 관리자 계정을 생성합니다.
+4. 초기 비밀번호로 로그인 확인 후 즉시 비밀번호를 변경합니다.
+
+예시:
+```bash
+export DBM_MASTER_KEY="replace-with-strong-32-byte-secret"
+export DBM_AUTH_DB_PATH=/var/lib/dbmigrator/auth.db
+
+./dbmigrator users add admin temporary123 --admin
+./dbmigrator -web -auth-enabled
+
+# 로그인 확인 후 즉시 변경
+./dbmigrator users reset-password admin stronger-password-123
+```
+
+권장사항:
+- `DBM_MASTER_KEY`는 소스 코드나 셸 이력에 남기지 말고 비밀 저장소나 배포 환경 변수로 관리합니다.
+- 초기 관리자 계정은 작업 완료 후 `users list`로 생성 여부를 점검합니다.
+- 공용 또는 테스트용 임시 비밀번호는 운영 반영 전에 반드시 교체합니다.
 
 ### 쉘 자동완성 스크립트 생성 (v12, v13)
 
@@ -257,7 +285,7 @@ autoload -U compinit && compinit
 
 | 변수 | 설명 | 필수 여부 |
 | --- | --- | --- |
-| `DBM_MASTER_KEY` | v15 인증/접속정보 암호화 기능에서 사용할 마스터 키. 운영 환경에서는 반드시 강한 비밀값을 사용하세요. | v15 인증모드 사용 시 권장 |
+| `DBM_MASTER_KEY` | v15 인증/접속정보 암호화 기능에서 사용할 마스터 키. 운영 환경에서는 반드시 강한 비밀값을 사용하세요. | `-auth-enabled` 사용 시 필요 |
 
 ## 개발 (Development)
 

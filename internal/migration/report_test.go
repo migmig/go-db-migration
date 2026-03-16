@@ -115,6 +115,7 @@ func TestMigrationReport_Finalize(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	r := NewMigrationReport("job-finalize-test", "oracle://u:p@h/S", "postgres", "postgres://u:p@h/db")
+	r.UserID = 42
 	finish := r.StartTable("USERS", true)
 	finish(100, nil)
 
@@ -134,6 +135,9 @@ func TestMigrationReport_Finalize(t *testing.T) {
 	}
 	if decoded.JobID != "job-finalize-test" {
 		t.Errorf("JobID = %q, want job-finalize-test", decoded.JobID)
+	}
+	if decoded.UserID != 42 {
+		t.Errorf("UserID = %d, want 42", decoded.UserID)
 	}
 	if decoded.SuccessCount != 1 {
 		t.Errorf("SuccessCount = %d, want 1", decoded.SuccessCount)

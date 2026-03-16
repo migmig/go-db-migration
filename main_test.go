@@ -3,16 +3,30 @@ package main
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"dbmigrator/internal/config"
+	"dbmigrator/internal/db"
 	"dbmigrator/internal/dialect"
 	"dbmigrator/internal/migration"
+	"dbmigrator/internal/security"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func newCLIUserStore(t *testing.T) *db.UserStore {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "auth.db")
+	store, err := db.OpenUserStore(path)
+	if err != nil {
+		t.Fatalf("open user store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
 
 func TestMigrateTable(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -63,5 +77,85 @@ func TestMigrateTable(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("There were unfulfilled expectations: %s", err)
+	}
+}
+
+func TestExecuteUserCommand_UserLifecycle(t *testing.T) {
+	store := newCLIUserStore(t)
+
+	exitCode, stdout, stderr := runUserCommandForTest(store, []string{"add", "alice", "password123", "--admin"})
+	if exitCode != 0 {
+		t.Fatalf("add exit code = %d, stderr = %s", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, `user "alice" created`) {
+		t.Fatalf("unexpected add stdout: %s", stdout)
+	}
+
+	user, err := store.GetUserByUsername("alice")
+	if err != nil {
+		t.Fatalf("get user alice: %v", err)
+	}
+	if !user.IsAdmin {
+		t.Fatalf("expected alice admin=true")
+	}
+
+	exitCode, stdout, stderr = runUserCommandForTest(store, []string{"list"})
+	if exitCode != 0 {
+		t.Fatalf("list exit code = %d, stderr = %s", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, "alice") {
+		t.Fatalf("expected alice in list output, got: %s", stdout)
+	}
+
+	exitCode, stdout, stderr = runUserCommandForTest(store, []string{"reset-password", "alice", "newpass123"})
+	if exitCode != 0 {
+		t.Fatalf("reset-password exit code = %d, stderr = %s", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, `password reset for "alice"`) {
+		t.Fatalf("unexpected reset stdout: %s", stdout)
+	}
+
+	user, err = store.GetUserByUsername("alice")
+	if err != nil {
+		t.Fatalf("get user after reset: %v", err)
+	}
+	if !security.VerifyPassword(user.PasswordHash, "newpass123") {
+		t.Fatalf("expected password hash to match new password")
+	}
+
+	exitCode, stdout, stderr = runUserCommandForTest(store, []string{"delete", "alice"})
+	if exitCode != 0 {
+		t.Fatalf("delete exit code = %d, stderr = %s", exitCode, stderr)
+	}
+	if !strings.Contains(stdout, `user "alice" deleted`) {
+		t.Fatalf("unexpected delete stdout: %s", stdout)
+	}
+}
+
+func TestExecuteUserCommand_ErrorCases(t *testing.T) {
+	store := newCLIUserStore(t)
+
+	exitCode, _, stderr := runUserCommandForTest(store, []string{"add", "short", "123"})
+	if exitCode == 0 {
+		t.Fatalf("expected non-zero for weak password")
+	}
+	if !strings.Contains(stderr, "invalid password") {
+		t.Fatalf("unexpected weak password stderr: %s", stderr)
+	}
+
+	exitCode, _, stderr = runUserCommandForTest(store, []string{"reset-password", "unknown", "password123"})
+	if exitCode == 0 {
+		t.Fatalf("expected non-zero for unknown user reset")
+	}
+	if !strings.Contains(stderr, `user "unknown" not found`) {
+		t.Fatalf("unexpected unknown user stderr: %s", stderr)
+	}
+
+	exitCode, _, stderr = runUserCommandForTest(store, []string{"unknown"})
+	if exitCode == 0 {
+		t.Fatalf("expected non-zero for invalid subcommand")
+	}
+	if !strings.Contains(stderr, "usage:") {
+		t.Fatalf("expected usage output, got: %s", stderr)
 	}
 }
