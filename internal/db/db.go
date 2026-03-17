@@ -23,6 +23,7 @@ type PGPool interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 	CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error)
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Close()
 }
@@ -122,6 +123,33 @@ func FetchTables(db *sql.DB, likeFilter string) ([]string, error) {
 	}
 
 	return tables, nil
+}
+
+// FetchColumnTypes returns a map of lowercase column_name → data_type for the given PG table.
+// data_type values are lowercase PostgreSQL type names from information_schema (e.g. "bigint", "numeric", "character varying").
+func FetchColumnTypes(ctx context.Context, pool PGPool, schema, table string) (map[string]string, error) {
+	query := `
+		SELECT column_name, data_type
+		FROM information_schema.columns
+		WHERE table_schema = $1
+		  AND table_name   = lower($2)
+		ORDER BY ordinal_position
+	`
+	rows, err := pool.Query(ctx, query, schema, table)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var colName, dataType string
+		if err := rows.Scan(&colName, &dataType); err != nil {
+			return nil, err
+		}
+		result[strings.ToLower(colName)] = strings.ToLower(dataType)
+	}
+	return result, rows.Err()
 }
 
 func TableExists(ctx context.Context, pool PGPool, schema, table string) (bool, error) {

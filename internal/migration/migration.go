@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -641,7 +642,12 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			}
 			defer tx.Rollback(ctx)
 
-			source := &oracleCopySource{rows: rows, cols: cols}
+			pgSchema := cfg.Schema
+			if pgSchema == "" {
+				pgSchema = "public"
+			}
+			colTypes, _ := db.FetchColumnTypes(ctx, pgPool, pgSchema, tableName)
+			source := &oracleCopySource{rows: rows, cols: cols, colTypes: colTypes}
 			var ident pgx.Identifier
 			if cfg.Schema != "" {
 				ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
@@ -820,10 +826,22 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 	return rowCount, nil
 }
 
+// pgIntTypes lists PostgreSQL integer-family type names returned by information_schema.
+var pgIntTypes = map[string]bool{
+	"smallint": true, "integer": true, "bigint": true,
+	"int2": true, "int4": true, "int8": true,
+}
+
+// pgFloatTypes lists PostgreSQL float-family type names.
+var pgFloatTypes = map[string]bool{
+	"real": true, "double precision": true, "float4": true, "float8": true,
+}
+
 type oracleCopySource struct {
-	rows *sql.Rows
-	cols []string
-	err  error
+	rows     *sql.Rows
+	cols     []string
+	colTypes map[string]string // lowercase col name → pg data_type (optional)
+	err      error
 }
 
 func (s *oracleCopySource) Next() bool {
@@ -841,13 +859,29 @@ func (s *oracleCopySource) Values() ([]interface{}, error) {
 		return nil, err
 	}
 
-	// PostgreSQL does not allow null bytes (\x00) in text/varchar columns (SQLSTATE 22021).
-	// Oracle permits them, so strip null bytes from string values before copying.
+	// Post-process values: sanitize null bytes and coerce numeric strings to the
+	// appropriate Go type so pgx binary COPY can encode them (e.g. "127.71" → int64
+	// when the target PG column is bigint).
 	for i, v := range values {
 		switch val := v.(type) {
 		case string:
+			// Strip null bytes (PostgreSQL disallows \x00 in text columns).
 			if strings.ContainsRune(val, 0) {
-				values[i] = strings.ReplaceAll(val, "\x00", "")
+				val = strings.ReplaceAll(val, "\x00", "")
+				values[i] = val
+			}
+			// Coerce Oracle NUMBER strings to the target PG column type.
+			if s.colTypes != nil && i < len(s.cols) {
+				pgType := s.colTypes[strings.ToLower(s.cols[i])]
+				if pgIntTypes[pgType] {
+					if f, err := strconv.ParseFloat(val, 64); err == nil {
+						values[i] = int64(f)
+					}
+				} else if pgFloatTypes[pgType] {
+					if f, err := strconv.ParseFloat(val, 64); err == nil {
+						values[i] = f
+					}
+				}
 			}
 		case []byte:
 			if bytes.Contains(val, []byte{0}) {
@@ -1047,6 +1081,12 @@ func migrateTablePgBatchCopy(
 	batchSize := cfg.CopyBatch
 	quotedTable := dialect.QuoteOracleIdentifier(tableName)
 
+	pgSchema := cfg.Schema
+	if pgSchema == "" {
+		pgSchema = "public"
+	}
+	colTypes, _ := db.FetchColumnTypes(context.Background(), pgPool, pgSchema, tableName)
+
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		query := fmt.Sprintf(
 			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
@@ -1083,7 +1123,7 @@ func migrateTablePgBatchCopy(
 			}
 		}
 
-		source := &oracleCopySource{rows: rows, cols: batchCols}
+		source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: colTypes}
 		var ident pgx.Identifier
 		if cfg.Schema != "" {
 			ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
@@ -1189,6 +1229,12 @@ func migrateTablePgUpsert(
 
 	stageIdent := pgx.Identifier{stageName}
 
+	upsertPgSchema := cfg.Schema
+	if upsertPgSchema == "" {
+		upsertPgSchema = "public"
+	}
+	upsertColTypes, _ := db.FetchColumnTypes(ctx, pgPool, upsertPgSchema, tableName)
+
 	tState := mState.GetState(tableName)
 	offset := tState.Offset
 	batchSize := cfg.CopyBatch
@@ -1232,7 +1278,7 @@ func migrateTablePgUpsert(
 			}
 		}
 
-		source := &oracleCopySource{rows: rows, cols: batchCols}
+		source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: upsertColTypes}
 		n, copyErr := tx.CopyFrom(ctx, stageIdent, lowerCols, source)
 		rows.Close()
 
