@@ -9,8 +9,8 @@
 
 ### 2. 백엔드: pre-check 엔진
 - [ ] 테이블별 source/target COUNT 수집 모듈 추가
-- [ ] decision 판정 로직 구현 (`transfer_required`, `skip_candidate`, `count_check_failed`)
-- [ ] policy 적용기 구현 (`strict`, `best_effort`, `skip_equal_rows`)
+- [x] decision 판정 로직 구현 (`transfer_required`, `skip_candidate`, `count_check_failed`)
+- [x] policy 적용기 구현 (`strict`, `best_effort`, `skip_equal_rows`)
 - [ ] 병렬 처리/타임아웃/재시도(필요시) 설정 반영
 
 ### 3. 백엔드: API/연계
@@ -37,7 +37,7 @@
 - [ ] 모니터링 대시보드/알림 규칙 업데이트
 
 ### 7. 테스트
-- [ ] 단위 테스트: decision/policy 판정
+- [x] 단위 테스트: decision/policy 판정
 - [ ] 통합 테스트: pre-check API 및 필터링
 - [ ] 실행 연계 테스트: pre-check 기반 실제 전송 대상 축소
 - [ ] 성능 테스트: 대량 테이블 pre-check 처리 시간
