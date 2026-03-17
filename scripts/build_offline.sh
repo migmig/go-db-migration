@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND_DIR="$ROOT_DIR/frontend"
-EMBED_DIR="$ROOT_DIR/internal/web/assets/v16"
+EMBED_DIR="$ROOT_DIR/internal/web/assets/frontend"
 PLACEHOLDER_INDEX="$EMBED_DIR/index.html"
 OUTPUT_PATH="${1:-$ROOT_DIR/dbmigrator}"
 NPM_BIN="${NPM_BIN:-npm}"
