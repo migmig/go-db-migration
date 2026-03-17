@@ -748,6 +748,9 @@ type startMigrationRequest struct {
 	CopyBatch int  `json:"copyBatch"`
 	// v17
 	ObjectGroup string `json:"objectGroup"`
+	// v18
+	Truncate bool `json:"truncate"`
+	Upsert   bool `json:"upsert"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -983,6 +986,8 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 			Validate:        req.Validate,
 			CopyBatch:       req.CopyBatch,
 			ObjectGroup:     strings.ToLower(strings.TrimSpace(req.ObjectGroup)),
+			Truncate:        req.Truncate,
+			Upsert:          req.Upsert,
 		}
 
 		// Start background metrics collection

@@ -1,9 +1,0 @@
-{
-  "job_id": "test",
-  "tables": {
-    "MOCK_TABLE": {
-      "offset": 2,
-      "completed": true
-    }
-  }
-}

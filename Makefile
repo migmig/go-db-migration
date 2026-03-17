@@ -4,7 +4,7 @@ GO ?= go
 NPM ?= npm
 OUTPUT ?= dbmigrator
 
-.PHONY: offline build frontend verify test clean
+.PHONY: offline build frontend verify test clean run run-web build-frontend
 
 build: offline
 
@@ -21,6 +21,15 @@ verify:
 test:
 	@cd frontend && $(NPM) test
 	@$(GO) test ./... -count=1
+
+run:
+	@$(GO) run . $(ARGS)
+
+run-web: build-frontend
+	@$(GO) run . -web $(ARGS)
+
+build-frontend:
+	@cd frontend && $(NPM) run build
 
 clean:
 	@rm -f "$(OUTPUT)"

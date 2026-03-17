@@ -128,9 +128,9 @@ func TableExists(ctx context.Context, pool PGPool, schema, table string) (bool, 
 	var exists bool
 	query := `
 		SELECT EXISTS (
-			SELECT FROM information_schema.tables 
+			SELECT FROM information_schema.tables
 			WHERE  table_schema = $1
-			AND    table_name   = $2
+			AND    table_name   = lower($2)
 		)
 	`
 	err := pool.QueryRow(ctx, query, schema, table).Scan(&exists)

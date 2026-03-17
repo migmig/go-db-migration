@@ -43,6 +43,8 @@ type MigrationOptions = {
   withIndexes: boolean;
   withConstraints: boolean;
   validate: boolean;
+  truncate: boolean;
+  upsert: boolean;
   oracleOwner: string;
   batchSize: number;
   workers: number;
@@ -137,6 +139,7 @@ type MetricsState = {
 
 const SOURCE_RECENT_KEY = "dbm:v16:source-recent";
 const SOURCE_REMEMBER_KEY = "dbm:v16:source-remember-pass";
+const TARGET_RECENT_KEY = "dbm:v16:target-recent";
 
 const DEFAULT_OPTIONS: MigrationOptions = {
   objectGroup: "all",
@@ -147,6 +150,8 @@ const DEFAULT_OPTIONS: MigrationOptions = {
   withIndexes: false,
   withConstraints: false,
   validate: false,
+  truncate: false,
+  upsert: false,
   oracleOwner: "",
   batchSize: 1000,
   workers: 4,
@@ -180,6 +185,16 @@ function loadSourceRecent(): SourceRecent {
     };
   } catch {
     return { oracleUrl: "", username: "", password: "" };
+  }
+}
+
+function loadTargetRecent(): Partial<TargetState> {
+  try {
+    const raw = localStorage.getItem(TARGET_RECENT_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<TargetState>;
+  } catch {
+    return {};
   }
 }
 
@@ -272,6 +287,7 @@ function tableStatusLabel(status: TableRunStatus): string {
 export function App() {
   const initialRememberPass = loadRememberPassword();
   const initialRecent = loadSourceRecent();
+  const initialTarget = loadTargetRecent();
 
   const [meta, setMeta] = useState<RuntimeMeta | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -285,10 +301,10 @@ export function App() {
     like: "",
   });
   const [target, setTarget] = useState<TargetState>({
-    mode: "file",
-    targetDb: "postgres",
-    targetUrl: "",
-    schema: "public",
+    mode: initialTarget.mode ?? "file",
+    targetDb: initialTarget.targetDb ?? "postgres",
+    targetUrl: initialTarget.targetUrl ?? "",
+    schema: initialTarget.schema ?? "public",
   });
 
   const [rememberSourcePassword, setRememberSourcePassword] =
@@ -463,6 +479,14 @@ export function App() {
       // Ignore storage errors in restricted browser environments.
     }
   }, [source.oracleUrl, source.username, source.password, rememberSourcePassword]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TARGET_RECENT_KEY, JSON.stringify(target));
+    } catch {
+      // Ignore storage errors in restricted browser environments.
+    }
+  }, [target.mode, target.targetDb, target.targetUrl, target.schema]);
 
   useEffect(() => {
     void boot();
@@ -956,6 +980,8 @@ export function App() {
       withIndexes: toBool(payload.withIndexes, options.withIndexes),
       withConstraints: toBool(payload.withConstraints, options.withConstraints),
       validate: toBool(payload.validate, options.validate),
+      truncate: toBool(payload.truncate, options.truncate),
+      upsert: toBool(payload.upsert, options.upsert),
       oracleOwner: toString(payload.oracleOwner, options.oracleOwner),
       batchSize: toNumber(payload.batchSize, options.batchSize),
       workers: toNumber(payload.workers, options.workers),
@@ -1231,6 +1257,8 @@ export function App() {
             dbMaxLife: options.dbMaxLife,
             copyBatch: options.copyBatch,
             objectGroup: effectiveObjectGroup,
+            truncate: options.truncate,
+            upsert: options.upsert,
           }),
         },
       );
@@ -1792,6 +1820,26 @@ export function App() {
                     type="checkbox"
                   />
                   Validate row counts after migration
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.truncate}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, truncate: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Truncate target tables before migration (prevents duplicates)
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    checked={options.upsert}
+                    onChange={(event) =>
+                      setOptions((prev) => ({ ...prev, upsert: event.target.checked }))
+                    }
+                    type="checkbox"
+                  />
+                  Upsert mode — skip duplicate rows by PK (table must have PK)
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-slate-700">Oracle owner (optional)</span>

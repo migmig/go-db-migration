@@ -2,6 +2,7 @@ package migration
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -575,6 +576,24 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 		}
 	}
 
+	if cfg.Truncate && tState.Offset == 0 {
+		qTableName := dia.QuoteIdentifier(strings.ToLower(tableName))
+		if cfg.Schema != "" {
+			qTableName = fmt.Sprintf("%s.%s", dia.QuoteIdentifier(strings.ToLower(cfg.Schema)), qTableName)
+		}
+		truncateSQL := fmt.Sprintf("TRUNCATE TABLE %s", qTableName)
+		var truncErr error
+		if pgPool != nil {
+			_, truncErr = pgPool.Exec(context.Background(), truncateSQL)
+		} else if targetDB != nil {
+			_, truncErr = targetDB.Exec(truncateSQL)
+		}
+		if truncErr != nil {
+			return 0, fmt.Errorf("failed to truncate table %s: %v", qTableName, truncErr)
+		}
+		slog.Info("table truncated before migration", "table", tableName)
+	}
+
 	query := fmt.Sprintf("SELECT * FROM %s", dialect.QuoteOracleIdentifier(tableName))
 	if tState.Offset > 0 {
 		query += fmt.Sprintf(" OFFSET %d ROWS", tState.Offset)
@@ -593,7 +612,21 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 	rowCount := tState.Offset
 
 	if pgPool != nil {
-		if cfg.CopyBatch > 0 {
+		if cfg.Upsert {
+			rows.Close()
+			pkMeta, pkErr := GetPrimaryKeyMetadata(dbConn, tableName, resolveOwner(cfg))
+			if pkErr != nil || pkMeta == nil || len(pkMeta.Columns) == 0 {
+				return 0, fmt.Errorf("upsert requires a primary key on table %s, but none was found (err: %v)", tableName, pkErr)
+			}
+			pkCols := make([]string, len(pkMeta.Columns))
+			for i, c := range pkMeta.Columns {
+				pkCols[i] = c.Name
+			}
+			rowCount, err = migrateTablePgUpsert(dbConn, pgPool, tableName, cols, pkCols, cfg, tracker, mState)
+			if err != nil {
+				return rowCount, err
+			}
+		} else if cfg.CopyBatch > 0 {
 			rows.Close()
 			rowCount, err = migrateTablePgBatchCopy(dbConn, pgPool, tableName, cols, cfg, tracker, mState)
 			if err != nil {
@@ -808,9 +841,21 @@ func (s *oracleCopySource) Values() ([]interface{}, error) {
 		return nil, err
 	}
 
-	// Post-process values for Postgres (convert time.Time, handle types if needed)
-	// pgx handles time.Time and basic types well, so we mostly pass as is.
-	// For raw binary, Oracle driver gives []byte which pgx also handles for bytea.
+	// PostgreSQL does not allow null bytes (\x00) in text/varchar columns (SQLSTATE 22021).
+	// Oracle permits them, so strip null bytes from string values before copying.
+	for i, v := range values {
+		switch val := v.(type) {
+		case string:
+			if strings.ContainsRune(val, 0) {
+				values[i] = strings.ReplaceAll(val, "\x00", "")
+			}
+		case []byte:
+			if bytes.Contains(val, []byte{0}) {
+				values[i] = bytes.ReplaceAll(val, []byte{0}, []byte{})
+			}
+		}
+	}
+
 	return values, nil
 }
 
@@ -1088,5 +1133,152 @@ func migrateTablePgBatchCopy(
 	}
 
 	slog.Info("batched COPY migration finished", "table", tableName, "rows", offset)
+	return offset, nil
+}
+
+// migrateTablePgUpsert copies Oracle rows into a session-local staging table, then
+// performs INSERT ... ON CONFLICT (pkCols) DO NOTHING into the real target table.
+// Each batch is: COPY → staging, INSERT INTO target SELECT * FROM staging ON CONFLICT DO NOTHING, COMMIT.
+// Because the staging table is created with ON COMMIT DELETE ROWS, each commit flushes it automatically.
+func migrateTablePgUpsert(
+	dbConn *sql.DB,
+	pgPool db.PGPool,
+	tableName string,
+	cols []string,
+	pkCols []string,
+	cfg *config.Config,
+	tracker ProgressTracker,
+	mState *MigrationState,
+) (int, error) {
+	ctx := context.Background()
+	lowerTable := strings.ToLower(tableName)
+	stageName := "_dbm_stage_" + lowerTable
+
+	// Quoted target table
+	var quotedTarget string
+	if cfg.Schema != "" {
+		quotedTarget = fmt.Sprintf(`"%s"."%s"`, strings.ToLower(cfg.Schema), lowerTable)
+	} else {
+		quotedTarget = fmt.Sprintf(`"%s"`, lowerTable)
+	}
+
+	// Create staging temp table (rows deleted on each commit)
+	var likeSource string
+	if cfg.Schema != "" {
+		likeSource = fmt.Sprintf(`"%s"."%s"`, strings.ToLower(cfg.Schema), lowerTable)
+	} else {
+		likeSource = fmt.Sprintf(`"%s"`, lowerTable)
+	}
+	createStageSQL := fmt.Sprintf(
+		`CREATE TEMP TABLE IF NOT EXISTS "%s" (LIKE %s) ON COMMIT DELETE ROWS`,
+		stageName, likeSource,
+	)
+	if _, err := pgPool.Exec(ctx, createStageSQL); err != nil {
+		return 0, fmt.Errorf("failed to create staging table for upsert: %v", err)
+	}
+
+	// Build ON CONFLICT clause using PK columns
+	quotedPKCols := make([]string, len(pkCols))
+	for i, c := range pkCols {
+		quotedPKCols[i] = `"` + strings.ToLower(c) + `"`
+	}
+	insertSQL := fmt.Sprintf(
+		`INSERT INTO %s SELECT * FROM "%s" ON CONFLICT (%s) DO NOTHING`,
+		quotedTarget, stageName, strings.Join(quotedPKCols, ", "),
+	)
+
+	stageIdent := pgx.Identifier{stageName}
+
+	tState := mState.GetState(tableName)
+	offset := tState.Offset
+	batchSize := cfg.CopyBatch
+	if batchSize <= 0 {
+		batchSize = 10000
+	}
+
+	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
+		query := fmt.Sprintf(
+			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+			dialect.QuoteOracleIdentifier(tableName), offset, batchSize,
+		)
+		rows, err := dbConn.Query(query)
+		if err != nil {
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: classifyError(err),
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+			}
+		}
+
+		batchCols, err := rows.Columns()
+		if err != nil {
+			rows.Close()
+			return offset, &MigrationError{Table: tableName, Phase: "data", Category: ErrUnknown, RootCause: err}
+		}
+		if len(cols) == 0 {
+			cols = batchCols
+		}
+		lowerCols := make([]string, len(batchCols))
+		for i, c := range batchCols {
+			lowerCols[i] = strings.ToLower(c)
+		}
+
+		tx, err := pgPool.Begin(ctx)
+		if err != nil {
+			rows.Close()
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: ErrConnectionLost,
+				RootCause: err, Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+			}
+		}
+
+		source := &oracleCopySource{rows: rows, cols: batchCols}
+		n, copyErr := tx.CopyFrom(ctx, stageIdent, lowerCols, source)
+		rows.Close()
+
+		if copyErr != nil {
+			tx.Rollback(ctx)
+			cat := classifyError(copyErr)
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: cat,
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: copyErr, Recoverable: cat != ErrConnectionLost,
+				Suggestion: suggestFix(cat, "postgres"),
+			}
+		}
+
+		if _, execErr := tx.Exec(ctx, insertSQL); execErr != nil {
+			tx.Rollback(ctx)
+			cat := classifyError(execErr)
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: cat,
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: execErr, Suggestion: suggestFix(cat, "postgres"),
+			}
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			cat := classifyError(err)
+			return offset, &MigrationError{
+				Table: tableName, Phase: "data", Category: cat,
+				BatchNum: batchNum, RowOffset: offset,
+				RootCause: err, Suggestion: suggestFix(cat, "postgres"),
+			}
+		}
+
+		offset += int(n)
+		mState.UpdateOffset(tableName, offset)
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: offset})
+		} else if tracker != nil {
+			tracker.Update(tableName, offset)
+		}
+
+		if int(n) < batchSize {
+			break
+		}
+	}
+
+	slog.Info("upsert migration finished", "table", tableName, "rows", offset)
 	return offset, nil
 }

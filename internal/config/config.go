@@ -114,6 +114,9 @@ type Config struct {
 	UserID      int64
 	// v17 flags
 	ObjectGroup string
+	// v18 flags
+	Truncate bool
+	Upsert   bool
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -349,6 +352,8 @@ func ParseFlags() (*Config, error) {
 	flag.StringVar(&cfg.CompletionShell, "completion", "", "쉘 자동완성 스크립트 출력 (bash/zsh/fish/powershell)")
 	flag.BoolVar(&cfg.AuthEnabled, "auth-enabled", false, "인증 기반 멀티유저 모드 활성화")
 	flag.StringVar(&cfg.ObjectGroup, "object-group", "all", "마이그레이션 객체 그룹 선택 (all/tables/sequences)")
+	flag.BoolVar(&cfg.Truncate, "truncate", false, "마이그레이션 전 대상 테이블 TRUNCATE (중복 방지)")
+	flag.BoolVar(&cfg.Upsert, "upsert", false, "PK 기준 Upsert (중복 행 건너뜀, PK 필수)")
 
 	flag.Parse()
 
