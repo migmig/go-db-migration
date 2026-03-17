@@ -162,9 +162,51 @@ type MetricsState = {
   mem: string;
 };
 
+type Locale = "en" | "ko";
+
 const SOURCE_RECENT_KEY = "dbm:v16:source-recent";
 const SOURCE_REMEMBER_KEY = "dbm:v16:source-remember-pass";
 const TARGET_RECENT_KEY = "dbm:v16:target-recent";
+const UI_LOCALE_KEY = "dbm:v18:ui-locale";
+
+const UI_TEXT: Record<Locale, Record<string, string>> = {
+  en: {
+    loading: "Loading v18 preview...",
+    bootFailed: "v18 boot failed",
+    retry: "Retry",
+    workspaceTitle: "v18 Migration Workspace",
+    workspaceDesc: "Source/target setup, migration options, and real-time run status.",
+    authEnabled: "Auth enabled",
+    authDisabled: "Auth disabled",
+    savedConnections: "Saved Connections",
+    myHistory: "My History",
+    logout: "Logout",
+    recentSourceOptional: "Recent source input (optional)",
+    rememberSourcePassword: "Remember source password",
+    restore: "Restore",
+    clear: "Clear",
+    switchToKorean: "한국어",
+    switchToEnglish: "English",
+  },
+  ko: {
+    loading: "v18 미리보기를 불러오는 중...",
+    bootFailed: "v18 부팅 실패",
+    retry: "다시 시도",
+    workspaceTitle: "v18 마이그레이션 작업공간",
+    workspaceDesc: "소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.",
+    authEnabled: "인증 사용 중",
+    authDisabled: "인증 비활성화",
+    savedConnections: "저장된 연결",
+    myHistory: "내 작업 이력",
+    logout: "로그아웃",
+    recentSourceOptional: "최근 소스 입력값 (선택)",
+    rememberSourcePassword: "소스 비밀번호 기억",
+    restore: "복원",
+    clear: "지우기",
+    switchToKorean: "한국어",
+    switchToEnglish: "English",
+  },
+};
 
 const DEFAULT_OPTIONS: MigrationOptions = {
   objectGroup: "all",
@@ -221,6 +263,18 @@ function loadTargetRecent(): Partial<TargetState> {
   } catch {
     return {};
   }
+}
+
+function loadLocale(): Locale {
+  try {
+    const raw = localStorage.getItem(UI_LOCALE_KEY);
+    if (raw === "ko") {
+      return "ko";
+    }
+  } catch {
+    // no-op
+  }
+  return "en";
 }
 
 function toBool(value: unknown, fallback: boolean): boolean {
@@ -344,6 +398,7 @@ function parseReplayedTables(optionsJson: string): string[] {
 }
 
 export function App() {
+  const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const initialRememberPass = loadRememberPassword();
   const initialRecent = loadSourceRecent();
   const initialTarget = loadTargetRecent();
@@ -597,6 +652,16 @@ export function App() {
     : "all";
   const previewTables = discoverySummary?.tables ?? selectedTables;
   const previewSequences = objectGroupModeEnabled ? discoverySummary?.sequences ?? [] : [];
+
+  const t = (key: string): string => UI_TEXT[locale][key] ?? UI_TEXT.en[key] ?? key;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(UI_LOCALE_KEY, locale);
+    } catch {
+      // no-op
+    }
+  }, [locale]);
 
   useEffect(() => {
     migrationActiveRef.current = migrationBusy;
@@ -1478,7 +1543,7 @@ export function App() {
   if (booting) {
     return (
       <div className="flex min-h-screen items-center justify-center text-slate-700">
-        Loading v18 preview...
+        {t("loading")}
       </div>
     );
   }
@@ -1487,14 +1552,14 @@ export function App() {
     return (
       <div className="mx-auto flex min-h-screen max-w-3xl items-center px-6 py-12">
         <div className="card-surface w-full p-8">
-          <h1 className="text-xl font-semibold text-slate-900">v18 boot failed</h1>
+          <h1 className="text-xl font-semibold text-slate-900">{t("bootFailed")}</h1>
           <p className="mt-3 text-sm text-red-600">{bootError}</p>
           <button
             className="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
             onClick={() => void boot()}
             type="button"
           >
-            Retry
+            {t("retry")}
           </button>
         </div>
       </div>
@@ -1509,42 +1574,49 @@ export function App() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
               DBMigrator
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">v18 Migration Workspace</h1>
+            <h1 className="text-2xl font-bold text-slate-900">{t("workspaceTitle")}</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Source/target setup, migration options, and real-time run status.
+              {t("workspaceDesc")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => setLocale((prev) => (prev === "en" ? "ko" : "en"))}
+              type="button"
+            >
+              {locale === "en" ? t("switchToKorean") : t("switchToEnglish")}
+            </button>
             {meta?.authEnabled ? (
               <>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  {user ? `User: ${user.username}` : "Auth enabled"}
+                  {user ? `User: ${user.username}` : t("authEnabled")}
                 </span>
                 <button
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                   onClick={() => void openCredentialsPanel("all")}
                   type="button"
                 >
-                  Saved Connections
+                  {t("savedConnections")}
                 </button>
                 <button
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                   onClick={() => void openHistoryPanel()}
                   type="button"
                 >
-                  My History
+                  {t("myHistory")}
                 </button>
                 <button
                   className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
                   onClick={() => void handleLogout()}
                   type="button"
                 >
-                  Logout
+                  {t("logout")}
                 </button>
               </>
             ) : (
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                Auth disabled
+                {t("authDisabled")}
               </span>
             )}
           </div>
@@ -1552,7 +1624,7 @@ export function App() {
 
         <details className="card-surface p-4">
           <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-            Recent source input (optional)
+            {t("recentSourceOptional")}
           </summary>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <label className="inline-flex items-center gap-2 text-sm text-slate-700">
@@ -1561,21 +1633,21 @@ export function App() {
                 onChange={(event) => setRememberSourcePassword(event.target.checked)}
                 type="checkbox"
               />
-              Remember source password
+              {t("rememberSourcePassword")}
             </label>
             <button
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               onClick={restoreRecentSource}
               type="button"
             >
-              Restore
+              {t("restore")}
             </button>
             <button
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               onClick={clearRecentSource}
               type="button"
             >
-              Clear
+              {t("clear")}
             </button>
           </div>
         </details>
