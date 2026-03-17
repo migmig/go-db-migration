@@ -54,6 +54,9 @@ func TestRun_PerTableFalse_SingleFileWithOutFileName(t *testing.T) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Errorf("expected output file %q to be created", path)
 	}
+	if _, err := os.Stat(outDir + "/tables.sql"); os.IsNotExist(err) {
+		t.Errorf("expected grouped tables artifact %q to be created", outDir+"/tables.sql")
+	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled expectations: %v", err)

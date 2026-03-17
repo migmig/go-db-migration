@@ -187,6 +187,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 			c.JSON(http.StatusOK, gin.H{
 				"authEnabled": authEnabled,
 				"uiVersion":   "v16-preview",
+				"features": gin.H{
+					"objectGroupMode": objectGroupModeEnabled(),
+				},
 			})
 		})
 
@@ -216,8 +219,8 @@ func RunServerWithAuth(port string, authEnabled bool) {
 			protected.GET("/monitoring/metrics", monitoringMetricsHandler(metrics))
 		}
 		protected.POST("/tables", getTables)
-		protected.POST("/migrate", startMigrationHandler(userStore))
-		protected.POST("/migrate/retry", retryMigrationHandler(userStore))
+		protected.POST("/migrate", startMigrationHandler(userStore, metrics))
+		protected.POST("/migrate/retry", retryMigrationHandler(userStore, metrics))
 		protected.POST("/test-target", testTargetConnection)
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
@@ -228,6 +231,19 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
+}
+
+func objectGroupModeEnabled() bool {
+	raw, ok := os.LookupEnv("DBM_OBJECT_GROUP_UI_ENABLED")
+	if !ok || strings.TrimSpace(raw) == "" {
+		return true
+	}
+
+	enabled, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return true
+	}
+	return enabled
 }
 
 func registerV16Routes(r *gin.Engine) bool {
@@ -777,26 +793,26 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 }
 
 func startMigration(c *gin.Context) {
-	handleMigration(c, false, nil)
+	handleMigration(c, false, nil, nil)
 }
 
-func startMigrationHandler(store *db.UserStore) gin.HandlerFunc {
+func startMigrationHandler(store *db.UserStore, metrics *monitoringMetrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		handleMigration(c, false, store)
+		handleMigration(c, false, store, metrics)
 	}
 }
 
 func retryMigration(c *gin.Context) {
-	handleMigration(c, true, nil)
+	handleMigration(c, true, nil, nil)
 }
 
-func retryMigrationHandler(store *db.UserStore) gin.HandlerFunc {
+func retryMigrationHandler(store *db.UserStore, metrics *monitoringMetrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		handleMigration(c, true, store)
+		handleMigration(c, true, store, metrics)
 	}
 }
 
-func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
+func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics *monitoringMetrics) {
 	var req startMigrationRequest
 	// set defaults for db max idle to be safe
 	req.DBMaxIdle = 2
@@ -827,6 +843,16 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 	authUserID := currentUserID(c)
 
 	go func() {
+		runGroup := req.ObjectGroup
+		if runGroup == "" {
+			runGroup = config.ObjectGroupAll
+		}
+		metrics.recordMigrationStart(runGroup, isRetry)
+		success := false
+		defer func() {
+			metrics.recordMigrationFinish(runGroup, isRetry, success)
+		}()
+
 		if req.LogJSON {
 			logger.SetJSONMode(true)
 			defer logger.SetJSONMode(false)
@@ -994,6 +1020,9 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore) {
 
 		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
 		saveHistoryForRequest(store, authUserID, req, targetDBName, targetURL, report, err)
+		if err == nil {
+			success = true
+		}
 
 		buildSummary := func() *ws.ReportSummary {
 			if report == nil {

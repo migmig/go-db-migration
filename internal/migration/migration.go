@@ -51,6 +51,27 @@ type job struct {
 	tableName string
 }
 
+func logStatementFailed(group, objectType, objectName, table, phase string, err error) {
+	fields := []any{
+		"object_group", group,
+		"object_type", objectType,
+		"object_name", objectName,
+		"table", table,
+		"phase", phase,
+		"error", err,
+	}
+
+	if detailed, ok := err.(*MigrationError); ok {
+		fields = append(fields,
+			"category", detailed.Category,
+			"batch_num", detailed.BatchNum,
+			"row_offset", detailed.RowOffset,
+		)
+	}
+
+	slog.Error("migration.statement.failed", fields...)
+}
+
 // tryConnectTarget attempts to open and ping the target database.
 // Returns true if the connection succeeds, false otherwise.
 func tryConnectTarget(dia dialect.Dialect, targetURL string) bool {
@@ -155,10 +176,19 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		"tables", len(groupedMetadata.Tables),
 		"sequences", len(groupedMetadata.Sequences),
 	)
+	if tracker != nil && tracker.EventBus() != nil {
+		tracker.EventBus().Publish(bus.Event{
+			Type:        bus.EventDiscoverySummary,
+			ObjectGroup: group,
+			Tables:      append([]string(nil), groupedMetadata.Tables...),
+			Sequences:   groupedMetadata.SequenceNames(),
+		})
+	}
 
 	if cfg.DryRun {
 		slog.Info("Dry run mode enabled. Verifying connectivity and estimating row counts.")
 		dryTracker, hasDryTracker := tracker.(DryRunTracker)
+		totalEstimatedRows := 0
 
 		connOk := true
 		if cfg.TargetURL != "" {
@@ -188,6 +218,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 				}
 				continue
 			}
+			totalEstimatedRows += count
 			slog.Info("table estimation", "table", table, "estimated_rows", count)
 			if tracker != nil && tracker.EventBus() != nil {
 				tracker.EventBus().Publish(bus.Event{
@@ -199,6 +230,9 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 			} else if hasDryTracker {
 				dryTracker.DryRunResult(table, count, connOk)
 			}
+		}
+		if cfg.WithDDL || cfg.WithSequences {
+			printDryRunGroupedOutput(os.Stdout, buildDryRunGroupedOutput(dbConn, dia, cfg, groupedMetadata, totalEstimatedRows, tracker))
 		}
 		slog.Info("Dry run completed successfully.")
 		return report, nil
@@ -342,7 +376,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 				}
 
 				if execErr != nil {
-					slog.Warn("failed to execute constraint DDL", "constraint", c.Name, "error", execErr)
+					logStatementFailed(config.ObjectGroupTables, "constraint", c.Name, tableName, "ddl", execErr)
 					if tracker != nil && tracker.EventBus() != nil {
 						tracker.EventBus().Publish(bus.Event{
 							Type:       bus.EventDDLProgress,
@@ -376,6 +410,12 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 		runValidation(dbConn, targetDB, pgPool, dia, cfg, tracker, report)
 	}
 
+	if pgPool == nil && targetDB == nil && !cfg.PerTable {
+		if err := ensureTablesArtifact(cfg); err != nil {
+			slog.Warn("failed to materialize tables.sql artifact", "error", err)
+		}
+	}
+
 	if err := report.Finalize(); err != nil {
 		slog.Warn("failed to save migration report", "error", err)
 	}
@@ -392,7 +432,11 @@ func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dial
 		rowCount, err := MigrateTable(dbConn, targetDB, pgPool, dia, j.tableName, mainBuf, cfg, outMutex, tracker, mState)
 		finishTable(rowCount, err)
 		if err != nil {
-			slog.Error("error migrating table", "table", j.tableName, "error", err)
+			phase := "data"
+			if detailed, ok := err.(*MigrationError); ok && detailed.Phase != "" {
+				phase = detailed.Phase
+			}
+			logStatementFailed(config.ObjectGroupTables, "table", j.tableName, j.tableName, phase, err)
 			if tracker != nil && tracker.EventBus() != nil {
 				tracker.EventBus().Publish(bus.Event{
 					Type:  bus.EventError,
@@ -473,6 +517,7 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 				_, err = targetDB.Exec(ddl)
 			}
 			if err != nil {
+				logStatementFailed(config.ObjectGroupTables, "table", tableName, tableName, "ddl", err)
 				return 0, &MigrationError{
 					Table: tableName, Phase: "ddl", Category: classifyError(err),
 					RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
@@ -494,6 +539,7 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 					_, err = targetDB.Exec(ddl)
 				}
 				if err != nil {
+					logStatementFailed(config.ObjectGroupTables, "primary_key", pk.Name, tableName, "ddl", err)
 					return 0, &MigrationError{
 						Table: tableName, Phase: "ddl", Category: classifyError(err),
 						RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
@@ -708,7 +754,7 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 					_, err = targetDB.Exec(ddl)
 				}
 				if err != nil {
-					slog.Warn("failed to execute index DDL", "index", idx.Name, "error", err)
+					logStatementFailed(config.ObjectGroupTables, "index", idx.Name, tableName, "ddl", err)
 					if tracker != nil && tracker.EventBus() != nil {
 						tracker.EventBus().Publish(bus.Event{
 							Type:       bus.EventDDLProgress,

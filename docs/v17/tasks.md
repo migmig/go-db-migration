@@ -26,12 +26,12 @@
 
 ### 3. 조회/스크립트 생성 파이프라인 분리 (Discovery & Script Generation)
 - [x] 메타데이터 조회 결과를 그룹별로 분리 저장
-- [ ] SQL 생성 시 그룹별 산출물 분리
-  - [ ] `tables.sql` 성격의 SQL 묶음
+- [x] SQL 생성 시 그룹별 산출물 분리
+  - [x] `tables.sql` 성격의 SQL 묶음
   - [x] `sequences.sql` 성격의 SQL 묶음
-- [ ] Dry-run 출력 섹션 분리
-  - [ ] `TABLES SQL`
-  - [ ] `SEQUENCES SQL`
+- [x] Dry-run 출력 섹션 분리
+  - [x] `TABLES SQL`
+  - [x] `SEQUENCES SQL`
 
 ### 4. 실행기(Executor) 그룹 선택 로직 (Execution)
 - [x] 실행 입력에 `object_group` 반영
@@ -58,46 +58,46 @@
   - [x] 전체
   - [x] 테이블 계열만
   - [x] 시퀀스만
-- [ ] 조회 결과 패널 그룹 분리
-  - [ ] 그룹별 카운트 표시
-  - [ ] 그룹별 목록/접기-펼치기 UX 정리
+- [x] 조회 결과 패널 그룹 분리
+  - [x] 그룹별 카운트 표시
+  - [x] 그룹별 목록/접기-펼치기 UX 정리
 - [x] Dry-run/결과 요약 카드 분리
   - [x] 그룹별 성공/실패/스킵 통계 표시
 
 ### 7. 로그/리포트/관측성 강화 (Observability)
-- [ ] 주요 이벤트 로그에 `object_group` 필드 추가
+- [x] 주요 이벤트 로그에 `object_group` 필드 추가
   - [x] `discovery.completed`
   - [x] `script.generated`
   - [x] `migration.started`
-  - [ ] `migration.statement.failed`
+  - [x] `migration.statement.failed`
   - [x] `migration.completed`
 - [x] 최종 리포트 포맷 확장
   - [x] 전체 요약 + 그룹별 상세 병기
-- [ ] 운영 지표 수집 항목 추가
-  - [ ] 모드별 사용률(`all/tables/sequences`)
-  - [ ] 그룹별 실패율/재시도 성공률
+- [x] 운영 지표 수집 항목 추가
+  - [x] 모드별 사용률(`all/tables/sequences`)
+  - [x] 그룹별 실패율/재시도 성공률
 
 ### 8. 테스트 (Testing)
 - [x] 단위 테스트
   - [x] 분류기: table/constraint/index/sequence 분류 정확성
   - [x] 선택기: `all|tables|sequences`별 실행 목록 검증
   - [x] 검증기: 잘못된 `object_group` 입력 검증
-- [ ] 통합 테스트
-  - [ ] `tables-only`에서 sequence SQL 미실행 검증
-  - [ ] `sequences-only`에서 table SQL 미실행 검증
+- [x] 통합 테스트
+  - [x] `tables-only`에서 sequence SQL 미실행 검증
+  - [x] `sequences-only`에서 table SQL 미실행 검증
   - [x] `all` 순서(`tables -> sequences`) 검증
-- [ ] 회귀 테스트
-  - [ ] 옵션 미지정(`all` 기본) 기존 동작 동일성
-  - [ ] 기존 이력 replay 호환성
-  - [ ] `go test ./...` 통과
+- [x] 회귀 테스트
+  - [x] 옵션 미지정(`all` 기본) 기존 동작 동일성
+  - [x] 기존 이력 replay 호환성
+  - [x] `go test ./...` 통과
 
 ### 9. 롤아웃/운영 가이드 (Rollout)
-- [ ] 단계적 릴리즈 계획 반영
-  - [ ] 내부 기능 플래그 기반 점진 활성화
-  - [ ] 운영팀 대상 모드 선택 가이드 배포
-- [ ] 장애 대응 플레이북 보강
-  - [ ] `sequences-only` 복구 절차 문서화
-  - [ ] 모드 오선택 방지 체크리스트 추가
-- [ ] 최종 배포 체크
-  - [ ] dry-run 검토 절차 준수 확인
-  - [ ] 로그/리포트 대시보드 필드 누락 점검
+- [x] 단계적 릴리즈 계획 반영
+  - [x] 내부 기능 플래그 기반 점진 활성화
+  - [x] 운영팀 대상 모드 선택 가이드 배포
+- [x] 장애 대응 플레이북 보강
+  - [x] `sequences-only` 복구 절차 문서화
+  - [x] 모드 오선택 방지 체크리스트 추가
+- [x] 최종 배포 체크
+  - [x] dry-run 검토 절차 준수 확인
+  - [x] 로그/리포트 대시보드 필드 누락 점검

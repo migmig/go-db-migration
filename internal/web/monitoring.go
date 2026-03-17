@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"dbmigrator/internal/config"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,6 +31,19 @@ type monitoringMetrics struct {
 
 	historyRequests uint64
 	historyErrors   uint64
+
+	migrationAllRuns                 uint64
+	migrationTablesRuns              uint64
+	migrationSequencesRuns           uint64
+	migrationAllFailures             uint64
+	migrationTablesFailures          uint64
+	migrationSequencesFailures       uint64
+	migrationAllRetryAttempts        uint64
+	migrationTablesRetryAttempts     uint64
+	migrationSequencesRetryAttempts  uint64
+	migrationAllRetrySuccesses       uint64
+	migrationTablesRetrySuccesses    uint64
+	migrationSequencesRetrySuccesses uint64
 }
 
 type loginMetricsSnapshot struct {
@@ -50,11 +65,27 @@ type apiErrorMetricsSnapshot struct {
 }
 
 type monitoringSnapshot struct {
-	UptimeSeconds int64                   `json:"uptimeSeconds"`
-	Login         loginMetricsSnapshot    `json:"login"`
-	Session       sessionMetricsSnapshot  `json:"session"`
-	Credentials   apiErrorMetricsSnapshot `json:"credentialsApi"`
-	History       apiErrorMetricsSnapshot `json:"historyApi"`
+	UptimeSeconds int64                    `json:"uptimeSeconds"`
+	Login         loginMetricsSnapshot     `json:"login"`
+	Session       sessionMetricsSnapshot   `json:"session"`
+	Credentials   apiErrorMetricsSnapshot  `json:"credentialsApi"`
+	History       apiErrorMetricsSnapshot  `json:"historyApi"`
+	Migrations    migrationMetricsSnapshot `json:"migrations"`
+}
+
+type migrationGroupMetricsSnapshot struct {
+	Runs                uint64  `json:"runs"`
+	Failures            uint64  `json:"failures"`
+	FailureRatePct      float64 `json:"failureRatePct"`
+	RetryAttempts       uint64  `json:"retryAttempts"`
+	RetrySuccesses      uint64  `json:"retrySuccesses"`
+	RetrySuccessRatePct float64 `json:"retrySuccessRatePct"`
+}
+
+type migrationMetricsSnapshot struct {
+	All       migrationGroupMetricsSnapshot `json:"all"`
+	Tables    migrationGroupMetricsSnapshot `json:"tables"`
+	Sequences migrationGroupMetricsSnapshot `json:"sequences"`
 }
 
 func newMonitoringMetrics() *monitoringMetrics {
@@ -108,6 +139,55 @@ func (m *monitoringMetrics) recordAPIResponse(api monitoredAPI, status int) {
 	}
 }
 
+func (m *monitoringMetrics) recordMigrationStart(group string, isRetry bool) {
+	if m == nil {
+		return
+	}
+
+	runCounter, retryCounter := m.migrationCounters(group)
+	atomic.AddUint64(runCounter, 1)
+	if isRetry {
+		atomic.AddUint64(retryCounter, 1)
+	}
+}
+
+func (m *monitoringMetrics) recordMigrationFinish(group string, isRetry, success bool) {
+	if m == nil {
+		return
+	}
+
+	_, _, failureCounter, retrySuccessCounter := m.migrationResultCounters(group)
+	if !success {
+		atomic.AddUint64(failureCounter, 1)
+		return
+	}
+	if isRetry {
+		atomic.AddUint64(retrySuccessCounter, 1)
+	}
+}
+
+func (m *monitoringMetrics) migrationCounters(group string) (*uint64, *uint64) {
+	switch group {
+	case config.ObjectGroupTables:
+		return &m.migrationTablesRuns, &m.migrationTablesRetryAttempts
+	case config.ObjectGroupSequences:
+		return &m.migrationSequencesRuns, &m.migrationSequencesRetryAttempts
+	default:
+		return &m.migrationAllRuns, &m.migrationAllRetryAttempts
+	}
+}
+
+func (m *monitoringMetrics) migrationResultCounters(group string) (*uint64, *uint64, *uint64, *uint64) {
+	switch group {
+	case config.ObjectGroupTables:
+		return &m.migrationTablesRuns, &m.migrationTablesRetryAttempts, &m.migrationTablesFailures, &m.migrationTablesRetrySuccesses
+	case config.ObjectGroupSequences:
+		return &m.migrationSequencesRuns, &m.migrationSequencesRetryAttempts, &m.migrationSequencesFailures, &m.migrationSequencesRetrySuccesses
+	default:
+		return &m.migrationAllRuns, &m.migrationAllRetryAttempts, &m.migrationAllFailures, &m.migrationAllRetrySuccesses
+	}
+}
+
 func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 	if m == nil {
 		return monitoringSnapshot{}
@@ -121,6 +201,18 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 	credentialErrors := atomic.LoadUint64(&m.credentialsErrors)
 	historyRequests := atomic.LoadUint64(&m.historyRequests)
 	historyErrors := atomic.LoadUint64(&m.historyErrors)
+	allRuns := atomic.LoadUint64(&m.migrationAllRuns)
+	tablesRuns := atomic.LoadUint64(&m.migrationTablesRuns)
+	sequencesRuns := atomic.LoadUint64(&m.migrationSequencesRuns)
+	allFailures := atomic.LoadUint64(&m.migrationAllFailures)
+	tablesFailures := atomic.LoadUint64(&m.migrationTablesFailures)
+	sequencesFailures := atomic.LoadUint64(&m.migrationSequencesFailures)
+	allRetryAttempts := atomic.LoadUint64(&m.migrationAllRetryAttempts)
+	tablesRetryAttempts := atomic.LoadUint64(&m.migrationTablesRetryAttempts)
+	sequencesRetryAttempts := atomic.LoadUint64(&m.migrationSequencesRetryAttempts)
+	allRetrySuccesses := atomic.LoadUint64(&m.migrationAllRetrySuccesses)
+	tablesRetrySuccesses := atomic.LoadUint64(&m.migrationTablesRetrySuccesses)
+	sequencesRetrySuccesses := atomic.LoadUint64(&m.migrationSequencesRetrySuccesses)
 
 	return monitoringSnapshot{
 		UptimeSeconds: int64(time.Since(m.startedAt).Seconds()),
@@ -143,6 +235,32 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 			Requests:     historyRequests,
 			Errors:       historyErrors,
 			ErrorRatePct: percentage(historyErrors, historyRequests),
+		},
+		Migrations: migrationMetricsSnapshot{
+			All: migrationGroupMetricsSnapshot{
+				Runs:                allRuns,
+				Failures:            allFailures,
+				FailureRatePct:      percentage(allFailures, allRuns),
+				RetryAttempts:       allRetryAttempts,
+				RetrySuccesses:      allRetrySuccesses,
+				RetrySuccessRatePct: percentage(allRetrySuccesses, allRetryAttempts),
+			},
+			Tables: migrationGroupMetricsSnapshot{
+				Runs:                tablesRuns,
+				Failures:            tablesFailures,
+				FailureRatePct:      percentage(tablesFailures, tablesRuns),
+				RetryAttempts:       tablesRetryAttempts,
+				RetrySuccesses:      tablesRetrySuccesses,
+				RetrySuccessRatePct: percentage(tablesRetrySuccesses, tablesRetryAttempts),
+			},
+			Sequences: migrationGroupMetricsSnapshot{
+				Runs:                sequencesRuns,
+				Failures:            sequencesFailures,
+				FailureRatePct:      percentage(sequencesFailures, sequencesRuns),
+				RetryAttempts:       sequencesRetryAttempts,
+				RetrySuccesses:      sequencesRetrySuccesses,
+				RetrySuccessRatePct: percentage(sequencesRetrySuccesses, sequencesRetryAttempts),
+			},
 		},
 	}
 }

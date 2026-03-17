@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"dbmigrator/internal/bus"
@@ -18,6 +20,14 @@ import (
 type GroupedMetadata struct {
 	Tables    []string
 	Sequences []dialect.SequenceMetadata
+}
+
+func (m GroupedMetadata) SequenceNames() []string {
+	names := make([]string, 0, len(m.Sequences))
+	for _, seq := range m.Sequences {
+		names = append(names, seq.Name)
+	}
+	return names
 }
 
 type GroupedScripts struct {
@@ -129,6 +139,39 @@ func openSequenceWriter(cfg *config.Config, group string, mainBuf *bufio.Writer)
 	}, nil
 }
 
+func ensureTablesArtifact(cfg *config.Config) error {
+	if cfg == nil || cfg.PerTable || cfg.ObjectGroup == config.ObjectGroupSequences {
+		return nil
+	}
+
+	if cfg.OutFile == "" {
+		return nil
+	}
+
+	sourcePath := cfg.OutFile
+	if cfg.OutputDir != "" {
+		sourcePath = cfg.OutputDir + "/" + cfg.OutFile
+	}
+
+	targetPath := sourcePath
+	if filepath.Base(sourcePath) != "tables.sql" {
+		targetPath = filepath.Join(filepath.Dir(sourcePath), "tables.sql")
+	}
+
+	if sourcePath == targetPath {
+		return nil
+	}
+
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("read tables bundle source: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		return fmt.Errorf("write tables bundle: %w", err)
+	}
+	return nil
+}
+
 func migrateSequenceGroup(targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect, cfg *config.Config, mainBuf *bufio.Writer, metadata GroupedMetadata, tracker ProgressTracker, report *MigrationReport) error {
 	scripts := buildGroupedScripts(metadata, cfg.Schema, dia, tracker)
 	skipped := len(metadata.Sequences) - len(scripts.Sequences)
@@ -209,7 +252,7 @@ func migrateSequenceGroup(targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialec
 }
 
 func publishSequenceError(tracker ProgressTracker, ddlTracker DDLProgressTracker, hasDDLTracker bool, seqName string, err error) error {
-	slog.Warn("failed to execute sequence DDL", "sequence", seqName, "error", err)
+	logStatementFailed(config.ObjectGroupSequences, "sequence", seqName, "", "ddl", err)
 	if tracker != nil && tracker.EventBus() != nil {
 		tracker.EventBus().Publish(bus.Event{
 			Type:       bus.EventDDLProgress,
@@ -222,6 +265,73 @@ func publishSequenceError(tracker ProgressTracker, ddlTracker DDLProgressTracker
 		ddlTracker.DDLProgress("sequence", seqName, "error", err)
 	}
 	return fmt.Errorf("failed to execute sequence ddl %s: %w", seqName, err)
+}
+
+type DryRunGroupedOutput struct {
+	TablesSQLCount      int
+	SequencesSQLCount   int
+	EstimatedTableRows  int
+	EstimatedTableCount int
+}
+
+func buildDryRunGroupedOutput(dbConn *sql.DB, dia dialect.Dialect, cfg *config.Config, metadata GroupedMetadata, estimatedTableRows int, tracker ProgressTracker) DryRunGroupedOutput {
+	out := DryRunGroupedOutput{
+		EstimatedTableRows:  estimatedTableRows,
+		EstimatedTableCount: len(metadata.Tables),
+	}
+
+	if cfg.WithDDL && cfg.ObjectGroup != config.ObjectGroupSequences {
+		out.TablesSQLCount += len(metadata.Tables)
+	}
+
+	if cfg.WithDDL && cfg.WithIndexes && dbConn != nil && cfg.ObjectGroup != config.ObjectGroupSequences {
+		owner := resolveOwner(cfg)
+		for _, tableName := range metadata.Tables {
+			indexes, err := GetIndexMetadata(dbConn, tableName, owner)
+			if err != nil {
+				slog.Warn("failed to get index metadata for dry-run summary", "table", tableName, "error", err)
+				continue
+			}
+			out.TablesSQLCount += len(indexes)
+		}
+	}
+
+	if cfg.WithDDL && cfg.WithConstraints && dbConn != nil && cfg.ObjectGroup != config.ObjectGroupSequences {
+		owner := resolveOwner(cfg)
+		for _, tableName := range metadata.Tables {
+			constraints, err := GetConstraintMetadata(dbConn, tableName, owner)
+			if err != nil {
+				slog.Warn("failed to get constraint metadata for dry-run summary", "table", tableName, "error", err)
+				continue
+			}
+			for _, c := range constraints {
+				ddl := GenerateConstraintDDL(c, cfg.Schema, dia)
+				if ddl == "" || strings.HasPrefix(ddl, "--") {
+					continue
+				}
+				out.TablesSQLCount++
+			}
+		}
+	}
+
+	if cfg.WithSequences && cfg.ObjectGroup != config.ObjectGroupTables {
+		out.SequencesSQLCount = len(buildGroupedScripts(metadata, cfg.Schema, dia, tracker).Sequences)
+	}
+
+	return out
+}
+
+func printDryRunGroupedOutput(w io.Writer, output DryRunGroupedOutput) {
+	if w == nil {
+		return
+	}
+
+	fmt.Fprintln(w, "TABLES SQL")
+	fmt.Fprintf(w, "count: %d\n", output.TablesSQLCount)
+	fmt.Fprintf(w, "estimated_tables: %d\n", output.EstimatedTableCount)
+	fmt.Fprintf(w, "estimated_rows: %d\n", output.EstimatedTableRows)
+	fmt.Fprintln(w, "SEQUENCES SQL")
+	fmt.Fprintf(w, "count: %d\n", output.SequencesSQLCount)
 }
 
 func classifyDDLGroup(objectType, ddl string) string {

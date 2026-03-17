@@ -77,7 +77,7 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 
 > 참고: `-auth-enabled` 사용 시 `/api/tables`, `/api/migrate`, `/api/credentials`, `/api/history` 등 주요 API는 로그인 세션이 있어야 접근할 수 있습니다.
 > 인증 세션은 `SameSite=Lax`, `HttpOnly` 쿠키를 사용하며 idle timeout 30분, absolute timeout 24시간 정책을 따릅니다. HTTPS 환경에서는 `Secure` 쿠키가 적용됩니다.
-> 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율 및 `credentials`/`history` API 오류율을 제공합니다.
+> 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율, `credentials`/`history` API 오류율, `all|tables|sequences` 모드별 실행 수/실패율/재시도 성공률을 제공합니다.
 
 ### v16 프런트 미리보기 (Vite + React + Tailwind)
 
@@ -301,8 +301,10 @@ autoload -U compinit && compinit
 - `all`: 테이블/데이터를 먼저 처리한 뒤 시퀀스를 후속 단계로 실행합니다.
 - `tables`: 테이블 계열만 실행하며 sequence DDL은 자동 비활성화됩니다.
 - `sequences`: sequence DDL만 생성/실행하며 `-with-ddl`, `-with-sequences`가 자동 활성화됩니다.
-- SQL 파일 모드에서 `all` 또는 `sequences`를 사용하면 시퀀스 산출물은 별도 `sequences.sql`로 분리됩니다.
+- SQL 파일 모드에서 `all|tables`는 tables 계열 묶음을 `tables.sql`로 보관하고, `all|sequences`는 시퀀스 산출물을 `sequences.sql`로 분리합니다.
 - 완료 리포트(`Download Report`)와 WebSocket 완료 요약에는 `stats.tables`, `stats.sequences` 그룹별 통계가 포함됩니다.
+- 운영 중 단계적 오픈이 필요하면 `DBM_OBJECT_GROUP_UI_ENABLED=false`로 v16 UI의 객체 그룹 선택기를 숨기고 legacy `all` 모드로 고정할 수 있습니다.
+- 운영 절차와 복구 플로우는 [docs/v17/rollout.md](/Users/migmig/gowork/go-db-migration/docs/v17/rollout.md)에서 관리합니다.
 
 ```bash
 # 기본값: all
@@ -318,6 +320,13 @@ autoload -U compinit && compinit
 예시: Dry-run / 완료 리포트의 그룹별 요약
 
 ```text
+TABLES SQL
+count: 12
+estimated_tables: 12
+estimated_rows: 184320
+SEQUENCES SQL
+count: 3
+
 Run Status
 Session: ... · WS closed · Target all
 Tables Group: 12 ok · 0 error · 184,320 rows

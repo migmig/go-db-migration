@@ -176,6 +176,102 @@ describe("App", () => {
     });
   });
 
+  it("defaults replay payload without objectGroup to all", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 88,
+              userId: 1,
+              status: "success",
+              sourceSummary: "SCOTT@oracle-old:1521/XE",
+              targetSummary: "file:migration.sql",
+              optionsJson: "{}",
+              createdAt: "2026-03-16T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 1,
+        });
+      }
+      if (url === "/api/history/88/replay" && method === "POST") {
+        return jsonResponse({
+          payload: {
+            oracleUrl: "oracle-new:1521/ORCL",
+            username: "hr",
+            tables: ["USERS"],
+            withDdl: true,
+          },
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 1 table(s)");
+
+    await user.click(screen.getByRole("button", { name: "My History" }));
+    await user.click(screen.getByRole("button", { name: "Replay into form" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue("all");
+    });
+  });
+
+  it("shows grouped discovery preview and tables-only sequence disable state", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v16-preview" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS", "ORDERS"] });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 2 table(s)");
+
+    const usersRow = screen.getByText("USERS").closest("tr");
+    const rowCheckbox = usersRow?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    expect(rowCheckbox).not.toBeNull();
+    await user.click(rowCheckbox!);
+
+    expect(screen.getByText("Tables Group")).toBeInTheDocument();
+    expect(screen.getByText("Sequences Group")).toBeInTheDocument();
+    expect(screen.getByText("Selected tables to be migrated.")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Migration target" }), "tables");
+    expect(screen.getByText("Sequence group is disabled.")).toBeInTheDocument();
+  });
+
   it("shows session-expired message when protected API returns 401", async () => {
     const user = userEvent.setup();
 

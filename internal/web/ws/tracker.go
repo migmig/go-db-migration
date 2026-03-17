@@ -32,6 +32,7 @@ const (
 	MsgWarning          MsgType = "warning"
 	MsgValidationStart  MsgType = "validation_start"
 	MsgValidationResult MsgType = "validation_result"
+	MsgDiscoverySummary MsgType = "discovery_summary"
 	MsgMetrics          MsgType = "metrics"
 )
 
@@ -70,17 +71,20 @@ type GroupedStats struct {
 }
 
 type ProgressMsg struct {
-	Type         MsgType `json:"type"`
-	Table        string  `json:"table,omitempty"`
-	Count        int     `json:"count,omitempty"`
-	Total        int     `json:"total,omitempty"`
-	ErrorMsg     string  `json:"error,omitempty"`
-	Message      string  `json:"message,omitempty"`
-	ZipFileID    string  `json:"zip_file_id,omitempty"`
-	ConnectionOk bool    `json:"connection_ok,omitempty"`
-	Object       string  `json:"object,omitempty"`
-	ObjectName   string  `json:"object_name,omitempty"`
-	Status       string  `json:"status,omitempty"`
+	Type         MsgType  `json:"type"`
+	Table        string   `json:"table,omitempty"`
+	Count        int      `json:"count,omitempty"`
+	Total        int      `json:"total,omitempty"`
+	ErrorMsg     string   `json:"error,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	ZipFileID    string   `json:"zip_file_id,omitempty"`
+	ConnectionOk bool     `json:"connection_ok,omitempty"`
+	Object       string   `json:"object,omitempty"`
+	ObjectName   string   `json:"object_name,omitempty"`
+	Status       string   `json:"status,omitempty"`
+	ObjectGroup  string   `json:"object_group,omitempty"`
+	Tables       []string `json:"tables,omitempty"`
+	Sequences    []string `json:"sequences,omitempty"`
 	// v9: 구조화 에러 필드
 	Phase       string `json:"phase,omitempty"`
 	Category    string `json:"category,omitempty"`
@@ -136,6 +140,7 @@ func (t *WebSocketTracker) setupSubscriptions() {
 	t.eventBus.Subscribe(bus.EventWarning, func(e bus.Event) { t.Warning(e.Message) })
 	t.eventBus.Subscribe(bus.EventValidationStart, func(e bus.Event) { t.ValidationStart(e.Table) })
 	t.eventBus.Subscribe(bus.EventValidationResult, func(e bus.Event) { t.ValidationResult(e.Table, e.Total, e.Count, e.Status, e.Message) })
+	t.eventBus.Subscribe(bus.EventDiscoverySummary, func(e bus.Event) { t.DiscoverySummary(e.ObjectGroup, e.Tables, e.Sequences) })
 	t.eventBus.Subscribe(bus.EventMetrics, func(e bus.Event) {
 		t.broadcast(ProgressMsg{
 			Type:    MsgType(e.Type),
@@ -395,5 +400,14 @@ func (t *WebSocketTracker) ValidationResult(table string, sourceCount, targetCou
 		Count:   targetCount,
 		Status:  status,
 		Message: detail,
+	})
+}
+
+func (t *WebSocketTracker) DiscoverySummary(objectGroup string, tables, sequences []string) {
+	t.broadcast(ProgressMsg{
+		Type:        MsgDiscoverySummary,
+		ObjectGroup: objectGroup,
+		Tables:      tables,
+		Sequences:   sequences,
 	})
 }

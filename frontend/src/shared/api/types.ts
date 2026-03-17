@@ -1,6 +1,9 @@
 export type RuntimeMeta = {
   authEnabled: boolean;
   uiVersion: string;
+  features?: {
+    objectGroupMode?: boolean;
+  };
 };
 
 export type AuthUser = {

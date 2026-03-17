@@ -18,6 +18,7 @@ const (
 	EventWarning          EventType = "warning"
 	EventValidationStart  EventType = "validation_start"
 	EventValidationResult EventType = "validation_result"
+	EventDiscoverySummary EventType = "discovery_summary"
 	EventMetrics          EventType = "metrics" // v11 Phase 1
 )
 
@@ -34,6 +35,9 @@ type Event struct {
 	Object        string
 	ObjectName    string
 	Status        string
+	ObjectGroup   string
+	Tables        []string
+	Sequences     []string
 	ReportSummary interface{} // using interface{} to decouple
 }
 

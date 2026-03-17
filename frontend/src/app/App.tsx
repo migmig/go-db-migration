@@ -77,6 +77,12 @@ type DdlEvent = {
   error?: string;
 };
 
+type DiscoverySummary = {
+  objectGroup: ObjectGroup;
+  tables: string[];
+  sequences: string[];
+};
+
 type ReportSummary = {
   total_rows: number;
   success_count: number;
@@ -112,6 +118,9 @@ type WsProgressMsg = {
   object?: string;
   object_name?: string;
   status?: string;
+  object_group?: ObjectGroup;
+  tables?: string[];
+  sequences?: string[];
   phase?: string;
   category?: string;
   suggestion?: string;
@@ -221,6 +230,10 @@ function toStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function isObjectGroupModeEnabled(meta: RuntimeMeta | null): boolean {
+  return meta?.features?.objectGroupMode ?? true;
+}
+
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -299,6 +312,9 @@ export function App() {
   const [validation, setValidation] = useState<Record<string, ValidationState>>({});
   const [ddlEvents, setDdlEvents] = useState<DdlEvent[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [discoverySummary, setDiscoverySummary] = useState<DiscoverySummary | null>(
+    null,
+  );
   const [metrics, setMetrics] = useState<MetricsState>({ cpu: "-", mem: "-" });
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationError, setMigrationError] = useState("");
@@ -344,6 +360,7 @@ export function App() {
   const filteredTables = allTables.filter((table) =>
     table.toLowerCase().includes(tableSearch.toLowerCase()),
   );
+  const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
   const allVisibleSelected =
     filteredTables.length > 0 &&
@@ -390,6 +407,12 @@ export function App() {
       : null;
   const runReadyToShow = runStartedAt !== null || runEntries.length > 0;
   const groupSummary = reportSummary?.stats ?? null;
+  const effectiveObjectGroup = objectGroupModeEnabled ? options.objectGroup : "all";
+  const previewObjectGroup = objectGroupModeEnabled
+    ? discoverySummary?.objectGroup ?? effectiveObjectGroup
+    : "all";
+  const previewTables = discoverySummary?.tables ?? selectedTables;
+  const previewSequences = objectGroupModeEnabled ? discoverySummary?.sequences ?? [] : [];
 
   useEffect(() => {
     migrationActiveRef.current = migrationBusy;
@@ -472,6 +495,7 @@ export function App() {
     setWarnings([]);
     setValidation({});
     setDdlEvents([]);
+    setDiscoverySummary(null);
     setMetrics({ cpu: "-", mem: "-" });
     setTableProgress({});
     setMigrationError("");
@@ -583,6 +607,15 @@ export function App() {
           ...prev.filter((item) => item.key !== key),
         ];
         return updated.slice(0, 20);
+      });
+      return;
+    }
+
+    if (msg.type === "discovery_summary") {
+      setDiscoverySummary({
+        objectGroup: msg.object_group ?? options.objectGroup,
+        tables: msg.tables ?? [],
+        sequences: msg.sequences ?? [],
       });
       return;
     }
@@ -911,7 +944,9 @@ export function App() {
 
   function applyReplayPayload(payload: Record<string, unknown>) {
     const direct = Boolean(payload.direct);
-    const replayObjectGroup = toObjectGroup(payload.objectGroup, options.objectGroup);
+    const replayObjectGroup = objectGroupModeEnabled
+      ? toObjectGroup(payload.objectGroup, options.objectGroup)
+      : "all";
     const replayOptions = {
       objectGroup: replayObjectGroup,
       outFile: toString(payload.outFile, options.outFile),
@@ -967,6 +1002,7 @@ export function App() {
     setSourceConnectError("");
     setAllTables([]);
     setSelectedTables([]);
+    setDiscoverySummary(null);
     if (!source.oracleUrl || !source.username || !source.password) {
       setSourceConnectError("Oracle URL, username and password are required.");
       return;
@@ -1128,6 +1164,7 @@ export function App() {
     setWarnings([]);
     setValidation({});
     setDdlEvents([]);
+    setDiscoverySummary(null);
     setMetrics({ cpu: "-", mem: "-" });
     setZipFileId("");
     setReportSummary(null);
@@ -1193,7 +1230,7 @@ export function App() {
             dbMaxIdle: options.dbMaxIdle,
             dbMaxLife: options.dbMaxLife,
             copyBatch: options.copyBatch,
-            objectGroup: options.objectGroup,
+            objectGroup: effectiveObjectGroup,
           }),
         },
       );
@@ -1494,6 +1531,62 @@ export function App() {
                   {selectedTables.length} / {allTables.length} selected
                 </span>
               </div>
+              {objectGroupModeEnabled && (
+                <div className="mb-4 grid gap-3 lg:grid-cols-2">
+                  <details className="rounded-xl border border-slate-200 bg-slate-50 p-3" open>
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                      Tables Group
+                      <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {previewTables.length}
+                      </span>
+                    </summary>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {discoverySummary
+                        ? "Oracle discovery completed for tables group."
+                        : "Selected tables to be migrated."}
+                    </p>
+                    <div className="mt-2 max-h-32 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
+                      {previewTables.length > 0 ? (
+                        <ul className="space-y-1 text-sm text-slate-700">
+                          {previewTables.map((table) => (
+                            <li key={`preview-table-${table}`}>{table}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">No tables selected.</p>
+                      )}
+                    </div>
+                  </details>
+                  <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+                      Sequences Group
+                      <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {previewObjectGroup === "tables" ? 0 : previewSequences.length}
+                      </span>
+                    </summary>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {previewObjectGroup === "tables"
+                        ? "Tables-only mode disables sequence discovery."
+                        : discoverySummary
+                          ? "Discovered from Oracle metadata at run start."
+                          : "Sequence discovery runs automatically when migration starts."}
+                    </p>
+                    <div className="mt-2 max-h-32 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
+                      {previewObjectGroup === "tables" ? (
+                        <p className="text-sm text-slate-500">Sequence group is disabled.</p>
+                      ) : previewSequences.length > 0 ? (
+                        <ul className="space-y-1 text-sm text-slate-700">
+                          {previewSequences.map((sequence) => (
+                            <li key={`preview-sequence-${sequence}`}>{sequence}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-slate-500">No sequences discovered yet.</p>
+                      )}
+                    </div>
+                  </details>
+                </div>
+              )}
               <div className="mb-3 flex flex-wrap gap-2">
                 <input
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
@@ -1621,25 +1714,27 @@ export function App() {
                   </>
                 )}
 
-                <label className="block text-sm">
-                  <span className="mb-1 block text-slate-700">Migration target</span>
-                  <select
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                    onChange={(event) =>
-                      applyObjectGroupSelection(event.target.value as ObjectGroup)
-                    }
-                    value={options.objectGroup}
-                  >
-                    <option value="all">All objects</option>
-                    <option value="tables">Tables only</option>
-                    <option value="sequences">Sequences only</option>
-                  </select>
-                </label>
+                {objectGroupModeEnabled && (
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-slate-700">Migration target</span>
+                    <select
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                      onChange={(event) =>
+                        applyObjectGroupSelection(event.target.value as ObjectGroup)
+                      }
+                      value={options.objectGroup}
+                    >
+                      <option value="all">All objects</option>
+                      <option value="tables">Tables only</option>
+                      <option value="sequences">Sequences only</option>
+                    </select>
+                  </label>
+                )}
 
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     checked={options.withDdl}
-                    disabled={options.objectGroup === "sequences"}
+                    disabled={effectiveObjectGroup === "sequences"}
                     onChange={(event) =>
                       setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
                     }
@@ -1650,7 +1745,7 @@ export function App() {
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
                     checked={options.withSequences}
-                    disabled={options.objectGroup !== "all"}
+                    disabled={effectiveObjectGroup !== "all"}
                     onChange={(event) =>
                       setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
                     }
@@ -1658,9 +1753,9 @@ export function App() {
                   />
                   Include sequences
                 </label>
-                {options.objectGroup !== "all" && (
+                {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
                   <p className="text-xs text-slate-500">
-                    {options.objectGroup === "tables"
+                    {effectiveObjectGroup === "tables"
                       ? "Tables-only mode disables sequence DDL automatically."
                       : "Sequences-only mode forces DDL + sequence generation automatically."}
                   </p>
@@ -1855,7 +1950,9 @@ export function App() {
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
                   Session: {runSessionId || "untracked"} · {wsStatusLabel(wsStatus)} · Target{" "}
-                  {reportSummary?.object_group ?? options.objectGroup}
+                  {objectGroupModeEnabled
+                    ? reportSummary?.object_group ?? effectiveObjectGroup
+                    : "all"}
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -1938,7 +2035,7 @@ export function App() {
               </div>
             </div>
 
-            {groupSummary && (
+            {objectGroupModeEnabled && groupSummary && (
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">

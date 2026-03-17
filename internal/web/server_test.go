@@ -146,6 +146,28 @@ func TestRegisterV16Routes_ServesLocalDistWhenPresent(t *testing.T) {
 	}
 }
 
+func TestObjectGroupModeEnabled(t *testing.T) {
+	t.Setenv("DBM_OBJECT_GROUP_UI_ENABLED", "")
+	if !objectGroupModeEnabled() {
+		t.Fatal("expected default object group mode to be enabled")
+	}
+
+	t.Setenv("DBM_OBJECT_GROUP_UI_ENABLED", "false")
+	if objectGroupModeEnabled() {
+		t.Fatal("expected object group mode to be disabled")
+	}
+
+	t.Setenv("DBM_OBJECT_GROUP_UI_ENABLED", "true")
+	if !objectGroupModeEnabled() {
+		t.Fatal("expected object group mode to be enabled")
+	}
+
+	t.Setenv("DBM_OBJECT_GROUP_UI_ENABLED", "invalid")
+	if !objectGroupModeEnabled() {
+		t.Fatal("expected invalid env value to fall back to enabled")
+	}
+}
+
 func setupAuthTestRouter(t *testing.T) (*gin.Engine, *db.UserStore) {
 	r, store, _ := setupAuthTestRouterWithOptions(t, time.Hour, 24*time.Hour)
 	return r, store
@@ -199,7 +221,7 @@ func setupAuthTestRouterWithOptions(t *testing.T, idleTTL, absoluteTTL time.Dura
 	history.POST("/:id/replay", replayHistoryHandler(store))
 
 	protected.GET("/monitoring/metrics", monitoringMetricsHandler(metrics))
-	protected.POST("/migrate", startMigrationHandler(store))
+	protected.POST("/migrate", startMigrationHandler(store, metrics))
 
 	return r, store, metrics
 }
