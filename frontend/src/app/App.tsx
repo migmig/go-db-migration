@@ -416,6 +416,8 @@ export function App() {
   const [historyError, setHistoryError] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [activeTableHistory, setActiveTableHistory] = useState<string | null>(null);
+  const [tableHistoryBusy, setTableHistoryBusy] = useState(false);
+  const [tableHistoryError, setTableHistoryError] = useState("");
 
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginBusy, setLoginBusy] = useState(false);
@@ -1084,6 +1086,16 @@ export function App() {
     setCredentialsPanelOpen(false);
   }
 
+  async function fetchHistoryEntries(): Promise<HistoryEntry[]> {
+    const { response, data } = await apiRequest<HistoryListResponse>(
+      "/api/history?page=1&pageSize=10",
+    );
+    if (!response.ok) {
+      throw new Error("Failed to load migration history.");
+    }
+    return data.items ?? [];
+  }
+
   async function openHistoryPanel() {
     if (!meta?.authEnabled || !user) {
       return;
@@ -1099,19 +1111,33 @@ export function App() {
     setHistoryBusy(true);
     setHistoryError("");
     try {
-      const { response, data } = await apiRequest<HistoryListResponse>(
-        "/api/history?page=1&pageSize=10",
-      );
-      if (!response.ok) {
-        throw new Error("Failed to load migration history.");
-      }
-      setHistory(data.items ?? []);
+      setHistory(await fetchHistoryEntries());
     } catch (error) {
       setHistoryError(
         error instanceof Error ? error.message : "Failed to load migration history.",
       );
     } finally {
       setHistoryBusy(false);
+    }
+  }
+
+  async function openTableHistory(table: string) {
+    setActiveTableHistory(table);
+    setTableHistoryError("");
+
+    if (!meta?.authEnabled || !user) {
+      return;
+    }
+
+    setTableHistoryBusy(true);
+    try {
+      setHistory(await fetchHistoryEntries());
+    } catch (error) {
+      setTableHistoryError(
+        error instanceof Error ? error.message : "Failed to load migration history.",
+      );
+    } finally {
+      setTableHistoryBusy(false);
     }
   }
 
@@ -1941,7 +1967,7 @@ export function App() {
                           <td className="px-3 py-2 text-xs text-slate-600">
                             <button
                               className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
-                              onClick={() => setActiveTableHistory(table)}
+                              onClick={() => void openTableHistory(table)}
                               type="button"
                             >
                               View history
@@ -1967,7 +1993,24 @@ export function App() {
                       Close
                     </button>
                   </div>
-                  {activeHistoryDetail && activeHistoryDetail.entries.length > 0 ? (
+                  {tableHistoryBusy ? (
+                    <div className="space-y-2" role="status" aria-label="Loading table history">
+                      <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
+                      <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
+                      <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
+                    </div>
+                  ) : tableHistoryError ? (
+                    <div className="rounded border border-red-200 bg-red-50 p-3">
+                      <p className="text-xs text-red-700">{tableHistoryError}</p>
+                      <button
+                        className="mt-2 rounded border border-red-300 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        onClick={() => activeTableHistory && void openTableHistory(activeTableHistory)}
+                        type="button"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : activeHistoryDetail && activeHistoryDetail.entries.length > 0 ? (
                     <ul className="space-y-2 text-xs text-slate-700">
                       {activeHistoryDetail.entries.slice(0, 5).map((entry) => {
                         const failed = entry.status !== "success";

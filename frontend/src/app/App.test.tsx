@@ -512,6 +512,62 @@ describe("App", () => {
     );
   });
 
+  it("shows empty and error states in per-table history panel", async () => {
+    const user = userEvent.setup();
+
+    let historyFails = false;
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        if (historyFails) {
+          return jsonResponse({ error: "boom" }, 500);
+        }
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ORDERS"] }),
+              createdAt: "2026-03-16T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 1,
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 1 table(s)");
+
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    await screen.findByText("No history found for this table.");
+
+    historyFails = true;
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    await screen.findByText("Failed to load migration history.");
+    await screen.findByRole("button", { name: "Retry" });
+  });
+
   it("shows session-expired message when protected API returns 401", async () => {
     const user = userEvent.setup();
 
