@@ -72,6 +72,11 @@ type TableHistoryState = {
   lastRunAt: string;
 };
 
+type TableHistoryDetail = {
+  tableName: string;
+  entries: HistoryEntry[];
+};
+
 function normalizeTableKey(tableName: string): string {
   return tableName.trim().toUpperCase();
 }
@@ -410,6 +415,7 @@ export function App() {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeTableHistory, setActiveTableHistory] = useState<string | null>(null);
 
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginBusy, setLoginBusy] = useState(false);
@@ -453,6 +459,28 @@ export function App() {
         }
       }
     }
+    return next;
+  }, [history]);
+
+  const tableHistoryDetails = useMemo<Record<string, TableHistoryDetail>>(() => {
+    const next: Record<string, TableHistoryDetail> = {};
+    for (const entry of history) {
+      const tables = parseReplayedTables(entry.optionsJson);
+      for (const tableName of tables) {
+        const normalized = normalizeTableKey(tableName);
+        if (!next[normalized]) {
+          next[normalized] = { tableName: normalized, entries: [] };
+        }
+        next[normalized].entries.push(entry);
+      }
+    }
+
+    Object.values(next).forEach((detail) => {
+      detail.entries.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    });
+
     return next;
   }, [history]);
 
@@ -513,6 +541,9 @@ export function App() {
   }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
+  const activeHistoryDetail = activeTableHistory
+    ? tableHistoryDetails[normalizeTableKey(activeTableHistory)]
+    : undefined;
   const allVisibleSelected =
     filteredTables.length > 0 &&
     filteredTables.every((table) => selectedTableSet.has(table));
@@ -1837,6 +1868,9 @@ export function App() {
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
                         History
                       </th>
+                      <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1844,7 +1878,7 @@ export function App() {
                       <tr>
                         <td
                           className="px-3 py-6 text-center text-slate-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           No tables match your filter.
                         </td>
@@ -1903,12 +1937,75 @@ export function App() {
                               </span>
                             )}
                           </td>
+
+                          <td className="px-3 py-2 text-xs text-slate-600">
+                            <button
+                              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
+                              onClick={() => setActiveTableHistory(table)}
+                              type="button"
+                            >
+                              View history
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
+              {activeTableHistory && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Table history: {activeTableHistory}
+                    </h3>
+                    <button
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
+                      onClick={() => setActiveTableHistory(null)}
+                      type="button"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {activeHistoryDetail && activeHistoryDetail.entries.length > 0 ? (
+                    <ul className="space-y-2 text-xs text-slate-700">
+                      {activeHistoryDetail.entries.slice(0, 5).map((entry) => {
+                        const failed = entry.status !== "success";
+                        return (
+                          <li
+                            className="rounded border border-slate-200 bg-white px-3 py-2"
+                            key={`table-history-${entry.id}`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${failed ? "border-red-300 bg-red-100 text-red-900" : "border-emerald-300 bg-emerald-100 text-emerald-900"}`}
+                              >
+                                <span aria-hidden="true">●</span>
+                                {failed ? "Failed" : "Success"}
+                              </span>
+                              <span>{formatHistoryTime(entry.createdAt)}</span>
+                              {failed && (
+                                <button
+                                  className="rounded border border-red-300 bg-red-50 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-100"
+                                  onClick={() => void replayHistory(entry.id)}
+                                  type="button"
+                                >
+                                  Retry settings
+                                </button>
+                              )}
+                            </div>
+                            {failed && entry.logSummary && (
+                              <p className="mt-1 text-red-700">{entry.logSummary}</p>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-slate-500">No history found for this table.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="card-surface p-5">
