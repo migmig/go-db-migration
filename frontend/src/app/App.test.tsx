@@ -329,6 +329,10 @@ describe("App", () => {
       expect(screen.getByText("ORDERS")).toBeInTheDocument();
       expect(screen.getByText("PRODUCTS")).toBeInTheDocument();
     });
+    expect(screen.getAllByLabelText("Table status: Pending").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("History success")).toBeInTheDocument();
+    expect(screen.getByLabelText("History failed")).toBeInTheDocument();
+    expect(screen.getByLabelText("History not started")).toBeInTheDocument();
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Table history status filter" }),

@@ -304,6 +304,29 @@ function tableStatusLabel(status: TableRunStatus): string {
   }
 }
 
+function tableStatusBadgeClass(status: TableRunStatus): string {
+  switch (status) {
+    case "completed":
+      return "border-emerald-300 bg-emerald-100 text-emerald-900";
+    case "error":
+      return "border-red-300 bg-red-100 text-red-900";
+    case "running":
+      return "border-blue-300 bg-blue-100 text-blue-900";
+    default:
+      return "border-slate-300 bg-slate-100 text-slate-800";
+  }
+}
+
+function historyStatusLabel(status: TableHistoryState["status"]): string {
+  return status === "success" ? "History success" : "History failed";
+}
+
+function historyStatusBadgeClass(status: TableHistoryState["status"]): string {
+  return status === "success"
+    ? "border-emerald-300 bg-emerald-100 text-emerald-900"
+    : "border-red-300 bg-red-100 text-red-900";
+}
+
 function parseReplayedTables(optionsJson: string): string[] {
   if (!optionsJson) return [];
   try {
@@ -1831,14 +1854,8 @@ export function App() {
                       const item = tableProgress[table];
                       const historyState = historyByTable[normalizeTableKey(table)];
                       const status = item?.status ?? "pending";
-                      const badgeClass =
-                        status === "completed"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : status === "error"
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : status === "running"
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-slate-50 text-slate-600";
+                      const statusLabel = tableStatusLabel(status);
+                      const badgeClass = tableStatusBadgeClass(status);
 
                       return (
                         <tr className="border-b border-slate-100 last:border-b-0" key={table}>
@@ -1853,15 +1870,38 @@ export function App() {
                           <td className="px-3 py-2 font-medium text-slate-800">{table}</td>
                           <td className="px-3 py-2">
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                              aria-label={`Table status: ${statusLabel}`}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                              role="status"
                             >
-                              {tableStatusLabel(status)}
+                              <span aria-hidden="true">●</span>
+                              {statusLabel}
                             </span>
                           </td>
                           <td className="px-3 py-2 text-xs text-slate-600">
-                            {historyState
-                              ? `${historyState.status === "success" ? "Success" : "Failed"} · ${historyState.runCount} run(s) · ${formatHistoryTime(historyState.lastRunAt)}`
-                              : "Not started"}
+                            {historyState ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  aria-label={historyStatusLabel(historyState.status)}
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${historyStatusBadgeClass(historyState.status)}`}
+                                  role="status"
+                                >
+                                  <span aria-hidden="true">●</span>
+                                  {historyState.status === "success" ? "Success" : "Failed"}
+                                </span>
+                                <span>{historyState.runCount} run(s)</span>
+                                <span>{formatHistoryTime(historyState.lastRunAt)}</span>
+                              </div>
+                            ) : (
+                              <span
+                                aria-label="History not started"
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 font-semibold text-slate-800"
+                                role="status"
+                              >
+                                <span aria-hidden="true">●</span>
+                                Not started
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
