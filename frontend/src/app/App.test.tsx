@@ -272,6 +272,88 @@ describe("App", () => {
     expect(screen.getByText("Sequence group is disabled.")).toBeInTheDocument();
   });
 
+  it("filters table list by migration history and excludes successful migrations", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS", "ORDERS", "PRODUCTS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["USERS"] }),
+              createdAt: "2026-03-16T00:00:00Z",
+            },
+            {
+              id: 2,
+              userId: 1,
+              status: "failed",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ORDERS"] }),
+              createdAt: "2026-03-17T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 2,
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 3 table(s)");
+
+    await waitFor(() => {
+      expect(screen.getByText("USERS")).toBeInTheDocument();
+      expect(screen.getByText("ORDERS")).toBeInTheDocument();
+      expect(screen.getByText("PRODUCTS")).toBeInTheDocument();
+    });
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "not_started",
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("USERS")).not.toBeInTheDocument();
+      expect(screen.queryByText("ORDERS")).not.toBeInTheDocument();
+      expect(screen.getByText("PRODUCTS")).toBeInTheDocument();
+    });
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "all",
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Exclude migrated success" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("USERS")).not.toBeInTheDocument();
+      expect(screen.getByText("ORDERS")).toBeInTheDocument();
+      expect(screen.getByText("PRODUCTS")).toBeInTheDocument();
+    });
+  });
+
   it("shows session-expired message when protected API returns 401", async () => {
     const user = userEvent.setup();
 

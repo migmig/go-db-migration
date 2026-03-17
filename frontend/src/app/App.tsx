@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../shared/api/client";
 import {
   AuthUser,
@@ -12,6 +12,7 @@ type RoleFilter = "all" | "source" | "target";
 type NoticeTone = "info" | "error";
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type TableRunStatus = "pending" | "running" | "completed" | "error";
+type TableHistoryStatusFilter = "all" | "not_started" | "success" | "failed";
 type ObjectGroup = "all" | "tables" | "sequences";
 
 type SourceState = {
@@ -63,6 +64,24 @@ type TableRunState = {
   error?: string;
   details?: string;
 };
+
+type TableHistoryState = {
+  status: "success" | "failed";
+  runCount: number;
+  lastRunAt: string;
+};
+
+function normalizeTableKey(tableName: string): string {
+  return tableName.trim().toUpperCase();
+}
+
+function formatHistoryTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+  return parsed.toLocaleString();
+}
 
 type ValidationState = {
   sourceCount: number;
@@ -284,6 +303,17 @@ function tableStatusLabel(status: TableRunStatus): string {
   }
 }
 
+function parseReplayedTables(optionsJson: string): string[] {
+  if (!optionsJson) return [];
+  try {
+    const parsed = JSON.parse(optionsJson) as { tables?: unknown };
+    if (!Array.isArray(parsed.tables)) return [];
+    return parsed.tables.filter((item): item is string => typeof item === "string");
+  } catch {
+    return [];
+  }
+}
+
 export function App() {
   const initialRememberPass = loadRememberPassword();
   const initialRecent = loadSourceRecent();
@@ -314,6 +344,8 @@ export function App() {
   const [sourceConnectError, setSourceConnectError] = useState("");
   const [allTables, setAllTables] = useState<string[]>([]);
   const [tableSearch, setTableSearch] = useState("");
+  const [tableStatusFilter, setTableStatusFilter] = useState<TableHistoryStatusFilter>("all");
+  const [excludeMigratedSuccess, setExcludeMigratedSuccess] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
   const [options, setOptions] = useState<MigrationOptions>(DEFAULT_OPTIONS);
@@ -373,9 +405,51 @@ export function App() {
     return item.dbType !== "oracle";
   });
 
-  const filteredTables = allTables.filter((table) =>
-    table.toLowerCase().includes(tableSearch.toLowerCase()),
-  );
+  const historyByTable = useMemo<Record<string, TableHistoryState>>(() => {
+    const next: Record<string, TableHistoryState> = {};
+    for (const entry of history) {
+      const tables = parseReplayedTables(entry.optionsJson);
+      if (tables.length === 0) continue;
+      for (const tableName of tables) {
+        const normalized = normalizeTableKey(tableName);
+        const current = next[normalized];
+        if (!current) {
+          next[normalized] = {
+            status: entry.status === "success" ? "success" : "failed",
+            runCount: 1,
+            lastRunAt: entry.createdAt,
+          };
+          continue;
+        }
+        current.runCount += 1;
+        if (new Date(entry.createdAt).getTime() > new Date(current.lastRunAt).getTime()) {
+          current.lastRunAt = entry.createdAt;
+          current.status = entry.status === "success" ? "success" : "failed";
+        }
+      }
+    }
+    return next;
+  }, [history]);
+
+  const filteredTables = allTables.filter((table) => {
+    if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
+      return false;
+    }
+    const historyState = historyByTable[normalizeTableKey(table)];
+    if (excludeMigratedSuccess && historyState?.status === "success") {
+      return false;
+    }
+    if (tableStatusFilter === "not_started") {
+      return !historyState;
+    }
+    if (tableStatusFilter === "success") {
+      return historyState?.status === "success";
+    }
+    if (tableStatusFilter === "failed") {
+      return historyState?.status === "failed";
+    }
+    return true;
+  });
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
   const allVisibleSelected =
@@ -1055,6 +1129,9 @@ export function App() {
       const tables = data.tables ?? [];
       setAllTables(tables);
       setTableSearch("");
+      if (meta?.authEnabled && user) {
+        await loadHistory();
+      }
       setNotice({ text: `Loaded ${tables.length} table(s).`, tone: "info" });
     } catch (error) {
       setSourceConnectError(
@@ -1622,6 +1699,27 @@ export function App() {
                   placeholder="Search table..."
                   value={tableSearch}
                 />
+                <select
+                  aria-label="Table history status filter"
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  onChange={(event) =>
+                    setTableStatusFilter(event.target.value as TableHistoryStatusFilter)
+                  }
+                  value={tableStatusFilter}
+                >
+                  <option value="all">All history status</option>
+                  <option value="not_started">Not started</option>
+                  <option value="success">Migrated (success)</option>
+                  <option value="failed">Migrated (failed)</option>
+                </select>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
+                  <input
+                    checked={excludeMigratedSuccess}
+                    onChange={(event) => setExcludeMigratedSuccess(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Exclude migrated success
+                </label>
                 <button
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
                   disabled={migrationBusy}
@@ -1663,6 +1761,9 @@ export function App() {
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
                         Status
                       </th>
+                      <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
+                        History
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1670,7 +1771,7 @@ export function App() {
                       <tr>
                         <td
                           className="px-3 py-6 text-center text-slate-500"
-                          colSpan={3}
+                          colSpan={4}
                         >
                           No tables match your filter.
                         </td>
@@ -1678,6 +1779,7 @@ export function App() {
                     )}
                     {filteredTables.map((table) => {
                       const item = tableProgress[table];
+                      const historyState = historyByTable[normalizeTableKey(table)];
                       const status = item?.status ?? "pending";
                       const badgeClass =
                         status === "completed"
@@ -1705,6 +1807,11 @@ export function App() {
                             >
                               {tableStatusLabel(status)}
                             </span>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-600">
+                            {historyState
+                              ? `${historyState.status === "success" ? "Success" : "Failed"} · ${historyState.runCount} run(s) · ${formatHistoryTime(historyState.lastRunAt)}`
+                              : "Not started"}
                           </td>
                         </tr>
                       );

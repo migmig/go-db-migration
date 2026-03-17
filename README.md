@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v17)
+# Oracle to Multi-Target Data Migration CLI (v18)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -22,6 +22,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
 - **인증 기반 멀티유저 (v15):** `-auth-enabled` 플래그로 Web UI의 로그인/로그아웃, 세션 기반 접근 제어, 사용자별 접속정보 저장, 사용자별 작업 이력 조회를 활성화할 수 있습니다.
 - **객체 그룹 선택 실행 (v17):** `-object-group` 플래그로 `all|tables|sequences` 실행 그룹을 선택할 수 있습니다. `sequences` 모드는 시퀀스 DDL 전용 경로를 사용합니다.
+- **테이블 이력 기반 필터링 UI (v18):** v16 UI의 테이블 선택 화면에서 이력 상태 필터(미실행/성공/실패)와 `성공 제외` 토글을 제공해 이미 완료된 테이블을 빠르게 제외할 수 있습니다.
 
 ## 설치 (Installation)
 
@@ -59,6 +60,7 @@ GOOS=darwin GOARCH=arm64 go build -o dbmigrator-mac main.go
 ```
 - 기본 접속 URL: `http://localhost:8080`
 - 기능: 테이블 검색(LIKE), 실시간 마이그레이션 진행 상황 추적, 생성된 SQL 파일 ZIP 다운로드 등.
+- v18 추가: 인증 모드에서 `/api/history` 기반으로 테이블별 이력 상태/실행 횟수를 표시하고, 성공 이력 제외 필터로 미완료 대상 위주로 선택할 수 있습니다.
 - v14 추가: 상단 Quick Shared Connection에서 DB URL/ID/PASS를 공통 관리할 수 있으며, `비밀번호 기억` 체크 시 PASS까지 재접속 후 복원됩니다(공용 PC 비권장).
 
 
