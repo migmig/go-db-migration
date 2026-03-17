@@ -44,6 +44,17 @@ type monitoringMetrics struct {
 	migrationAllRetrySuccesses       uint64
 	migrationTablesRetrySuccesses    uint64
 	migrationSequencesRetrySuccesses uint64
+
+	// v18: 테이블 필터/재시도/상태 메트릭
+	tableFilterUsageAll            uint64
+	tableFilterUsageStatus         uint64
+	tableFilterUsageExcludeSuccess uint64
+	tableFilterUsageSearch         uint64
+	tableRetryTotal                uint64
+	tableStatusSuccess             uint64
+	tableStatusFailed              uint64
+	tableStatusRunning             uint64
+	tableStatusNotStarted          uint64
 }
 
 type loginMetricsSnapshot struct {
@@ -65,12 +76,29 @@ type apiErrorMetricsSnapshot struct {
 }
 
 type monitoringSnapshot struct {
-	UptimeSeconds int64                    `json:"uptimeSeconds"`
-	Login         loginMetricsSnapshot     `json:"login"`
-	Session       sessionMetricsSnapshot   `json:"session"`
-	Credentials   apiErrorMetricsSnapshot  `json:"credentialsApi"`
-	History       apiErrorMetricsSnapshot  `json:"historyApi"`
-	Migrations    migrationMetricsSnapshot `json:"migrations"`
+	UptimeSeconds int64                        `json:"uptimeSeconds"`
+	Login         loginMetricsSnapshot         `json:"login"`
+	Session       sessionMetricsSnapshot       `json:"session"`
+	Credentials   apiErrorMetricsSnapshot      `json:"credentialsApi"`
+	History       apiErrorMetricsSnapshot      `json:"historyApi"`
+	Migrations    migrationMetricsSnapshot     `json:"migrations"`
+	TableHistory  tableHistoryMetricsSnapshot  `json:"tableHistory"`
+}
+
+type tableHistoryMetricsSnapshot struct {
+	FilterUsage struct {
+		Total          uint64 `json:"total"`
+		Status         uint64 `json:"status"`
+		ExcludeSuccess uint64 `json:"excludeSuccess"`
+		Search         uint64 `json:"search"`
+	} `json:"filterUsage"`
+	RetryTotal  uint64 `json:"retryTotal"`
+	StatusTotal struct {
+		Success    uint64 `json:"success"`
+		Failed     uint64 `json:"failed"`
+		Running    uint64 `json:"running"`
+		NotStarted uint64 `json:"notStarted"`
+	} `json:"statusTotal"`
 }
 
 type migrationGroupMetricsSnapshot struct {
@@ -136,6 +164,45 @@ func (m *monitoringMetrics) recordAPIResponse(api monitoredAPI, status int) {
 		if status >= http.StatusBadRequest {
 			atomic.AddUint64(&m.historyErrors, 1)
 		}
+	}
+}
+
+func (m *monitoringMetrics) recordTableFilterUsage(f *TableSummaryFilter) {
+	if m == nil || f == nil {
+		return
+	}
+	atomic.AddUint64(&m.tableFilterUsageAll, 1)
+	if f.Status != "" {
+		atomic.AddUint64(&m.tableFilterUsageStatus, 1)
+	}
+	if f.ExcludeSuccess {
+		atomic.AddUint64(&m.tableFilterUsageExcludeSuccess, 1)
+	}
+	if f.Search != "" {
+		atomic.AddUint64(&m.tableFilterUsageSearch, 1)
+	}
+}
+
+func (m *monitoringMetrics) recordTableRetry() {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.tableRetryTotal, 1)
+}
+
+func (m *monitoringMetrics) recordTableStatus(status string) {
+	if m == nil {
+		return
+	}
+	switch status {
+	case "success":
+		atomic.AddUint64(&m.tableStatusSuccess, 1)
+	case "failed":
+		atomic.AddUint64(&m.tableStatusFailed, 1)
+	case "running":
+		atomic.AddUint64(&m.tableStatusRunning, 1)
+	case "not_started":
+		atomic.AddUint64(&m.tableStatusNotStarted, 1)
 	}
 }
 
@@ -214,6 +281,27 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 	tablesRetrySuccesses := atomic.LoadUint64(&m.migrationTablesRetrySuccesses)
 	sequencesRetrySuccesses := atomic.LoadUint64(&m.migrationSequencesRetrySuccesses)
 
+	filterAll := atomic.LoadUint64(&m.tableFilterUsageAll)
+	filterStatus := atomic.LoadUint64(&m.tableFilterUsageStatus)
+	filterExclude := atomic.LoadUint64(&m.tableFilterUsageExcludeSuccess)
+	filterSearch := atomic.LoadUint64(&m.tableFilterUsageSearch)
+	retryTotal := atomic.LoadUint64(&m.tableRetryTotal)
+	statusSuccess := atomic.LoadUint64(&m.tableStatusSuccess)
+	statusFailed := atomic.LoadUint64(&m.tableStatusFailed)
+	statusRunning := atomic.LoadUint64(&m.tableStatusRunning)
+	statusNotStarted := atomic.LoadUint64(&m.tableStatusNotStarted)
+
+	var tableHistorySnap tableHistoryMetricsSnapshot
+	tableHistorySnap.FilterUsage.Total = filterAll
+	tableHistorySnap.FilterUsage.Status = filterStatus
+	tableHistorySnap.FilterUsage.ExcludeSuccess = filterExclude
+	tableHistorySnap.FilterUsage.Search = filterSearch
+	tableHistorySnap.RetryTotal = retryTotal
+	tableHistorySnap.StatusTotal.Success = statusSuccess
+	tableHistorySnap.StatusTotal.Failed = statusFailed
+	tableHistorySnap.StatusTotal.Running = statusRunning
+	tableHistorySnap.StatusTotal.NotStarted = statusNotStarted
+
 	return monitoringSnapshot{
 		UptimeSeconds: int64(time.Since(m.startedAt).Seconds()),
 		Login: loginMetricsSnapshot{
@@ -262,6 +350,7 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 				RetrySuccessRatePct: percentage(sequencesRetrySuccesses, sequencesRetryAttempts),
 			},
 		},
+		TableHistory: tableHistorySnap,
 	}
 }
 

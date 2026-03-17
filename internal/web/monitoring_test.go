@@ -37,6 +37,64 @@ func TestMonitoringMigrationMetricsByObjectGroup(t *testing.T) {
 	}
 }
 
+func TestMonitoringTableHistoryMetrics(t *testing.T) {
+	metrics := newMonitoringMetrics()
+
+	// Simulate filter usage
+	metrics.recordTableFilterUsage(&TableSummaryFilter{Status: "failed"})
+	metrics.recordTableFilterUsage(&TableSummaryFilter{ExcludeSuccess: true, Search: "users"})
+	metrics.recordTableFilterUsage(&TableSummaryFilter{})
+
+	// Simulate retry
+	metrics.recordTableRetry()
+	metrics.recordTableRetry()
+
+	// Simulate status recording
+	metrics.recordTableStatus("success")
+	metrics.recordTableStatus("success")
+	metrics.recordTableStatus("failed")
+	metrics.recordTableStatus("running")
+	metrics.recordTableStatus("not_started")
+
+	snap := metrics.snapshot()
+
+	if snap.TableHistory.FilterUsage.Total != 3 {
+		t.Fatalf("expected filter total 3, got %d", snap.TableHistory.FilterUsage.Total)
+	}
+	if snap.TableHistory.FilterUsage.Status != 1 {
+		t.Fatalf("expected filter status 1, got %d", snap.TableHistory.FilterUsage.Status)
+	}
+	if snap.TableHistory.FilterUsage.ExcludeSuccess != 1 {
+		t.Fatalf("expected filter excludeSuccess 1, got %d", snap.TableHistory.FilterUsage.ExcludeSuccess)
+	}
+	if snap.TableHistory.FilterUsage.Search != 1 {
+		t.Fatalf("expected filter search 1, got %d", snap.TableHistory.FilterUsage.Search)
+	}
+	if snap.TableHistory.RetryTotal != 2 {
+		t.Fatalf("expected retry total 2, got %d", snap.TableHistory.RetryTotal)
+	}
+	if snap.TableHistory.StatusTotal.Success != 2 {
+		t.Fatalf("expected status success 2, got %d", snap.TableHistory.StatusTotal.Success)
+	}
+	if snap.TableHistory.StatusTotal.Failed != 1 {
+		t.Fatalf("expected status failed 1, got %d", snap.TableHistory.StatusTotal.Failed)
+	}
+	if snap.TableHistory.StatusTotal.Running != 1 {
+		t.Fatalf("expected status running 1, got %d", snap.TableHistory.StatusTotal.Running)
+	}
+	if snap.TableHistory.StatusTotal.NotStarted != 1 {
+		t.Fatalf("expected status not_started 1, got %d", snap.TableHistory.StatusTotal.NotStarted)
+	}
+}
+
+func TestMonitoringTableHistoryMetrics_NilSafe(t *testing.T) {
+	var metrics *monitoringMetrics
+	// Should not panic
+	metrics.recordTableFilterUsage(&TableSummaryFilter{Status: "failed"})
+	metrics.recordTableRetry()
+	metrics.recordTableStatus("success")
+}
+
 func nearlyEqualFloat(a, b float64) bool {
 	const eps = 0.0001
 	if a > b {

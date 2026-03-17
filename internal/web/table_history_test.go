@@ -290,7 +290,7 @@ func TestValidateTableSummaryFilter_ValidSortAndOrder(t *testing.T) {
 func setupTableHistoryRouter(store *TableHistoryStore) *gin.Engine {
 	r := gin.New()
 	api := r.Group("/api")
-	api.GET("/migrations/tables", listTableSummariesHandler(store))
+	api.GET("/migrations/tables", listTableSummariesHandler(store, nil))
 	api.GET("/migrations/tables/:tableName/history", getTableHistoryHandler(store))
 	return r
 }
