@@ -29,6 +29,30 @@ afterEach(() => {
 });
 
 describe("App", () => {
+
+  it("toggles UI language between English and Korean", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.click(screen.getByRole("button", { name: "한국어" }));
+
+    await screen.findByRole("heading", { name: "v18 마이그레이션 작업공간" });
+    expect(screen.getByText("소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "English" }));
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+  });
+
   it("filters saved connections by source/target role", async () => {
     const user = userEvent.setup();
 
