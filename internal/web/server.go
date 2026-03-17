@@ -225,6 +225,8 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
 		protected.GET("/report/:id", downloadReport)
+		protected.GET("/migrations/tables", listTableSummariesHandler(globalTableHistory))
+		protected.GET("/migrations/tables/:tableName/history", getTableHistoryHandler(globalTableHistory))
 	}
 
 	log.Printf("Starting web server on port %s...", port)
@@ -1013,6 +1015,7 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 		}()
 
 		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
+		recordTableHistory(globalTableHistory, jobID, report)
 		saveHistoryForRequest(store, authUserID, req, targetDBName, targetURL, report, err)
 		if err == nil {
 			success = true
@@ -1088,6 +1091,35 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 	}()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Migration started"})
+}
+
+func recordTableHistory(histStore *TableHistoryStore, jobID string, report *migration.MigrationReport) {
+	if histStore == nil || report == nil {
+		return
+	}
+	for _, tr := range report.Tables {
+		status := "success"
+		var errMsg string
+		if tr.Status != "ok" {
+			status = "failed"
+			if len(tr.Errors) > 0 {
+				errMsg = tr.Errors[0]
+			}
+		}
+		durationMs := tr.DurationNs / int64(time.Millisecond)
+		finishedAt := report.StartedAt.Add(time.Duration(tr.DurationNs))
+		h := TableMigrationHistory{
+			RunID:         jobID + "_" + tr.Name,
+			TableName:     tr.Name,
+			Status:        status,
+			StartedAt:     report.StartedAt,
+			FinishedAt:    finishedAt,
+			DurationMs:    durationMs,
+			RowsProcessed: int64(tr.RowCount),
+			ErrorMessage:  errMsg,
+		}
+		histStore.RecordTableRun(h)
+	}
 }
 
 func saveHistoryForRequest(store *db.UserStore, userID int64, req startMigrationRequest, targetDBName, targetURL string, report *migration.MigrationReport, runErr error) {
@@ -1239,6 +1271,55 @@ func downloadZip(c *gin.Context) {
 		time.Sleep(5 * time.Minute)
 		os.Remove(zipPath)
 	}()
+}
+
+func listTableSummariesHandler(store *TableHistoryStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		f := TableSummaryFilter{
+			Status:   c.Query("status"),
+			Search:   c.Query("search"),
+			Sort:     c.Query("sort"),
+			Order:    c.Query("order"),
+		}
+		if v := c.Query("exclude_success"); v == "true" || v == "1" {
+			f.ExcludeSuccess = true
+		}
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+		f.Page = page
+		f.PageSize = pageSize
+
+		if err := ValidateTableSummaryFilter(&f); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		items, total := store.ListSummaries(f)
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
+	}
+}
+
+func getTableHistoryHandler(store *TableHistoryStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tableName := c.Param("tableName")
+		if tableName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Missing table name"})
+			return
+		}
+
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+		if limit <= 0 {
+			limit = 20
+		}
+
+		history, ok := store.GetHistory(tableName, limit)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Table not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"table_name": tableName, "items": history})
+	}
 }
 
 type testTargetRequest struct {
