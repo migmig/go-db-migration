@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"dbmigrator/internal/config"
+	"dbmigrator/internal/migration"
 )
 
 func TestMonitoringMigrationMetricsByObjectGroup(t *testing.T) {
@@ -93,6 +94,48 @@ func TestMonitoringTableHistoryMetrics_NilSafe(t *testing.T) {
 	metrics.recordTableFilterUsage(&TableSummaryFilter{Status: "failed"})
 	metrics.recordTableRetry()
 	metrics.recordTableStatus("success")
+}
+
+func TestMonitoringPrecheckMetrics(t *testing.T) {
+	metrics := newMonitoringMetrics()
+
+	// precheck 실행 1회: 5개 테이블, transfer_required 2, skip_candidate 2, count_check_failed 1
+	metrics.recordPrecheckRun(migration.PrecheckSummary{
+		TotalTables:           5,
+		TransferRequiredCount: 2,
+		SkipCandidateCount:    2,
+		CountCheckFailedCount: 1,
+	})
+
+	// precheck 실행 2회: 3개 테이블, transfer_required 3
+	metrics.recordPrecheckRun(migration.PrecheckSummary{
+		TotalTables:           3,
+		TransferRequiredCount: 3,
+	})
+
+	snap := metrics.snapshot()
+
+	if snap.Precheck.RunTotal != 2 {
+		t.Errorf("expected run total 2, got %d", snap.Precheck.RunTotal)
+	}
+	if snap.Precheck.TablesTotal != 8 {
+		t.Errorf("expected tables total 8, got %d", snap.Precheck.TablesTotal)
+	}
+	if snap.Precheck.TransferRequiredTotal != 5 {
+		t.Errorf("expected transfer_required total 5, got %d", snap.Precheck.TransferRequiredTotal)
+	}
+	if snap.Precheck.SkipCandidateTotal != 2 {
+		t.Errorf("expected skip_candidate total 2, got %d", snap.Precheck.SkipCandidateTotal)
+	}
+	if snap.Precheck.CountCheckFailedTotal != 1 {
+		t.Errorf("expected count_check_failed total 1, got %d", snap.Precheck.CountCheckFailedTotal)
+	}
+}
+
+func TestMonitoringPrecheckMetrics_NilSafe(t *testing.T) {
+	var metrics *monitoringMetrics
+	// Should not panic
+	metrics.recordPrecheckRun(migration.PrecheckSummary{TotalTables: 5})
 }
 
 func nearlyEqualFloat(a, b float64) bool {

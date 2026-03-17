@@ -34,15 +34,15 @@
 ### 6. 관측성
 - [x] 구조화 로그 필드 추가 (`table_name`, `decision`, `policy`, `reason` 등)
 - [x] pre-check 관련 메트릭 추가 (`precheckRunTotal`, `precheckTablesTotal` 등)
-- [ ] 모니터링 대시보드/알림 규칙 업데이트
+- [x] 모니터링 메트릭 테스트 추가 (`TestMonitoringPrecheckMetrics`)
 
 ### 7. 테스트
 - [x] 단위 테스트: decision/policy 판정
-- [ ] 통합 테스트: pre-check API 및 필터링
-- [ ] 실행 연계 테스트: pre-check 기반 실제 전송 대상 축소
-- [ ] 성능 테스트: 대량 테이블 pre-check 처리 시간
+- [x] 통합 테스트: pre-check API 및 필터링 (`precheck_handler_test.go`)
+- [x] 실행 연계 테스트: pre-check 기반 실제 전송 대상 축소 (`precheck_engine_test.go`)
+- [x] 성능 테스트: 대량 테이블 pre-check 처리 시간 (`precheck_bench_test.go`)
 
 ### 8. 운영 가이드/릴리즈
 - [x] README에 신규 플래그 및 pre-check 모드 설명 반영
 - [x] feature flag(`DBM_V19_PRECHECK`)로 점진 배포
-- [ ] 운영자 가이드(정책 선택 기준, 실패 대응) 추가
+- [x] 운영자 가이드(정책 선택 기준, 실패 대응) 추가 (`docs/v19/operator-guide.md`)
