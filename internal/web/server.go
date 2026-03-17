@@ -36,7 +36,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//go:embed templates/* assets/v16
+//go:embed templates/* assets/frontend
 var templateFS embed.FS
 
 var sessionManager = ws.NewSessionManager()
@@ -160,18 +160,18 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		})
 	}
 
-	v16Ready := registerV16Routes(r)
+	frontendReady := registerFrontendRoutes(r)
 
 	r.GET("/", func(c *gin.Context) {
-		if v16Ready {
-			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if frontendReady {
+			c.Redirect(http.StatusTemporaryRedirect, "/app")
 			return
 		}
 		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 	r.HEAD("/", func(c *gin.Context) {
-		if v16Ready {
-			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+		if frontendReady {
+			c.Redirect(http.StatusTemporaryRedirect, "/app")
 			return
 		}
 		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
@@ -186,7 +186,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		api.GET("/meta", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"authEnabled": authEnabled,
-				"uiVersion":   "v16-preview",
+				"uiVersion":   "v18-preview",
 				"features": gin.H{
 					"objectGroupMode": objectGroupModeEnabled(),
 				},
@@ -246,19 +246,23 @@ func objectGroupModeEnabled() bool {
 	return enabled
 }
 
-func registerV16Routes(r *gin.Engine) bool {
+func registerFrontendRoutes(r *gin.Engine) bool {
 	if r == nil {
 		return false
 	}
 
-	distFS, ok := resolveV16AssetsFS()
+	distFS, ok := resolveFrontendAssetsFS()
 	if !ok {
 		redirectLegacy := func(c *gin.Context) {
 			c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 		}
+		r.GET("/app", redirectLegacy)
 		r.GET("/v16", redirectLegacy)
+		r.HEAD("/app", redirectLegacy)
 		r.HEAD("/v16", redirectLegacy)
+		r.GET("/app/*path", redirectLegacy)
 		r.GET("/v16/*path", redirectLegacy)
+		r.HEAD("/app/*path", redirectLegacy)
 		r.HEAD("/v16/*path", redirectLegacy)
 		return false
 	}
@@ -266,15 +270,13 @@ func registerV16Routes(r *gin.Engine) bool {
 	serveIndex := func(c *gin.Context) {
 		indexHTML, readErr := fs.ReadFile(distFS, "index.html")
 		if readErr != nil {
-			c.String(http.StatusServiceUnavailable, "v16 frontend assets are unavailable in this binary")
+			c.String(http.StatusServiceUnavailable, "frontend assets are unavailable in this binary")
 			return
 		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	}
 
-	r.GET("/v16", serveIndex)
-	r.HEAD("/v16", serveIndex)
-	r.GET("/v16/*path", func(c *gin.Context) {
+	servePath := func(c *gin.Context) {
 		reqPath := strings.TrimPrefix(c.Param("path"), "/")
 		if reqPath == "" {
 			serveIndex(c)
@@ -293,48 +295,35 @@ func registerV16Routes(r *gin.Engine) bool {
 		}
 
 		serveIndex(c)
-	})
-	r.HEAD("/v16/*path", func(c *gin.Context) {
-		reqPath := strings.TrimPrefix(c.Param("path"), "/")
-		if reqPath == "" {
-			serveIndex(c)
-			return
-		}
+	}
 
-		cleaned := path.Clean(reqPath)
-		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-			serveIndex(c)
-			return
-		}
-
-		if info, err := fs.Stat(distFS, cleaned); err == nil && !info.IsDir() {
-			c.FileFromFS(cleaned, http.FS(distFS))
-			return
-		}
-
-		serveIndex(c)
-	})
+	for _, route := range []string{"/app", "/v16"} {
+		r.GET(route, serveIndex)
+		r.HEAD(route, serveIndex)
+		r.GET(route+"/*path", servePath)
+		r.HEAD(route+"/*path", servePath)
+	}
 	return true
 }
 
-func resolveV16AssetsFS() (fs.FS, bool) {
-	for _, candidate := range candidateV16DistDirs() {
+func resolveFrontendAssetsFS() (fs.FS, bool) {
+	for _, candidate := range candidateFrontendDistDirs() {
 		if info, err := os.Stat(filepath.Join(candidate, "index.html")); err == nil && !info.IsDir() {
 			return os.DirFS(candidate), true
 		}
 	}
 
-	distFS, err := fs.Sub(templateFS, "assets/v16")
+	distFS, err := fs.Sub(templateFS, "assets/frontend")
 	if err != nil {
 		return nil, false
 	}
-	if embeddedV16IsPlaceholder(distFS) {
+	if embeddedFrontendIsPlaceholder(distFS) {
 		return nil, false
 	}
 	return distFS, true
 }
 
-func candidateV16DistDirs() []string {
+func candidateFrontendDistDirs() []string {
 	candidates := []string{}
 
 	if wd, err := os.Getwd(); err == nil {
@@ -360,12 +349,12 @@ func candidateV16DistDirs() []string {
 	return out
 }
 
-func embeddedV16IsPlaceholder(distFS fs.FS) bool {
+func embeddedFrontendIsPlaceholder(distFS fs.FS) bool {
 	indexHTML, err := fs.ReadFile(distFS, "index.html")
 	if err != nil {
 		return true
 	}
-	return strings.Contains(string(indexHTML), "v16 frontend bundle is not embedded in this binary")
+	return strings.Contains(string(indexHTML), "frontend bundle is not embedded in this binary")
 }
 
 type loginRequest struct {

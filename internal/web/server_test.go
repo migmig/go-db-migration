@@ -26,7 +26,7 @@ const testWebMasterKey = "0123456789abcdef0123456789abcdef"
 
 func setupTestRouter() *gin.Engine {
 	r := gin.New()
-	registerV16Routes(r)
+	registerFrontendRoutes(r)
 	api := r.Group("/api")
 	api.POST("/tables", getTables)
 	api.POST("/migrate", startMigration)
@@ -36,7 +36,7 @@ func setupTestRouter() *gin.Engine {
 	return r
 }
 
-func TestRegisterV16Routes_RedirectsToLegacyWhenBundleUnavailable(t *testing.T) {
+func TestRegisterFrontendRoutes_RedirectsToLegacyWhenBundleUnavailable(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmp); err != nil {
@@ -45,12 +45,12 @@ func TestRegisterV16Routes_RedirectsToLegacyWhenBundleUnavailable(t *testing.T) 
 	defer os.Chdir(origDir)
 
 	r := gin.New()
-	ready := registerV16Routes(r)
+	ready := registerFrontendRoutes(r)
 	if ready {
-		t.Fatal("expected v16 bundle to be unavailable in test binary")
+		t.Fatal("expected frontend bundle to be unavailable in test binary")
 	}
 
-	for _, route := range []string{"/v16", "/v16/some/deep/link"} {
+	for _, route := range []string{"/app", "/app/some/deep/link", "/v16", "/v16/some/deep/link"} {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", route, nil)
 		r.ServeHTTP(w, req)
@@ -64,7 +64,7 @@ func TestRegisterV16Routes_RedirectsToLegacyWhenBundleUnavailable(t *testing.T) 
 	}
 }
 
-func TestRootRedirectsToV16(t *testing.T) {
+func TestRootRedirectsToFrontendApp(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmp); err != nil {
@@ -76,14 +76,14 @@ func TestRootRedirectsToV16(t *testing.T) {
 	v16Ready := false
 	r.GET("/", func(c *gin.Context) {
 		if v16Ready {
-			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			c.Redirect(http.StatusTemporaryRedirect, "/app")
 			return
 		}
 		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
 	})
 	r.HEAD("/", func(c *gin.Context) {
 		if v16Ready {
-			c.Redirect(http.StatusTemporaryRedirect, "/v16")
+			c.Redirect(http.StatusTemporaryRedirect, "/app")
 			return
 		}
 		c.Redirect(http.StatusTemporaryRedirect, "/legacy")
@@ -103,7 +103,7 @@ func TestRootRedirectsToV16(t *testing.T) {
 	}
 }
 
-func TestRegisterV16Routes_ServesLocalDistWhenPresent(t *testing.T) {
+func TestRegisterFrontendRoutes_ServesLocalDistWhenPresent(t *testing.T) {
 	tmp := t.TempDir()
 	origDir, _ := os.Getwd()
 	if err := os.Chdir(tmp); err != nil {
@@ -115,7 +115,7 @@ func TestRegisterV16Routes_ServesLocalDistWhenPresent(t *testing.T) {
 	if err := os.MkdirAll(distDir, 0755); err != nil {
 		t.Fatalf("mkdir dist assets: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "frontend", "dist", "index.html"), []byte(`<!doctype html><html><body><div id="root">v16 live</div><script type="module" src="/v16/assets/app.js"></script></body></html>`), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "frontend", "dist", "index.html"), []byte(`<!doctype html><html><body><div id="root">frontend live</div><script type="module" src="/app/assets/app.js"></script></body></html>`), 0644); err != nil {
 		t.Fatalf("write index: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(distDir, "app.js"), []byte(`console.log("ok");`), 0644); err != nil {
@@ -123,23 +123,23 @@ func TestRegisterV16Routes_ServesLocalDistWhenPresent(t *testing.T) {
 	}
 
 	r := gin.New()
-	ready := registerV16Routes(r)
+	ready := registerFrontendRoutes(r)
 	if !ready {
-		t.Fatal("expected local dist to enable v16 routes")
+		t.Fatal("expected local dist to enable frontend routes")
 	}
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest(http.MethodGet, "/v16", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/app", nil)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 for /v16, got %d", w.Code)
+		t.Fatalf("expected 200 for /app, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "v16 live") {
+	if !strings.Contains(w.Body.String(), "frontend live") {
 		t.Fatalf("expected local dist index content, got %q", w.Body.String())
 	}
 
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodGet, "/v16/assets/app.js", nil)
+	req, _ = http.NewRequest(http.MethodGet, "/app/assets/app.js", nil)
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for asset, got %d", w.Code)

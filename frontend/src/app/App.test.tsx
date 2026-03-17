@@ -34,7 +34,7 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
       }
       if (url === "/api/auth/me" && method === "GET") {
         return jsonResponse({ userId: 1, username: "alice" });
@@ -70,7 +70,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("ORA_DEV");
     expect(screen.getByText("PG_PROD")).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
       }
       if (url === "/api/auth/me" && method === "GET") {
         return jsonResponse({ userId: 1, username: "alice" });
@@ -142,7 +142,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -181,7 +181,7 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
       }
       if (url === "/api/auth/me" && method === "GET") {
         return jsonResponse({ userId: 1, username: "alice" });
@@ -221,7 +221,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -242,7 +242,7 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: false, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
       }
       if (url === "/api/tables" && method === "POST") {
         return jsonResponse({ tables: ["USERS", "ORDERS"] });
@@ -251,7 +251,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -277,7 +277,7 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
       }
       if (url === "/api/auth/me" && method === "GET") {
         return jsonResponse({ userId: 1, username: "alice" });
@@ -316,7 +316,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -354,12 +354,97 @@ describe("App", () => {
     });
   });
 
+
+  it("sorts table list with the table sort control", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["BETA", "ALPHA", "GAMMA"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["BETA", "BETA"] }),
+              createdAt: "2026-03-17T00:00:00Z",
+            },
+            {
+              id: 2,
+              userId: 1,
+              status: "failed",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ALPHA"] }),
+              createdAt: "2026-03-18T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 2,
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 3 table(s)");
+
+    const table = screen.getByRole("table");
+    const getOrder = () =>
+      Array.from(table.querySelectorAll("tbody tr td:nth-child(2)")).map((cell) =>
+        cell.textContent?.trim(),
+      );
+
+    expect(getOrder()).toEqual(["ALPHA", "BETA", "GAMMA"]);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Table sort" }), "table_desc");
+    await waitFor(() => {
+      expect(getOrder()).toEqual(["GAMMA", "BETA", "ALPHA"]);
+    });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Table sort" }), "runs_desc");
+    await waitFor(() => {
+      expect(getOrder()).toEqual(["BETA", "ALPHA", "GAMMA"]);
+    });
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Table sort" }), "recent_desc");
+    await waitFor(() => {
+      expect(getOrder()).toEqual(["ALPHA", "BETA", "GAMMA"]);
+    });
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table sort" }),
+      "history_status",
+    );
+    await waitFor(() => {
+      expect(getOrder()).toEqual(["GAMMA", "ALPHA", "BETA"]);
+    });
+  });
+
   it("shows session-expired message when protected API returns 401", async () => {
     const user = userEvent.setup();
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: true, uiVersion: "v16-preview" });
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
       }
       if (url === "/api/auth/me" && method === "GET") {
         return jsonResponse({ userId: 1, username: "alice" });
@@ -372,7 +457,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v16 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("Session expired. Please log in again.");
   });
