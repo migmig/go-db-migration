@@ -13,6 +13,7 @@ type NoticeTone = "info" | "error";
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type TableRunStatus = "pending" | "running" | "completed" | "error";
 type TableHistoryStatusFilter = "all" | "not_started" | "success" | "failed";
+type TableSortOption = "table_asc" | "table_desc" | "recent_desc" | "runs_desc" | "history_status";
 type ObjectGroup = "all" | "tables" | "sequences";
 
 type SourceState = {
@@ -345,6 +346,7 @@ export function App() {
   const [allTables, setAllTables] = useState<string[]>([]);
   const [tableSearch, setTableSearch] = useState("");
   const [tableStatusFilter, setTableStatusFilter] = useState<TableHistoryStatusFilter>("all");
+  const [tableSort, setTableSort] = useState<TableSortOption>("table_asc");
   const [excludeMigratedSuccess, setExcludeMigratedSuccess] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
@@ -431,25 +433,61 @@ export function App() {
     return next;
   }, [history]);
 
-  const filteredTables = allTables.filter((table) => {
-    if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
-      return false;
-    }
-    const historyState = historyByTable[normalizeTableKey(table)];
-    if (excludeMigratedSuccess && historyState?.status === "success") {
-      return false;
-    }
-    if (tableStatusFilter === "not_started") {
-      return !historyState;
-    }
-    if (tableStatusFilter === "success") {
-      return historyState?.status === "success";
-    }
-    if (tableStatusFilter === "failed") {
-      return historyState?.status === "failed";
-    }
-    return true;
-  });
+  const filteredTables = useMemo(() => {
+    const filtered = allTables.filter((table) => {
+      if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
+        return false;
+      }
+      const historyState = historyByTable[normalizeTableKey(table)];
+      if (excludeMigratedSuccess && historyState?.status === "success") {
+        return false;
+      }
+      if (tableStatusFilter === "not_started") {
+        return !historyState;
+      }
+      if (tableStatusFilter === "success") {
+        return historyState?.status === "success";
+      }
+      if (tableStatusFilter === "failed") {
+        return historyState?.status === "failed";
+      }
+      return true;
+    });
+
+    const historyRank = (tableName: string): number => {
+      const state = historyByTable[normalizeTableKey(tableName)];
+      if (!state) return 0;
+      if (state.status === "failed") return 1;
+      return 2;
+    };
+
+    filtered.sort((a, b) => {
+      if (tableSort === "table_desc") {
+        return b.localeCompare(a);
+      }
+      if (tableSort === "recent_desc") {
+        const aTime = historyByTable[normalizeTableKey(a)]?.lastRunAt ?? "";
+        const bTime = historyByTable[normalizeTableKey(b)]?.lastRunAt ?? "";
+        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
+        if (diff !== 0) return diff;
+        return a.localeCompare(b);
+      }
+      if (tableSort === "runs_desc") {
+        const aCount = historyByTable[normalizeTableKey(a)]?.runCount ?? 0;
+        const bCount = historyByTable[normalizeTableKey(b)]?.runCount ?? 0;
+        if (bCount !== aCount) return bCount - aCount;
+        return a.localeCompare(b);
+      }
+      if (tableSort === "history_status") {
+        const rankDiff = historyRank(a) - historyRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return a.localeCompare(b);
+      }
+      return a.localeCompare(b);
+    });
+
+    return filtered;
+  }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
   const allVisibleSelected =
@@ -1360,7 +1398,7 @@ export function App() {
   if (booting) {
     return (
       <div className="flex min-h-screen items-center justify-center text-slate-700">
-        Loading v16 preview...
+        Loading v18 preview...
       </div>
     );
   }
@@ -1369,7 +1407,7 @@ export function App() {
     return (
       <div className="mx-auto flex min-h-screen max-w-3xl items-center px-6 py-12">
         <div className="card-surface w-full p-8">
-          <h1 className="text-xl font-semibold text-slate-900">v16 boot failed</h1>
+          <h1 className="text-xl font-semibold text-slate-900">v18 boot failed</h1>
           <p className="mt-3 text-sm text-red-600">{bootError}</p>
           <button
             className="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
@@ -1391,7 +1429,7 @@ export function App() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
               DBMigrator
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">v16 Migration Workspace</h1>
+            <h1 className="text-2xl font-bold text-slate-900">v18 Migration Workspace</h1>
             <p className="mt-1 text-sm text-slate-600">
               Source/target setup, migration options, and real-time run status.
             </p>
@@ -1711,6 +1749,18 @@ export function App() {
                   <option value="not_started">Not started</option>
                   <option value="success">Migrated (success)</option>
                   <option value="failed">Migrated (failed)</option>
+                </select>
+                <select
+                  aria-label="Table sort"
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  onChange={(event) => setTableSort(event.target.value as TableSortOption)}
+                  value={tableSort}
+                >
+                  <option value="table_asc">Sort: Table name (A-Z)</option>
+                  <option value="table_desc">Sort: Table name (Z-A)</option>
+                  <option value="recent_desc">Sort: Latest history</option>
+                  <option value="runs_desc">Sort: Run count</option>
+                  <option value="history_status">Sort: History status</option>
                 </select>
                 <label className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
                   <input
