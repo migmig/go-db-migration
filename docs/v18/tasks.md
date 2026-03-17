@@ -37,17 +37,17 @@
 
 ### 6. 관측성
 - [x] 구조화 로그 필드 확장(`table_name`, `status`, `duration_ms`, `run_id`) — TableMigrationHistory 구조체에 포함
-- [ ] 필터 사용량/재시도 횟수 메트릭 수집
+- [x] 필터 사용량/재시도 횟수 메트릭 수집 — `monitoring.go`에 `tableFilterUsage*`, `tableRetryTotal`, `tableStatus*` 메트릭 추가
 
 ### 7. 테스트
 - [x] 백엔드 단위 테스트(상태 매핑/필터 쿼리) — `table_history_test.go`
 - [x] 백엔드 통합 테스트(exclude_success, failed 필터, history limit) — HTTP 엔드포인트 테스트 포함
-- [ ] 프론트 컴포넌트 테스트(필터/토글/재시도 버튼)
-- [ ] E2E(실패만 보기 -> 상세 -> 재시도)
+- [x] 프론트 컴포넌트 테스트(필터/토글/재시도 버튼) — `App.test.tsx`에 status filter, exclude-success toggle, retry button 테스트 추가
+- [x] E2E(실패만 보기 -> 상세 -> 재시도) — `App.test.tsx`에 전체 흐름 테스트 추가
 - [x] `go test ./...` 통과
 
 ### 8. 릴리즈/가이드
 - [x] 프론트 빌드 산출물 임베드 경로 일반화(`assets/frontend`)
-- [ ] 기능 플래그 기반 점진 배포
+- [x] 기능 플래그 기반 점진 배포 — `DBM_V18_TABLE_HISTORY` 환경변수로 점진 활성화, `/api/meta`에 `features.tableHistory` 노출
 - [x] 운영 가이드 업데이트(필터 사용법, 실패 재처리 절차) — README에 반영 예정
 - [x] README 기능 요약 업데이트

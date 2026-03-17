@@ -181,14 +181,22 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 	r.StaticFS("/static", http.FS(templateFS))
 
+	tableHistoryEnabled := v18TableHistoryEnabled()
+
+	uiVersion := "v18"
+	if !tableHistoryEnabled {
+		uiVersion = "v18-preview"
+	}
+
 	api := r.Group("/api")
 	{
 		api.GET("/meta", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"authEnabled": authEnabled,
-				"uiVersion":   "v18-preview",
+				"uiVersion":   uiVersion,
 				"features": gin.H{
-					"objectGroupMode": objectGroupModeEnabled(),
+					"objectGroupMode":  objectGroupModeEnabled(),
+					"tableHistory":     tableHistoryEnabled,
 				},
 			})
 		})
@@ -225,14 +233,28 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
 		protected.GET("/report/:id", downloadReport)
-		protected.GET("/migrations/tables", listTableSummariesHandler(globalTableHistory))
-		protected.GET("/migrations/tables/:tableName/history", getTableHistoryHandler(globalTableHistory))
+		if tableHistoryEnabled {
+			protected.GET("/migrations/tables", listTableSummariesHandler(globalTableHistory, metrics))
+			protected.GET("/migrations/tables/:tableName/history", getTableHistoryHandler(globalTableHistory))
+		}
 	}
 
 	log.Printf("Starting web server on port %s...", port)
 	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
+}
+
+func v18TableHistoryEnabled() bool {
+	raw, ok := os.LookupEnv("DBM_V18_TABLE_HISTORY")
+	if !ok || strings.TrimSpace(raw) == "" {
+		return true // 기본값: 활성화
+	}
+	enabled, err := strconv.ParseBool(strings.TrimSpace(raw))
+	if err != nil {
+		return true
+	}
+	return enabled
 }
 
 func objectGroupModeEnabled() bool {
@@ -1016,6 +1038,9 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 
 		report, err := migration.Run(oracleDB, targetDB, pgPool, dia, cfg, tracker)
 		recordTableHistory(globalTableHistory, jobID, report)
+		if isRetry {
+			metrics.recordTableRetry()
+		}
 		saveHistoryForRequest(store, authUserID, req, targetDBName, targetURL, report, err)
 		if err == nil {
 			success = true
@@ -1273,7 +1298,7 @@ func downloadZip(c *gin.Context) {
 	}()
 }
 
-func listTableSummariesHandler(store *TableHistoryStore) gin.HandlerFunc {
+func listTableSummariesHandler(store *TableHistoryStore, metrics *monitoringMetrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		f := TableSummaryFilter{
 			Status:   c.Query("status"),
@@ -1294,7 +1319,12 @@ func listTableSummariesHandler(store *TableHistoryStore) gin.HandlerFunc {
 			return
 		}
 
+		metrics.recordTableFilterUsage(&f)
+
 		items, total := store.ListSummaries(f)
+		for _, item := range items {
+			metrics.recordTableStatus(item.Status)
+		}
 		c.JSON(http.StatusOK, gin.H{"items": items, "total": total})
 	}
 }

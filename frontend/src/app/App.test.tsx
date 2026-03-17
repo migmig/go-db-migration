@@ -590,4 +590,336 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("Session expired. Please log in again.");
   });
+
+  // ── v18 Component Tests: filter/toggle/retry interactions ─────────────
+
+  it("toggles exclude-success checkbox and filters table list accordingly", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS", "ORDERS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["USERS"] }),
+              createdAt: "2026-03-16T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 1,
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 2 table(s)");
+
+    // Both tables visible initially
+    expect(screen.getByText("USERS")).toBeInTheDocument();
+    expect(screen.getByText("ORDERS")).toBeInTheDocument();
+
+    // Toggle exclude success on
+    const excludeCheckbox = screen.getByRole("checkbox", { name: "Exclude migrated success" });
+    await user.click(excludeCheckbox);
+
+    await waitFor(() => {
+      expect(screen.queryByText("USERS")).not.toBeInTheDocument();
+      expect(screen.getByText("ORDERS")).toBeInTheDocument();
+    });
+
+    // Toggle exclude success off again
+    await user.click(excludeCheckbox);
+
+    await waitFor(() => {
+      expect(screen.getByText("USERS")).toBeInTheDocument();
+      expect(screen.getByText("ORDERS")).toBeInTheDocument();
+    });
+  });
+
+  it("status filter dropdown shows only matching tables", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["ALPHA", "BETA", "GAMMA"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 1,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ALPHA"] }),
+              createdAt: "2026-03-16T00:00:00Z",
+            },
+            {
+              id: 2,
+              userId: 1,
+              status: "failed",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["BETA"] }),
+              createdAt: "2026-03-17T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 2,
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 3 table(s)");
+
+    // Filter by failed status
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "failed",
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("ALPHA")).not.toBeInTheDocument();
+      expect(screen.getByText("BETA")).toBeInTheDocument();
+      expect(screen.queryByText("GAMMA")).not.toBeInTheDocument();
+    });
+
+    // Filter by success status
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "success",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("ALPHA")).toBeInTheDocument();
+      expect(screen.queryByText("BETA")).not.toBeInTheDocument();
+      expect(screen.queryByText("GAMMA")).not.toBeInTheDocument();
+    });
+
+    // Reset to all
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "all",
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("ALPHA")).toBeInTheDocument();
+      expect(screen.getByText("BETA")).toBeInTheDocument();
+      expect(screen.getByText("GAMMA")).toBeInTheDocument();
+    });
+  });
+
+  it("retry button is only shown on failed history entries in detail panel", async () => {
+    const user = userEvent.setup();
+
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["ORDERS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 20,
+              userId: 1,
+              status: "failed",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ORDERS"] }),
+              logSummary: "timeout error",
+              createdAt: "2026-03-19T00:00:00Z",
+            },
+            {
+              id: 19,
+              userId: 1,
+              status: "success",
+              sourceSummary: "src",
+              targetSummary: "dst",
+              optionsJson: JSON.stringify({ tables: ["ORDERS"] }),
+              createdAt: "2026-03-18T00:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 2,
+        });
+      }
+      if (url === "/api/history/20/replay" && method === "POST") {
+        return jsonResponse({ payload: { oracleUrl: "oracle:1521/XE", username: "scott" } });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 1 table(s)");
+
+    // Open table history detail
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    await screen.findByText("Table history: ORDERS");
+
+    // Should show failed entry with retry button
+    expect(screen.getByText("timeout error")).toBeInTheDocument();
+    const retryButtons = screen.getAllByRole("button", { name: "Retry settings" });
+    expect(retryButtons).toHaveLength(1); // Only one failed entry has retry button
+
+    // Success entry should NOT have a retry button
+    // Both "Success" and "Failed" labels appear in the detail panel entries
+    expect(screen.getAllByText("Success").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Failed").length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── v18 E2E: fail filter → detail history → retry ─────────────────────
+
+  it("E2E: filter by failed → view detail history → retry failed table", async () => {
+    const user = userEvent.setup();
+
+    const fetchMock = mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: true, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/auth/me" && method === "GET") {
+        return jsonResponse({ userId: 1, username: "alice" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS", "ORDERS", "PRODUCTS"] });
+      }
+      if (url.startsWith("/api/history?page=") && method === "GET") {
+        return jsonResponse({
+          items: [
+            {
+              id: 101,
+              userId: 1,
+              status: "success",
+              sourceSummary: "SCOTT@oracle:1521/XE",
+              targetSummary: "postgres:pg://host:5432/db",
+              optionsJson: JSON.stringify({ tables: ["USERS"] }),
+              createdAt: "2026-03-15T10:00:00Z",
+            },
+            {
+              id: 102,
+              userId: 1,
+              status: "failed",
+              sourceSummary: "SCOTT@oracle:1521/XE",
+              targetSummary: "postgres:pg://host:5432/db",
+              optionsJson: JSON.stringify({ tables: ["ORDERS"] }),
+              logSummary: "duplicate key constraint violation",
+              createdAt: "2026-03-16T14:00:00Z",
+            },
+          ],
+          page: 1,
+          pageSize: 10,
+          total: 2,
+        });
+      }
+      if (url === "/api/history/102/replay" && method === "POST") {
+        return jsonResponse({
+          payload: {
+            oracleUrl: "oracle:1521/XE",
+            username: "scott",
+            direct: true,
+            targetDb: "postgres",
+            targetUrl: "pg://host:5432/db",
+            tables: ["ORDERS"],
+            truncate: true,
+          },
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    // Step 1: Connect and fetch tables
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "scott");
+    await user.type(screen.getByLabelText("Password"), "tiger");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 3 table(s)");
+
+    // Step 2: Filter to show only failed tables
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Table history status filter" }),
+      "failed",
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("USERS")).not.toBeInTheDocument();
+      expect(screen.getByText("ORDERS")).toBeInTheDocument();
+      expect(screen.queryByText("PRODUCTS")).not.toBeInTheDocument();
+    });
+
+    // Step 3: Open detail history for the failed table
+    await user.click(screen.getByRole("button", { name: "View history" }));
+    await screen.findByText("Table history: ORDERS");
+
+    // Verify error summary is highlighted
+    expect(screen.getByText("duplicate key constraint violation")).toBeInTheDocument();
+
+    // Step 4: Click retry to replay the failed migration settings
+    await user.click(screen.getByRole("button", { name: "Retry settings" }));
+    await screen.findByText("History payload applied to form.");
+
+    // Verify replay API was called with the correct failed entry
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/history/102/replay",
+      expect.objectContaining({ method: "POST" }),
+    );
+
+    // Verify form was populated with replay data
+    await waitFor(() => {
+      expect(screen.getByLabelText("Oracle URL")).toHaveValue("oracle:1521/XE");
+      expect(screen.getByLabelText("Username")).toHaveValue("scott");
+    });
+  });
 });
