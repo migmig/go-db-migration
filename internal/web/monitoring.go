@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"dbmigrator/internal/config"
+	"dbmigrator/internal/migration"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,6 +56,13 @@ type monitoringMetrics struct {
 	tableStatusFailed              uint64
 	tableStatusRunning             uint64
 	tableStatusNotStarted          uint64
+
+	// v19: pre-check 메트릭
+	precheckRunTotal              uint64
+	precheckTablesTotal           uint64
+	precheckTransferRequiredTotal uint64
+	precheckSkipCandidateTotal    uint64
+	precheckCountCheckFailedTotal uint64
 }
 
 type loginMetricsSnapshot struct {
@@ -75,6 +83,14 @@ type apiErrorMetricsSnapshot struct {
 	ErrorRatePct float64 `json:"errorRatePct"`
 }
 
+type precheckMetricsSnapshot struct {
+	RunTotal              uint64 `json:"runTotal"`
+	TablesTotal           uint64 `json:"tablesTotal"`
+	TransferRequiredTotal uint64 `json:"transferRequiredTotal"`
+	SkipCandidateTotal    uint64 `json:"skipCandidateTotal"`
+	CountCheckFailedTotal uint64 `json:"countCheckFailedTotal"`
+}
+
 type monitoringSnapshot struct {
 	UptimeSeconds int64                        `json:"uptimeSeconds"`
 	Login         loginMetricsSnapshot         `json:"login"`
@@ -83,6 +99,7 @@ type monitoringSnapshot struct {
 	History       apiErrorMetricsSnapshot      `json:"historyApi"`
 	Migrations    migrationMetricsSnapshot     `json:"migrations"`
 	TableHistory  tableHistoryMetricsSnapshot  `json:"tableHistory"`
+	Precheck      precheckMetricsSnapshot      `json:"precheck"`
 }
 
 type tableHistoryMetricsSnapshot struct {
@@ -188,6 +205,17 @@ func (m *monitoringMetrics) recordTableRetry() {
 		return
 	}
 	atomic.AddUint64(&m.tableRetryTotal, 1)
+}
+
+func (m *monitoringMetrics) recordPrecheckRun(summary migration.PrecheckSummary) {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.precheckRunTotal, 1)
+	atomic.AddUint64(&m.precheckTablesTotal, uint64(summary.TotalTables))
+	atomic.AddUint64(&m.precheckTransferRequiredTotal, uint64(summary.TransferRequiredCount))
+	atomic.AddUint64(&m.precheckSkipCandidateTotal, uint64(summary.SkipCandidateCount))
+	atomic.AddUint64(&m.precheckCountCheckFailedTotal, uint64(summary.CountCheckFailedCount))
 }
 
 func (m *monitoringMetrics) recordTableStatus(status string) {
@@ -302,6 +330,12 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 	tableHistorySnap.StatusTotal.Running = statusRunning
 	tableHistorySnap.StatusTotal.NotStarted = statusNotStarted
 
+	precheckRunTotal := atomic.LoadUint64(&m.precheckRunTotal)
+	precheckTablesTotal := atomic.LoadUint64(&m.precheckTablesTotal)
+	precheckTransferRequired := atomic.LoadUint64(&m.precheckTransferRequiredTotal)
+	precheckSkipCandidate := atomic.LoadUint64(&m.precheckSkipCandidateTotal)
+	precheckCountCheckFailed := atomic.LoadUint64(&m.precheckCountCheckFailedTotal)
+
 	return monitoringSnapshot{
 		UptimeSeconds: int64(time.Since(m.startedAt).Seconds()),
 		Login: loginMetricsSnapshot{
@@ -351,6 +385,13 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 			},
 		},
 		TableHistory: tableHistorySnap,
+		Precheck: precheckMetricsSnapshot{
+			RunTotal:              precheckRunTotal,
+			TablesTotal:           precheckTablesTotal,
+			TransferRequiredTotal: precheckTransferRequired,
+			SkipCandidateTotal:    precheckSkipCandidate,
+			CountCheckFailedTotal: precheckCountCheckFailed,
+		},
 	}
 }
 

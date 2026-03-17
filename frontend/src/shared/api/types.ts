@@ -3,7 +3,34 @@ export type RuntimeMeta = {
   uiVersion: string;
   features?: {
     objectGroupMode?: boolean;
+    tableHistory?: boolean;
+    precheckRowCount?: boolean;
   };
+};
+
+export type PrecheckTableResult = {
+  table_name: string;
+  source_row_count: number;
+  target_row_count: number;
+  diff: number;
+  decision: "transfer_required" | "skip_candidate" | "count_check_failed";
+  policy?: string;
+  reason?: string;
+  transfer_planned?: boolean;
+  checked_at?: string;
+};
+
+export type PrecheckSummary = {
+  total_tables: number;
+  transfer_required_count: number;
+  skip_candidate_count: number;
+  count_check_failed_count: number;
+};
+
+export type PrecheckResponse = {
+  summary: PrecheckSummary;
+  items: PrecheckTableResult[];
+  error?: string;
 };
 
 export type AuthUser = {

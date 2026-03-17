@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
 	"path"
 	"regexp"
@@ -183,9 +184,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 	tableHistoryEnabled := v18TableHistoryEnabled()
 
-	uiVersion := "v18"
+	uiVersion := "v19"
 	if !tableHistoryEnabled {
-		uiVersion = "v18-preview"
+		uiVersion = "v19-preview"
 	}
 
 	api := r.Group("/api")
@@ -197,6 +198,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 				"features": gin.H{
 					"objectGroupMode":  objectGroupModeEnabled(),
 					"tableHistory":     tableHistoryEnabled,
+					"precheckRowCount": v19PrecheckEnabled(),
 				},
 			})
 		})
@@ -229,6 +231,10 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected.POST("/tables", getTables)
 		protected.POST("/migrate", startMigrationHandler(userStore, metrics))
 		protected.POST("/migrate/retry", retryMigrationHandler(userStore, metrics))
+		if v19PrecheckEnabled() {
+			protected.POST("/migrations/precheck", precheckHandler(metrics))
+			protected.GET("/migrations/precheck/results", precheckResultsHandler())
+		}
 		protected.POST("/test-target", testTargetConnection)
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
@@ -764,6 +770,9 @@ type startMigrationRequest struct {
 	// v18
 	Truncate bool `json:"truncate"`
 	Upsert   bool `json:"upsert"`
+	// v19
+	UsePrecheckResults bool   `json:"usePrecheckResults"`
+	PrecheckPolicy     string `json:"precheckPolicy"`
 }
 
 var schemaPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -975,9 +984,37 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 			}
 		}
 
+		// v19: use_precheck 연계 - precheck 결과 기반 전송 대상 테이블 필터링
+		tables := req.Tables
+		if req.UsePrecheckResults && v19PrecheckEnabled() {
+			precheckResults, _ := globalPrecheckStore.getAll()
+			if len(precheckResults) > 0 {
+				policy := migration.PrecheckPolicy(req.PrecheckPolicy)
+				if policy == "" {
+					policy = migration.PolicyStrict
+				}
+				plan, planErr := migration.ApplyPrecheckPolicy(precheckResults, policy)
+				if planErr == nil && !plan.Blocked {
+					tables = plan.TransferTables
+					slog.Info("precheck filtering applied",
+						"original_tables", len(req.Tables),
+						"filtered_tables", len(tables),
+						"skip_tables", len(plan.SkipTables),
+						"policy", policy,
+					)
+				} else if planErr != nil {
+					slog.Warn("precheck policy error, using original table list", "error", planErr)
+				} else if plan.Blocked {
+					slog.Warn("precheck plan blocked by strict policy, using original table list",
+						"block_reason", plan.BlockReason,
+					)
+				}
+			}
+		}
+
 		cfg := &config.Config{
 			UserID:          authUserID,
-			Tables:          req.Tables,
+			Tables:          tables,
 			Parallel:        true,
 			Workers:         workers,
 			BatchSize:       batchSize,

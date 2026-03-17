@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v18)
+# Oracle to Multi-Target Data Migration CLI (v19)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -24,6 +24,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **객체 그룹 선택 실행 (v17):** `-object-group` 플래그로 `all|tables|sequences` 실행 그룹을 선택할 수 있습니다. `sequences` 모드는 시퀀스 DDL 전용 경로를 사용합니다.
 - **테이블 이력 기반 목록 UX (v18):** v16 UI의 테이블 선택 화면에서 이력 상태 필터(미실행/성공/실패), `성공 제외` 토글, 정렬 컨트롤을 제공하며 상태/이력 뱃지에 텍스트+색상을 함께 적용해 접근성을 높였습니다.
 - **테이블 상세 이력/재시도 UX (v18):** 목록에서 테이블별 최근 이력을 바로 열어 실패 요약을 확인하고, 실패 항목의 설정을 즉시 재적용(`Retry settings`)해 재시도 준비를 단축할 수 있으며, 빈 상태/오류 상태/로딩 스켈레톤을 제공합니다.
+- **사전 행 수 비교 (Pre-check Row Count) (v19):** 마이그레이션 전 Oracle 원본과 대상 DB의 테이블별 행 수를 병렬로 비교하여 전송 필요 여부를 자동 판정합니다. `transfer_required`, `skip_candidate`, `count_check_failed` 세 가지 decision과 `strict`, `best_effort`, `skip_equal_rows` 세 가지 policy를 지원합니다. Web UI의 Migration Options에서 "Run Pre-check" 버튼으로 즉시 사용할 수 있으며, CLI에서는 `-precheck-row-count` 플래그로 활성화합니다.
 
 ## 설치 (Installation)
 
@@ -393,6 +394,11 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | `-object-group` | 마이그레이션 객체 그룹 선택 (`all`, `tables`, `sequences`) | `all` | 아니오 |
 | `-dry-run` | 연결 확인 및 예상 행 수만 조회 (실제 이관 없음) | `false` | 아니오 |
 | `-log-json` | JSON 구조화 로그 활성화 | `false` | 아니오 |
+| `-truncate` | 마이그레이션 전 대상 테이블 TRUNCATE | `false` | 아니오 |
+| `-upsert` | PK 기준 Upsert (중복 행 건너뜀, PK 필수) | `false` | 아니오 |
+| `-precheck-row-count` | 마이그레이션 전 원본/대상 행 수 사전 점검 수행 (v19) | `false` | 아니오 |
+| `-precheck-policy` | pre-check 정책 (`strict`\|`best_effort`\|`skip_equal_rows`) (v19) | `strict` | 아니오 |
+| `-precheck-filter` | pre-check 결과 출력 필터 (`all`\|`transfer_required`\|`skip_candidate`\|`count_check_failed`) (v19) | `all` | 아니오 |
 
 *\* CLI 모드에서는 필수 항목입니다. (Web 모드 시 UI에서 입력)*
 
@@ -401,6 +407,7 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | 변수 | 설명 | 필수 여부 |
 | --- | --- | --- |
 | `DBM_MASTER_KEY` | v15 인증/접속정보 암호화 기능에서 사용할 마스터 키. 운영 환경에서는 반드시 강한 비밀값을 사용하세요. | `-auth-enabled` 사용 시 필요 |
+| `DBM_V19_PRECHECK` | `false`로 설정 시 v19 pre-check 기능 비활성화 (기본값: `true`) | 아니오 |
 
 ## 개발 (Development)
 

@@ -5,11 +5,15 @@ import {
   Credential,
   HistoryEntry,
   HistoryListResponse,
+  PrecheckResponse,
+  PrecheckSummary,
+  PrecheckTableResult,
   RuntimeMeta,
 } from "../shared/api/types";
 
 type RoleFilter = "all" | "source" | "target";
 type NoticeTone = "info" | "error";
+type PrecheckDecisionFilter = "all" | "transfer_required" | "skip_candidate" | "count_check_failed";
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type TableRunStatus = "pending" | "running" | "completed" | "error";
 type TableHistoryStatusFilter = "all" | "not_started" | "success" | "failed";
@@ -473,6 +477,14 @@ export function App() {
   const [activeTableHistory, setActiveTableHistory] = useState<string | null>(null);
   const [tableHistoryBusy, setTableHistoryBusy] = useState(false);
   const [tableHistoryError, setTableHistoryError] = useState("");
+
+  // v19: precheck state
+  const [precheckBusy, setPrecheckBusy] = useState(false);
+  const [precheckError, setPrecheckError] = useState("");
+  const [precheckSummary, setPrecheckSummary] = useState<PrecheckSummary | null>(null);
+  const [precheckItems, setPrecheckItems] = useState<PrecheckTableResult[]>([]);
+  const [precheckDecisionFilter, setPrecheckDecisionFilter] = useState<PrecheckDecisionFilter>("all");
+  const [precheckPolicy, setPrecheckPolicy] = useState("strict");
 
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginBusy, setLoginBusy] = useState(false);
@@ -1430,6 +1442,49 @@ export function App() {
     setSelectedTables((prev) => prev.filter((table) => !hiddenSet.has(table)));
   }
 
+  async function runPrecheck() {
+    setPrecheckError("");
+    if (!source.oracleUrl || !source.username || !source.password) {
+      setPrecheckError("Source connection fields are required.");
+      return;
+    }
+    if (selectedTables.length === 0) {
+      setPrecheckError("Select at least one table.");
+      return;
+    }
+    setPrecheckBusy(true);
+    setPrecheckSummary(null);
+    setPrecheckItems([]);
+    try {
+      const { response, data } = await apiRequest<PrecheckResponse>(
+        "/api/migrations/precheck",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            oracleUrl: source.oracleUrl,
+            username: source.username,
+            password: source.password,
+            tables: selectedTables,
+            targetDb: target.targetDb,
+            targetUrl: target.mode === "direct" ? target.targetUrl.trim() : "",
+            policy: precheckPolicy,
+          }),
+        },
+      );
+      if (!response.ok || data.error) {
+        setPrecheckError(data.error ?? "Pre-check failed.");
+      } else {
+        setPrecheckSummary(data.summary);
+        setPrecheckItems(data.items ?? []);
+      }
+    } catch (err) {
+      setPrecheckError(err instanceof Error ? err.message : "Pre-check failed.");
+    } finally {
+      setPrecheckBusy(false);
+    }
+  }
+
   async function startMigration() {
     setMigrationError("");
 
@@ -2375,6 +2430,101 @@ export function App() {
                     </label>
                   </div>
                 </details>
+
+                {/* v19: Pre-check row count section */}
+                {meta?.features?.precheckRowCount !== false && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex flex-wrap items-center gap-3">
+                      <h3 className="text-sm font-semibold text-slate-800">Pre-check Row Count</h3>
+                      <select
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                        value={precheckPolicy}
+                        onChange={(e) => setPrecheckPolicy(e.target.value)}
+                      >
+                        <option value="strict">strict</option>
+                        <option value="best_effort">best_effort</option>
+                        <option value="skip_equal_rows">skip_equal_rows</option>
+                      </select>
+                      <button
+                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={precheckBusy || migrationBusy || selectedTables.length === 0}
+                        onClick={() => void runPrecheck()}
+                        type="button"
+                      >
+                        {precheckBusy ? "Checking..." : "Run Pre-check"}
+                      </button>
+                    </div>
+                    {precheckError && (
+                      <p className="mb-2 text-xs font-medium text-red-600">{precheckError}</p>
+                    )}
+                    {precheckSummary && (
+                      <>
+                        <div className="mb-3 grid grid-cols-4 gap-2">
+                          {(
+                            [
+                              { label: "Total", value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800" },
+                              { label: "Transfer Required", value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800" },
+                              { label: "Skip Candidate", value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800" },
+                              { label: "Check Failed", value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800" },
+                            ] as { label: string; value: number; cls: string }[]
+                          ).map(({ label, value, cls }) => (
+                            <div className={`rounded-lg p-2 text-center ${cls}`} key={label}>
+                              <p className="text-lg font-bold">{value}</p>
+                              <p className="text-xs">{label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mb-2 flex gap-1">
+                          {(["all", "transfer_required", "skip_candidate", "count_check_failed"] as PrecheckDecisionFilter[]).map((f) => (
+                            <button
+                              className={`rounded-lg px-2 py-1 text-xs font-medium ${precheckDecisionFilter === f ? "bg-blue-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"}`}
+                              key={f}
+                              onClick={() => setPrecheckDecisionFilter(f)}
+                              type="button"
+                            >
+                              {f === "all" ? "All" : f === "transfer_required" ? "Transfer Required" : f === "skip_candidate" ? "Skip" : "Failed"}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-xs">
+                            <thead className="bg-slate-100 text-slate-600">
+                              <tr>
+                                <th className="px-2 py-1.5 text-left">Table</th>
+                                <th className="px-2 py-1.5 text-right">Source</th>
+                                <th className="px-2 py-1.5 text-right">Target</th>
+                                <th className="px-2 py-1.5 text-right">Diff</th>
+                                <th className="px-2 py-1.5 text-left">Decision</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {precheckItems
+                                .filter((r) => precheckDecisionFilter === "all" || r.decision === precheckDecisionFilter)
+                                .map((r) => (
+                                  <tr className="border-t border-slate-100 hover:bg-slate-50" key={r.table_name}>
+                                    <td className="px-2 py-1.5 font-mono">{r.table_name}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.source_row_count.toLocaleString()}</td>
+                                    <td className="px-2 py-1.5 text-right">{r.target_row_count.toLocaleString()}</td>
+                                    <td className={`px-2 py-1.5 text-right ${r.diff !== 0 ? "font-semibold text-amber-700" : "text-slate-500"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</td>
+                                    <td className="px-2 py-1.5">
+                                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                        r.decision === "transfer_required" ? "bg-amber-100 text-amber-800" :
+                                        r.decision === "skip_candidate" ? "bg-emerald-100 text-emerald-800" :
+                                        "bg-red-100 text-red-800"
+                                      }`}>
+                                        {r.decision === "count_check_failed" && <span title={r.reason}>⚠</span>}
+                                        {r.decision}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 <button
                   className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"

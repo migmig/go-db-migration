@@ -86,6 +86,58 @@ func main() {
 		}
 	}
 
+	// v19: pre-check 행 수 비교
+	if cfg.PrecheckRowCount {
+		precheckCfg := migration.PrecheckEngineConfig{
+			Policy: migration.PrecheckPolicy(cfg.PrecheckPolicy),
+		}
+		slog.Info("running precheck row count", "tables", len(cfg.Tables), "policy", cfg.PrecheckPolicy)
+		sourceCountFn := db.SQLDBCountFn(oracleDB)
+		var targetCountFn migration.RowCountFn
+		if pool != nil {
+			targetCountFn = db.PGPoolCountFn(pool)
+		} else if targetDB != nil {
+			targetCountFn = db.SQLDBCountFn(targetDB)
+		}
+		precheckResults, precheckSummary := migration.RunPrecheckRowCount(nil, cfg.Tables, sourceCountFn, targetCountFn, precheckCfg)
+		slog.Info("precheck complete",
+			"total", precheckSummary.TotalTables,
+			"transfer_required", precheckSummary.TransferRequiredCount,
+			"skip_candidate", precheckSummary.SkipCandidateCount,
+			"count_check_failed", precheckSummary.CountCheckFailedCount,
+		)
+		filtered := migration.FilterPrecheckResults(precheckResults, cfg.PrecheckFilter)
+		for _, r := range filtered {
+			slog.Info("precheck item",
+				"table_name", r.TableName,
+				"decision", r.Decision,
+				"source_row_count", r.SourceRowCount,
+				"target_row_count", r.TargetRowCount,
+				"diff", r.Diff,
+				"reason", r.Reason,
+			)
+		}
+		if cfg.DryRun {
+			slog.Info("dry-run mode: skipping migration after precheck")
+			return
+		}
+		// strict 정책에서 count_check_failed가 있으면 중단
+		plan, planErr := migration.ApplyPrecheckPolicy(precheckResults, migration.PrecheckPolicy(cfg.PrecheckPolicy))
+		if planErr != nil {
+			slog.Error("precheck policy error", "error", planErr)
+			os.Exit(1)
+		}
+		if plan.Blocked {
+			slog.Error("precheck blocked migration", "reason", plan.BlockReason)
+			os.Exit(1)
+		}
+		// skip_equal_rows 정책이면 transfer_tables만 마이그레이션
+		if migration.PrecheckPolicy(cfg.PrecheckPolicy) == migration.PolicySkipEqualRows && len(plan.TransferTables) > 0 {
+			cfg.Tables = plan.TransferTables
+			slog.Info("precheck: reduced table list", "tables", cfg.Tables)
+		}
+	}
+
 	report, err := migration.Run(oracleDB, targetDB, pool, dia, cfg, nil)
 	if err != nil {
 		slog.Error("migration failed", "error", err)
