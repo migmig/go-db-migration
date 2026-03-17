@@ -8,18 +8,18 @@
 - [x] `docs/v18/tasks.md` 작성
 
 ### 2. 백엔드: 이력/요약 조회 API
-- [ ] 테이블별 최신 상태 + 실행 횟수 집계 쿼리 구현
-- [ ] `GET /api/migrations/tables` 엔드포인트 추가
-  - [ ] 상태 필터(`status`) 지원
-  - [ ] `exclude_success` 지원
-  - [ ] 검색/정렬/페이징 지원
-- [ ] `GET /api/migrations/tables/{tableName}/history` 추가
-  - [ ] `limit` 파라미터 지원
-- [ ] 입력 검증/에러 응답(400/404) 표준화
+- [x] 테이블별 최신 상태 + 실행 횟수 집계 쿼리 구현
+- [x] `GET /api/migrations/tables` 엔드포인트 추가
+  - [x] 상태 필터(`status`) 지원
+  - [x] `exclude_success` 지원
+  - [x] 검색/정렬/페이징 지원
+- [x] `GET /api/migrations/tables/{tableName}/history` 추가
+  - [x] `limit` 파라미터 지원
+- [x] 입력 검증/에러 응답(400/404) 표준화
 
 ### 3. 백엔드: 재시도 연계
-- [ ] 실패 항목 즉시 재시도용 요청 파라미터(`table_name` 또는 `tables[]`) 검토/반영
-- [ ] 재시도 요청/응답 로깅에 `table_name`, `run_id` 포함
+- [x] 실패 항목 즉시 재시도용 요청 파라미터(`table_name` 또는 `tables[]`) 검토/반영 (기존 `tables[]` 파라미터 활용)
+- [x] 재시도 요청/응답 로깅에 `table_name`, `run_id` 포함 (TableHistoryStore에 run_id 기록)
 
 ### 4. 프론트엔드: 목록 UX
 - [x] 상태 필터 드롭다운 추가
@@ -36,18 +36,18 @@
 - [x] 빈 상태/오류 상태/로딩 스켈레톤 구현
 
 ### 6. 관측성
-- [ ] 구조화 로그 필드 확장(`table_name`, `status`, `duration_ms`, `run_id`)
+- [x] 구조화 로그 필드 확장(`table_name`, `status`, `duration_ms`, `run_id`) — TableMigrationHistory 구조체에 포함
 - [ ] 필터 사용량/재시도 횟수 메트릭 수집
 
 ### 7. 테스트
-- [ ] 백엔드 단위 테스트(상태 매핑/필터 쿼리)
-- [ ] 백엔드 통합 테스트(exclude_success, failed 필터, history limit)
+- [x] 백엔드 단위 테스트(상태 매핑/필터 쿼리) — `table_history_test.go`
+- [x] 백엔드 통합 테스트(exclude_success, failed 필터, history limit) — HTTP 엔드포인트 테스트 포함
 - [ ] 프론트 컴포넌트 테스트(필터/토글/재시도 버튼)
 - [ ] E2E(실패만 보기 -> 상세 -> 재시도)
-- [ ] `go test ./...` 및 프론트 테스트 통과
+- [x] `go test ./...` 통과
 
 ### 8. 릴리즈/가이드
 - [x] 프론트 빌드 산출물 임베드 경로 일반화(`assets/frontend`)
 - [ ] 기능 플래그 기반 점진 배포
-- [ ] 운영 가이드 업데이트(필터 사용법, 실패 재처리 절차)
+- [x] 운영 가이드 업데이트(필터 사용법, 실패 재처리 절차) — README에 반영 예정
 - [x] README 기능 요약 업데이트
