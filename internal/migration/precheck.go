@@ -1,6 +1,9 @@
 package migration
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // PrecheckDecision은 사전 점검 결과를 바탕으로 테이블별 전송 필요 여부를 나타낸다.
 type PrecheckDecision string
@@ -27,8 +30,18 @@ type PrecheckTableResult struct {
 	TargetRowCount  int              `json:"target_row_count"`
 	Diff            int              `json:"diff"`
 	Decision        PrecheckDecision `json:"decision"`
+	Policy          string           `json:"policy,omitempty"`
 	Reason          string           `json:"reason,omitempty"`
 	TransferPlanned bool             `json:"transfer_planned"`
+	CheckedAt       time.Time        `json:"checked_at"`
+}
+
+// PrecheckSummary는 pre-check 실행 요약 정보를 담는다.
+type PrecheckSummary struct {
+	TotalTables           int `json:"total_tables"`
+	TransferRequiredCount int `json:"transfer_required_count"`
+	SkipCandidateCount    int `json:"skip_candidate_count"`
+	CountCheckFailedCount int `json:"count_check_failed_count"`
 }
 
 // PrecheckExecutionPlan은 policy 적용 이후 실제 전송/제외/차단 상태를 요약한다.

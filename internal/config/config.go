@@ -117,6 +117,10 @@ type Config struct {
 	// v18 flags
 	Truncate bool
 	Upsert   bool
+	// v19 flags
+	PrecheckRowCount bool
+	PrecheckPolicy   string
+	PrecheckFilter   string
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -354,6 +358,10 @@ func ParseFlags() (*Config, error) {
 	flag.StringVar(&cfg.ObjectGroup, "object-group", "all", "마이그레이션 객체 그룹 선택 (all/tables/sequences)")
 	flag.BoolVar(&cfg.Truncate, "truncate", false, "마이그레이션 전 대상 테이블 TRUNCATE (중복 방지)")
 	flag.BoolVar(&cfg.Upsert, "upsert", false, "PK 기준 Upsert (중복 행 건너뜀, PK 필수)")
+	// v19 flags
+	flag.BoolVar(&cfg.PrecheckRowCount, "precheck-row-count", false, "마이그레이션 전 원본/대상 행 수 사전 점검 수행")
+	flag.StringVar(&cfg.PrecheckPolicy, "precheck-policy", "strict", "pre-check 정책 (strict|best_effort|skip_equal_rows)")
+	flag.StringVar(&cfg.PrecheckFilter, "precheck-filter", "all", "pre-check 결과 필터 (all|transfer_required|skip_candidate|count_check_failed)")
 
 	flag.Parse()
 
