@@ -22,7 +22,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **Web UI 입력 자동완성/기억 (v14):** 최근 입력값 자동완성과 상단 공통 DB URL/ID/PASS(비밀번호 기억 옵트인) 복원을 지원하여 재접속 후에도 빠르게 작업을 이어갈 수 있습니다.
 - **인증 기반 멀티유저 (v15):** `-auth-enabled` 플래그로 Web UI의 로그인/로그아웃, 세션 기반 접근 제어, 사용자별 접속정보 저장, 사용자별 작업 이력 조회를 활성화할 수 있습니다.
 - **객체 그룹 선택 실행 (v17):** `-object-group` 플래그로 `all|tables|sequences` 실행 그룹을 선택할 수 있습니다. `sequences` 모드는 시퀀스 DDL 전용 경로를 사용합니다.
-- **테이블 이력 기반 필터링 UI (v18):** v16 UI의 테이블 선택 화면에서 이력 상태 필터(미실행/성공/실패)와 `성공 제외` 토글을 제공해 이미 완료된 테이블을 빠르게 제외할 수 있습니다.
+- **테이블 이력 기반 목록 UX (v18):** v16 UI의 테이블 선택 화면에서 이력 상태 필터(미실행/성공/실패), `성공 제외` 토글, 정렬 컨트롤을 제공하며 상태/이력 뱃지에 텍스트+색상을 함께 적용해 접근성을 높였습니다.
 
 ## 설치 (Installation)
 
@@ -81,9 +81,9 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 > 인증 세션은 `SameSite=Lax`, `HttpOnly` 쿠키를 사용하며 idle timeout 30분, absolute timeout 24시간 정책을 따릅니다. HTTPS 환경에서는 `Secure` 쿠키가 적용됩니다.
 > 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율, `credentials`/`history` API 오류율, `all|tables|sequences` 모드별 실행 수/실패율/재시도 성공률을 제공합니다.
 
-### v16 프런트 미리보기 (Vite + React + Tailwind)
+### v18 프런트 미리보기 (Vite + React + Tailwind)
 
-v16 UI는 별도 프런트 빌드 산출물을 서버가 정적으로 제공하는 방식입니다.
+v18 UI는 별도 프런트 빌드 산출물을 서버가 정적으로 제공하는 방식입니다.
 
 ```bash
 cd frontend
@@ -95,10 +95,10 @@ export DBM_MASTER_KEY="replace-with-16-24-or-32-byte-key"
 ./dbmigrator -web -auth-enabled
 ```
 
-- 기본 접속 URL: `http://localhost:8080/` -> 자동으로 `http://localhost:8080/v16`로 이동합니다.
+- 기본 접속 URL: `http://localhost:8080/` -> 자동으로 `http://localhost:8080/app`로 이동합니다.
 - 구 화면(legacy): `http://localhost:8080/legacy`
 - 런타임에는 Node/Vite dev server가 필요하지 않습니다(빌드 결과물만 사용).
-- `go build`만 수행한 바이너리에는 placeholder v16 페이지가 포함되고, `make offline`으로 빌드한 바이너리에는 실제 v16 번들이 포함됩니다.
+- `go build`만 수행한 바이너리에는 placeholder 프런트 페이지가 포함되고, `make offline`으로 빌드한 바이너리에는 실제 프런트 번들이 포함됩니다.
 
 단일 오프라인 바이너리로 묶으려면 아래처럼 한 번에 빌드할 수 있습니다.
 
@@ -106,7 +106,7 @@ export DBM_MASTER_KEY="replace-with-16-24-or-32-byte-key"
 make offline
 ```
 
-- 이 타깃은 `frontend` 검증/빌드 후, v16 자산을 Go 바이너리에 임베드해서 `./dbmigrator` 하나만 생성합니다.
+- 이 타깃은 `frontend` 검증/빌드 후, 프런트 자산을 Go 바이너리에 임베드해서 `./dbmigrator` 하나만 생성합니다.
 - 생성된 바이너리는 런타임에 `frontend/dist`, Node, npm, 네트워크 연결이 필요하지 않습니다.
 - 다른 출력 파일명을 쓰려면 `make offline OUTPUT=./build/dbmigrator` 형식으로 실행하면 됩니다.
 
