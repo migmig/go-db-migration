@@ -462,28 +462,6 @@ export function App() {
     return next;
   }, [history]);
 
-  const tableHistoryDetails = useMemo<Record<string, TableHistoryDetail>>(() => {
-    const next: Record<string, TableHistoryDetail> = {};
-    for (const entry of history) {
-      const tables = parseReplayedTables(entry.optionsJson);
-      for (const tableName of tables) {
-        const normalized = normalizeTableKey(tableName);
-        if (!next[normalized]) {
-          next[normalized] = { tableName: normalized, entries: [] };
-        }
-        next[normalized].entries.push(entry);
-      }
-    }
-
-    Object.values(next).forEach((detail) => {
-      detail.entries.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    });
-
-    return next;
-  }, [history]);
-
   const filteredTables = useMemo(() => {
     const filtered = allTables.filter((table) => {
       if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
