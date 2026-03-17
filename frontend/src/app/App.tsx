@@ -13,6 +13,7 @@ type NoticeTone = "info" | "error";
 type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
 type TableRunStatus = "pending" | "running" | "completed" | "error";
 type TableHistoryStatusFilter = "all" | "not_started" | "success" | "failed";
+type TableSortOption = "table_asc" | "table_desc" | "recent_desc" | "runs_desc" | "history_status";
 type ObjectGroup = "all" | "tables" | "sequences";
 
 type SourceState = {
@@ -69,6 +70,11 @@ type TableHistoryState = {
   status: "success" | "failed";
   runCount: number;
   lastRunAt: string;
+};
+
+type TableHistoryDetail = {
+  tableName: string;
+  entries: HistoryEntry[];
 };
 
 function normalizeTableKey(tableName: string): string {
@@ -303,6 +309,29 @@ function tableStatusLabel(status: TableRunStatus): string {
   }
 }
 
+function tableStatusBadgeClass(status: TableRunStatus): string {
+  switch (status) {
+    case "completed":
+      return "border-emerald-300 bg-emerald-100 text-emerald-900";
+    case "error":
+      return "border-red-300 bg-red-100 text-red-900";
+    case "running":
+      return "border-blue-300 bg-blue-100 text-blue-900";
+    default:
+      return "border-slate-300 bg-slate-100 text-slate-800";
+  }
+}
+
+function historyStatusLabel(status: TableHistoryState["status"]): string {
+  return status === "success" ? "History success" : "History failed";
+}
+
+function historyStatusBadgeClass(status: TableHistoryState["status"]): string {
+  return status === "success"
+    ? "border-emerald-300 bg-emerald-100 text-emerald-900"
+    : "border-red-300 bg-red-100 text-red-900";
+}
+
 function parseReplayedTables(optionsJson: string): string[] {
   if (!optionsJson) return [];
   try {
@@ -345,6 +374,7 @@ export function App() {
   const [allTables, setAllTables] = useState<string[]>([]);
   const [tableSearch, setTableSearch] = useState("");
   const [tableStatusFilter, setTableStatusFilter] = useState<TableHistoryStatusFilter>("all");
+  const [tableSort, setTableSort] = useState<TableSortOption>("table_asc");
   const [excludeMigratedSuccess, setExcludeMigratedSuccess] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
@@ -385,6 +415,7 @@ export function App() {
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [activeTableHistory, setActiveTableHistory] = useState<string | null>(null);
 
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginBusy, setLoginBusy] = useState(false);
@@ -431,27 +462,88 @@ export function App() {
     return next;
   }, [history]);
 
-  const filteredTables = allTables.filter((table) => {
-    if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
-      return false;
+  const tableHistoryDetails = useMemo<Record<string, TableHistoryDetail>>(() => {
+    const next: Record<string, TableHistoryDetail> = {};
+    for (const entry of history) {
+      const tables = parseReplayedTables(entry.optionsJson);
+      for (const tableName of tables) {
+        const normalized = normalizeTableKey(tableName);
+        if (!next[normalized]) {
+          next[normalized] = { tableName: normalized, entries: [] };
+        }
+        next[normalized].entries.push(entry);
+      }
     }
-    const historyState = historyByTable[normalizeTableKey(table)];
-    if (excludeMigratedSuccess && historyState?.status === "success") {
-      return false;
-    }
-    if (tableStatusFilter === "not_started") {
-      return !historyState;
-    }
-    if (tableStatusFilter === "success") {
-      return historyState?.status === "success";
-    }
-    if (tableStatusFilter === "failed") {
-      return historyState?.status === "failed";
-    }
-    return true;
-  });
+
+    Object.values(next).forEach((detail) => {
+      detail.entries.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    });
+
+    return next;
+  }, [history]);
+
+  const filteredTables = useMemo(() => {
+    const filtered = allTables.filter((table) => {
+      if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
+        return false;
+      }
+      const historyState = historyByTable[normalizeTableKey(table)];
+      if (excludeMigratedSuccess && historyState?.status === "success") {
+        return false;
+      }
+      if (tableStatusFilter === "not_started") {
+        return !historyState;
+      }
+      if (tableStatusFilter === "success") {
+        return historyState?.status === "success";
+      }
+      if (tableStatusFilter === "failed") {
+        return historyState?.status === "failed";
+      }
+      return true;
+    });
+
+    const historyRank = (tableName: string): number => {
+      const state = historyByTable[normalizeTableKey(tableName)];
+      if (!state) return 0;
+      if (state.status === "failed") return 1;
+      return 2;
+    };
+
+    filtered.sort((a, b) => {
+      if (tableSort === "table_desc") {
+        return b.localeCompare(a);
+      }
+      if (tableSort === "recent_desc") {
+        const aTime = historyByTable[normalizeTableKey(a)]?.lastRunAt ?? "";
+        const bTime = historyByTable[normalizeTableKey(b)]?.lastRunAt ?? "";
+        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
+        if (diff !== 0) return diff;
+        return a.localeCompare(b);
+      }
+      if (tableSort === "runs_desc") {
+        const aCount = historyByTable[normalizeTableKey(a)]?.runCount ?? 0;
+        const bCount = historyByTable[normalizeTableKey(b)]?.runCount ?? 0;
+        if (bCount !== aCount) return bCount - aCount;
+        return a.localeCompare(b);
+      }
+      if (tableSort === "history_status") {
+        const rankDiff = historyRank(a) - historyRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return a.localeCompare(b);
+      }
+      return a.localeCompare(b);
+    });
+
+    return filtered;
+  }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
+  const activeHistoryDetail = activeTableHistory
+    ? tableHistoryDetails[normalizeTableKey(activeTableHistory)]
+    : undefined;
   const allVisibleSelected =
     filteredTables.length > 0 &&
     filteredTables.every((table) => selectedTableSet.has(table));
@@ -1360,7 +1452,7 @@ export function App() {
   if (booting) {
     return (
       <div className="flex min-h-screen items-center justify-center text-slate-700">
-        Loading v16 preview...
+        Loading v18 preview...
       </div>
     );
   }
@@ -1369,7 +1461,7 @@ export function App() {
     return (
       <div className="mx-auto flex min-h-screen max-w-3xl items-center px-6 py-12">
         <div className="card-surface w-full p-8">
-          <h1 className="text-xl font-semibold text-slate-900">v16 boot failed</h1>
+          <h1 className="text-xl font-semibold text-slate-900">v18 boot failed</h1>
           <p className="mt-3 text-sm text-red-600">{bootError}</p>
           <button
             className="mt-5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white"
@@ -1391,7 +1483,7 @@ export function App() {
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
               DBMigrator
             </p>
-            <h1 className="text-2xl font-bold text-slate-900">v16 Migration Workspace</h1>
+            <h1 className="text-2xl font-bold text-slate-900">v18 Migration Workspace</h1>
             <p className="mt-1 text-sm text-slate-600">
               Source/target setup, migration options, and real-time run status.
             </p>
@@ -1712,6 +1804,18 @@ export function App() {
                   <option value="success">Migrated (success)</option>
                   <option value="failed">Migrated (failed)</option>
                 </select>
+                <select
+                  aria-label="Table sort"
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                  onChange={(event) => setTableSort(event.target.value as TableSortOption)}
+                  value={tableSort}
+                >
+                  <option value="table_asc">Sort: Table name (A-Z)</option>
+                  <option value="table_desc">Sort: Table name (Z-A)</option>
+                  <option value="recent_desc">Sort: Latest history</option>
+                  <option value="runs_desc">Sort: Run count</option>
+                  <option value="history_status">Sort: History status</option>
+                </select>
                 <label className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
                   <input
                     checked={excludeMigratedSuccess}
@@ -1764,6 +1868,9 @@ export function App() {
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
                         History
                       </th>
+                      <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1771,7 +1878,7 @@ export function App() {
                       <tr>
                         <td
                           className="px-3 py-6 text-center text-slate-500"
-                          colSpan={4}
+                          colSpan={5}
                         >
                           No tables match your filter.
                         </td>
@@ -1781,14 +1888,8 @@ export function App() {
                       const item = tableProgress[table];
                       const historyState = historyByTable[normalizeTableKey(table)];
                       const status = item?.status ?? "pending";
-                      const badgeClass =
-                        status === "completed"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : status === "error"
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : status === "running"
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-slate-50 text-slate-600";
+                      const statusLabel = tableStatusLabel(status);
+                      const badgeClass = tableStatusBadgeClass(status);
 
                       return (
                         <tr className="border-b border-slate-100 last:border-b-0" key={table}>
@@ -1803,15 +1904,48 @@ export function App() {
                           <td className="px-3 py-2 font-medium text-slate-800">{table}</td>
                           <td className="px-3 py-2">
                             <span
-                              className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                              aria-label={`Table status: ${statusLabel}`}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClass}`}
+                              role="status"
                             >
-                              {tableStatusLabel(status)}
+                              <span aria-hidden="true">●</span>
+                              {statusLabel}
                             </span>
                           </td>
                           <td className="px-3 py-2 text-xs text-slate-600">
-                            {historyState
-                              ? `${historyState.status === "success" ? "Success" : "Failed"} · ${historyState.runCount} run(s) · ${formatHistoryTime(historyState.lastRunAt)}`
-                              : "Not started"}
+                            {historyState ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  aria-label={historyStatusLabel(historyState.status)}
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${historyStatusBadgeClass(historyState.status)}`}
+                                  role="status"
+                                >
+                                  <span aria-hidden="true">●</span>
+                                  {historyState.status === "success" ? "Success" : "Failed"}
+                                </span>
+                                <span>{historyState.runCount} run(s)</span>
+                                <span>{formatHistoryTime(historyState.lastRunAt)}</span>
+                              </div>
+                            ) : (
+                              <span
+                                aria-label="History not started"
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 font-semibold text-slate-800"
+                                role="status"
+                              >
+                                <span aria-hidden="true">●</span>
+                                Not started
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="px-3 py-2 text-xs text-slate-600">
+                            <button
+                              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
+                              onClick={() => setActiveTableHistory(table)}
+                              type="button"
+                            >
+                              View history
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1819,6 +1953,59 @@ export function App() {
                   </tbody>
                 </table>
               </div>
+              {activeTableHistory && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Table history: {activeTableHistory}
+                    </h3>
+                    <button
+                      className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
+                      onClick={() => setActiveTableHistory(null)}
+                      type="button"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  {activeHistoryDetail && activeHistoryDetail.entries.length > 0 ? (
+                    <ul className="space-y-2 text-xs text-slate-700">
+                      {activeHistoryDetail.entries.slice(0, 5).map((entry) => {
+                        const failed = entry.status !== "success";
+                        return (
+                          <li
+                            className="rounded border border-slate-200 bg-white px-3 py-2"
+                            key={`table-history-${entry.id}`}
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${failed ? "border-red-300 bg-red-100 text-red-900" : "border-emerald-300 bg-emerald-100 text-emerald-900"}`}
+                              >
+                                <span aria-hidden="true">●</span>
+                                {failed ? "Failed" : "Success"}
+                              </span>
+                              <span>{formatHistoryTime(entry.createdAt)}</span>
+                              {failed && (
+                                <button
+                                  className="rounded border border-red-300 bg-red-50 px-2 py-0.5 font-semibold text-red-700 hover:bg-red-100"
+                                  onClick={() => void replayHistory(entry.id)}
+                                  type="button"
+                                >
+                                  Retry settings
+                                </button>
+                              )}
+                            </div>
+                            {failed && entry.logSummary && (
+                              <p className="mt-1 text-red-700">{entry.logSummary}</p>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-slate-500">No history found for this table.</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="card-surface p-5">
