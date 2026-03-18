@@ -40,8 +40,8 @@
   - [x] `ctx.Done()` 시 즉시 중단
   - [x] 재시도 발생 시 `slog.Warn` 로그 출력
   - [x] `eventFn`을 통해 `RetryEvent` 전달
-- [ ] 마이그레이션 엔진 내 `ErrConnectionLost`·`ErrTimeout` 발생 위치에 `WithRetry` 적용
-- [ ] 환경변수 `DBM_MAX_RETRIES`, `DBM_RETRY_INITIAL_WAIT` 파싱 적용
+- [x] 마이그레이션 엔진 내 `ErrConnectionLost`·`ErrTimeout` 발생 위치에 `WithRetry` 적용
+- [x] 환경변수 `DBM_MAX_RETRIES`, `DBM_RETRY_INITIAL_WAIT` 파싱 적용
 
 ### 6. FR-5: 부분 실패 허용 정책 (`skip_batch`)
 - [ ] `internal/migration/state.go`에 `StatusPartialSuccess = "partial_success"` 추가
