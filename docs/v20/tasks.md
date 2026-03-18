@@ -32,14 +32,14 @@
 - [x] `ParseFlags` 완료 후 `validateConfig` 호출 및 오류 시 `os.Exit(1)`
 
 ### 5. FR-4: 지수 백오프 재시도 (`internal/migration/retry.go` 신규)
-- [ ] `RetryConfig` 구조체 정의 (`MaxAttempts`, `InitialWait`, `Multiplier`, `MaxWait`)
-- [ ] `DefaultRetryConfig()` 함수 구현
-- [ ] `RetryEvent` 구조체 추가 (`internal/migration/errors.go`)
-- [ ] `WithRetry(ctx, cfg, tableName, eventFn, fn)` 함수 구현
-  - [ ] `MigrationError.Recoverable=true` 경우에만 재시도
-  - [ ] `ctx.Done()` 시 즉시 중단
-  - [ ] 재시도 발생 시 `slog.Warn` 로그 출력
-  - [ ] `eventFn`을 통해 `RetryEvent` 전달
+- [x] `RetryConfig` 구조체 정의 (`MaxAttempts`, `InitialWait`, `Multiplier`, `MaxWait`)
+- [x] `DefaultRetryConfig()` 함수 구현
+- [x] `RetryEvent` 구조체 추가 (`internal/migration/errors.go`)
+- [x] `WithRetry(ctx, cfg, tableName, eventFn, fn)` 함수 구현
+  - [x] `MigrationError.Recoverable=true` 경우에만 재시도
+  - [x] `ctx.Done()` 시 즉시 중단
+  - [x] 재시도 발생 시 `slog.Warn` 로그 출력
+  - [x] `eventFn`을 통해 `RetryEvent` 전달
 - [ ] 마이그레이션 엔진 내 `ErrConnectionLost`·`ErrTimeout` 발생 위치에 `WithRetry` 적용
 - [ ] 환경변수 `DBM_MAX_RETRIES`, `DBM_RETRY_INITIAL_WAIT` 파싱 적용
 
@@ -75,8 +75,8 @@
   - [x] `startCleanupLoop` 종료 검증
 - [x] 입력 검증 단위 테스트 (`internal/config/config_test.go`)
   - [x] 경계값 이하/이상/경계값 정상 통과 검증
-- [ ] 재시도 단위 테스트 (`internal/migration/retry_test.go` 신규)
-  - [ ] 1회 실패 후 성공, MaxAttempts 소진, Recoverable=false, ctx.Cancel 시나리오
+- [x] 재시도 단위 테스트 (`internal/migration/retry_test.go` 신규)
+  - [x] 1회 실패 후 성공, MaxAttempts 소진, Recoverable=false, ctx.Cancel 시나리오
 - [ ] skip_batch 통합 테스트 (`internal/migration/direct_test.go` 확장)
   - [ ] 3배치 중 2번째 오류 + skip_batch → partial_success
   - [ ] 3배치 중 2번째 오류 + fail_fast → failed

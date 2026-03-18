@@ -22,7 +22,7 @@ const (
 // MigrationError는 마이그레이션 과정에서 발생하는 구조화된 에러이다.
 type MigrationError struct {
 	Table       string
-	Phase       string        // "ddl", "data", "index", "constraint", "validation"
+	Phase       string // "ddl", "data", "index", "constraint", "validation"
 	Category    ErrorCategory
 	BatchNum    int    // 1-based 배치 번호 (data phase에서만 유효)
 	RowOffset   int    // 전체 행 기준 오프셋
@@ -51,6 +51,15 @@ func (e *MigrationError) Unwrap() error {
 	return e.RootCause
 }
 
+// RetryEvent는 자동 재시도 시 UI/관측성으로 전달되는 이벤트 payload이다.
+type RetryEvent struct {
+	TableName   string
+	Attempt     int
+	MaxAttempts int
+	ErrorMsg    string
+	WaitSeconds int
+}
+
 // DetailedError는 ws 패키지가 순환 의존 없이 에러 상세 필드를 읽을 수 있도록 하는 인터페이스이다.
 type DetailedError interface {
 	ErrorPhase() string
@@ -59,12 +68,12 @@ type DetailedError interface {
 	IsRecoverable() bool
 }
 
-func (e *MigrationError) ErrorPhase() string     { return e.Phase }
-func (e *MigrationError) ErrorCategory() string  { return string(e.Category) }
+func (e *MigrationError) ErrorPhase() string      { return e.Phase }
+func (e *MigrationError) ErrorCategory() string   { return string(e.Category) }
 func (e *MigrationError) ErrorSuggestion() string { return e.Suggestion }
-func (e *MigrationError) IsRecoverable() bool    { return e.Recoverable }
-func (e *MigrationError) ErrorBatchNum() int     { return e.BatchNum }
-func (e *MigrationError) ErrorRowOffset() int    { return e.RowOffset }
+func (e *MigrationError) IsRecoverable() bool     { return e.Recoverable }
+func (e *MigrationError) ErrorBatchNum() int      { return e.BatchNum }
+func (e *MigrationError) ErrorRowOffset() int     { return e.RowOffset }
 
 // classifyError는 DB 드라이버 에러 메시지를 분석하여 ErrorCategory를 결정한다.
 func classifyError(err error) ErrorCategory {
