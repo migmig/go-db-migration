@@ -92,12 +92,12 @@ func main() {
 			Policy: migration.PrecheckPolicy(cfg.PrecheckPolicy),
 		}
 		slog.Info("running precheck row count", "tables", len(cfg.Tables), "policy", cfg.PrecheckPolicy)
-		sourceCountFn := db.SQLDBCountFn(oracleDB)
+		sourceCountFn := db.SQLDBCountFn(oracleDB, nil)
 		var targetCountFn migration.RowCountFn
 		if pool != nil {
-			targetCountFn = db.PGPoolCountFn(pool)
+			targetCountFn = db.PGPoolCountFn(pool, dia.QuoteIdentifier)
 		} else if targetDB != nil {
-			targetCountFn = db.SQLDBCountFn(targetDB)
+			targetCountFn = db.SQLDBCountFn(targetDB, dia.QuoteIdentifier)
 		}
 		precheckResults, precheckSummary := migration.RunPrecheckRowCount(nil, cfg.Tables, sourceCountFn, targetCountFn, precheckCfg)
 		slog.Info("precheck complete",

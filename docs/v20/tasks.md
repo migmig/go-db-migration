@@ -18,10 +18,10 @@
 - [ ] 환경변수 `DBM_MAX_SESSIONS`, `DBM_SESSION_CLEANUP_INTERVAL` 파싱 적용
 
 ### 3. FR-2: SQL 식별자 인용 (`internal/db/db.go`)
-- [ ] `SQLDBCountFn` 시그니처에 `quoteIdentifier func(string) string` 파라미터 추가
-- [ ] `PGPoolCountFn` 시그니처에 `quoteIdentifier func(string) string` 파라미터 추가
-- [ ] 두 함수 내부의 문자열 연결 `COUNT(*)` 쿼리를 `quoteIdentifier(tableName)` 적용으로 교체
-- [ ] 호출부에서 해당 Dialect의 `QuoteIdentifier` 메서드 전달
+- [x] `SQLDBCountFn` 시그니처에 `quoteIdentifier func(string) string` 파라미터 추가
+- [x] `PGPoolCountFn` 시그니처에 `quoteIdentifier func(string) string` 파라미터 추가
+- [x] 두 함수 내부의 문자열 연결 `COUNT(*)` 쿼리를 `quoteIdentifier(tableName)` 적용으로 교체
+- [x] 호출부에서 해당 Dialect의 `QuoteIdentifier` 메서드 전달
 
 ### 4. FR-3: 수치형 입력 검증 (`internal/config/config.go`)
 - [ ] `validateConfig(cfg *Config) error` 함수 구현
@@ -81,7 +81,7 @@
   - [ ] 3배치 중 2번째 오류 + skip_batch → partial_success
   - [ ] 3배치 중 2번째 오류 + fail_fast → failed
 - [ ] SQL 인젝션 방어 테스트 (`internal/db/db_test.go`)
-  - [ ] 특수문자 테이블명 QuoteIdentifier 적용 검증
+  - [x] 특수문자 테이블명 QuoteIdentifier 적용 검증
 - [ ] `go test ./...` 전량 통과
 
 ### 11. CLI/릴리즈
