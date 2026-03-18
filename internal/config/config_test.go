@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // resetFlags resets the global flag.CommandLine so ParseFlags can be called
@@ -206,6 +207,26 @@ func TestParseFlags_ExplicitFlags(t *testing.T) {
 	}
 	if !cfg.AuthEnabled {
 		t.Error("expected AuthEnabled=true")
+	}
+}
+
+func TestParseFlags_EnvRetryOverrides(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	t.Setenv("DBM_MAX_RETRIES", "7")
+	t.Setenv("DBM_RETRY_INITIAL_WAIT", "250ms")
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.MaxRetries != 7 {
+		t.Fatalf("MaxRetries=%d, want 7", cfg.MaxRetries)
+	}
+	if cfg.RetryInitialWait != 250*time.Millisecond {
+		t.Fatalf("RetryInitialWait=%v, want 250ms", cfg.RetryInitialWait)
 	}
 }
 

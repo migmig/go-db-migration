@@ -411,6 +411,8 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | --- | --- | --- |
 | `DBM_MASTER_KEY` | v15 인증/접속정보 암호화 기능에서 사용할 마스터 키. 운영 환경에서는 반드시 강한 비밀값을 사용하세요. | `-auth-enabled` 사용 시 필요 |
 | `DBM_V19_PRECHECK` | `false`로 설정 시 v19 pre-check 기능 비활성화 (기본값: `true`) | 아니오 |
+| `DBM_MAX_RETRIES` | v20 데이터 배치 재시도 횟수 override (`0`이면 기본 정책 유지, 값이 크면 총 시도 횟수 증가). | 아니오 |
+| `DBM_RETRY_INITIAL_WAIT` | v20 재시도 초기 대기시간 override (`time.ParseDuration` 형식, 예: `250ms`, `2s`). | 아니오 |
 
 ## 개발 (Development)
 

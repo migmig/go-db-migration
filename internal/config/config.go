@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var osExit = os.Exit
@@ -121,6 +122,9 @@ type Config struct {
 	PrecheckRowCount bool
 	PrecheckPolicy   string
 	PrecheckFilter   string
+	// v20 env overrides
+	MaxRetries       int
+	RetryInitialWait time.Duration
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -366,6 +370,7 @@ func ParseFlags() (*Config, error) {
 	flag.Parse()
 
 	cfg.MasterKey = os.Getenv("DBM_MASTER_KEY")
+	applyV20EnvOverrides(cfg)
 
 	// v6: Backward compatibility for pg-url
 	if cfg.TargetDB == "postgres" && cfg.PGURL != "" {
@@ -474,5 +479,18 @@ func normalizeDDLOptions(cfg *Config) {
 	if cfg.WithSequences || cfg.WithIndexes || cfg.WithConstraints {
 		fmt.Println("Warning: -with-sequences/-with-indexes/-with-constraints requires -with-ddl. Enabling -with-ddl automatically.")
 		cfg.WithDDL = true
+	}
+}
+
+func applyV20EnvOverrides(cfg *Config) {
+	if raw := strings.TrimSpace(os.Getenv("DBM_MAX_RETRIES")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
+			cfg.MaxRetries = parsed
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("DBM_RETRY_INITIAL_WAIT")); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			cfg.RetryInitialWait = parsed
+		}
 	}
 }

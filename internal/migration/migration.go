@@ -1065,6 +1065,24 @@ func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex
 	buf.WriteString(s)
 }
 
+func retryConfigFromRuntime(cfg *config.Config) RetryConfig {
+	retryCfg := DefaultRetryConfig()
+	if cfg == nil {
+		return retryCfg
+	}
+	if cfg.MaxRetries > 0 {
+		retryCfg.MaxAttempts = cfg.MaxRetries + 1
+	}
+	if cfg.RetryInitialWait > 0 {
+		retryCfg.InitialWait = cfg.RetryInitialWait
+	}
+	return retryCfg
+}
+
+func isRecoverableCategory(cat ErrorCategory) bool {
+	return cat == ErrConnectionLost || cat == ErrTimeout
+}
+
 // migrateTablePgBatchCopy는 PostgreSQL 대상으로 Oracle 데이터를 배치 단위로 분할하여 COPY한다.
 // 각 배치마다 체크포인트를 저장하므로 중단 후 재개가 가능하고, 진행률을 실시간으로 업데이트한다.
 func migrateTablePgBatchCopy(
@@ -1088,75 +1106,87 @@ func migrateTablePgBatchCopy(
 	colTypes, _ := db.FetchColumnTypes(context.Background(), pgPool, pgSchema, tableName)
 
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
-		query := fmt.Sprintf(
-			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
-			quotedTable, offset, batchSize,
-		)
-		rows, err := dbConn.Query(query)
-		if err != nil {
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: classifyError(err),
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+		var n int64
+		retryErr := WithRetry(context.Background(), retryConfigFromRuntime(cfg), tableName, nil, func() error {
+			query := fmt.Sprintf(
+				"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+				quotedTable, offset, batchSize,
+			)
+			rows, err := dbConn.Query(query)
+			if err != nil {
+				cat := classifyError(err)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: err, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
 
-		batchCols, err := rows.Columns()
-		if err != nil {
+			batchCols, err := rows.Columns()
+			if err != nil {
+				rows.Close()
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: ErrUnknown,
+					RootCause: err,
+				}
+			}
+			if len(cols) == 0 {
+				cols = batchCols
+			}
+
+			ctx := context.Background()
+			tx, err := pgPool.Begin(ctx)
+			if err != nil {
+				rows.Close()
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: ErrConnectionLost,
+					RootCause: err, Recoverable: true,
+					Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+				}
+			}
+
+			source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: colTypes}
+			var ident pgx.Identifier
+			if cfg.Schema != "" {
+				ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
+			} else {
+				ident = pgx.Identifier{strings.ToLower(tableName)}
+			}
+
+			lowerBatchCols := make([]string, len(batchCols))
+			for i, c := range batchCols {
+				lowerBatchCols[i] = strings.ToLower(c)
+			}
+
+			var copyErr error
+			n, copyErr = tx.CopyFrom(ctx, ident, lowerBatchCols, source)
 			rows.Close()
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: ErrUnknown,
-				RootCause: err,
+
+			if copyErr != nil {
+				tx.Rollback(ctx)
+				cat := classifyError(copyErr)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: copyErr, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
-		if len(cols) == 0 {
-			cols = batchCols
-		}
 
-		ctx := context.Background()
-		tx, err := pgPool.Begin(ctx)
-		if err != nil {
-			rows.Close()
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: ErrConnectionLost,
-				RootCause: err, Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+			if err := tx.Commit(ctx); err != nil {
+				cat := classifyError(err)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: err, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
-
-		source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: colTypes}
-		var ident pgx.Identifier
-		if cfg.Schema != "" {
-			ident = pgx.Identifier{strings.ToLower(cfg.Schema), strings.ToLower(tableName)}
-		} else {
-			ident = pgx.Identifier{strings.ToLower(tableName)}
-		}
-
-		lowerBatchCols := make([]string, len(batchCols))
-		for i, c := range batchCols {
-			lowerBatchCols[i] = strings.ToLower(c)
-		}
-
-		n, copyErr := tx.CopyFrom(ctx, ident, lowerBatchCols, source)
-		rows.Close()
-
-		if copyErr != nil {
-			tx.Rollback(ctx)
-			cat := classifyError(copyErr)
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: cat,
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: copyErr, Recoverable: cat != ErrConnectionLost,
-				Suggestion: suggestFix(cat, "postgres"),
-			}
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			cat := classifyError(err)
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: cat,
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: err, Suggestion: suggestFix(cat, "postgres"),
-			}
+			return nil
+		})
+		if retryErr != nil {
+			return offset, retryErr
 		}
 
 		offset += int(n)
@@ -1243,73 +1273,86 @@ func migrateTablePgUpsert(
 	}
 
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
-		query := fmt.Sprintf(
-			"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
-			dialect.QuoteOracleIdentifier(tableName), offset, batchSize,
-		)
-		rows, err := dbConn.Query(query)
-		if err != nil {
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: classifyError(err),
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: err, Suggestion: suggestFix(classifyError(err), "postgres"),
+		var n int64
+		retryErr := WithRetry(ctx, retryConfigFromRuntime(cfg), tableName, nil, func() error {
+			query := fmt.Sprintf(
+				"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
+				dialect.QuoteOracleIdentifier(tableName), offset, batchSize,
+			)
+			rows, err := dbConn.Query(query)
+			if err != nil {
+				cat := classifyError(err)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: err, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
 
-		batchCols, err := rows.Columns()
-		if err != nil {
+			batchCols, err := rows.Columns()
+			if err != nil {
+				rows.Close()
+				return &MigrationError{Table: tableName, Phase: "data", Category: ErrUnknown, RootCause: err}
+			}
+			if len(cols) == 0 {
+				cols = batchCols
+			}
+			lowerCols := make([]string, len(batchCols))
+			for i, c := range batchCols {
+				lowerCols[i] = strings.ToLower(c)
+			}
+
+			tx, err := pgPool.Begin(ctx)
+			if err != nil {
+				rows.Close()
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: ErrConnectionLost,
+					RootCause: err, Recoverable: true,
+					Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+				}
+			}
+
+			source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: upsertColTypes}
+			var copyErr error
+			n, copyErr = tx.CopyFrom(ctx, stageIdent, lowerCols, source)
 			rows.Close()
-			return offset, &MigrationError{Table: tableName, Phase: "data", Category: ErrUnknown, RootCause: err}
-		}
-		if len(cols) == 0 {
-			cols = batchCols
-		}
-		lowerCols := make([]string, len(batchCols))
-		for i, c := range batchCols {
-			lowerCols[i] = strings.ToLower(c)
-		}
 
-		tx, err := pgPool.Begin(ctx)
-		if err != nil {
-			rows.Close()
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: ErrConnectionLost,
-				RootCause: err, Suggestion: suggestFix(ErrConnectionLost, "postgres"),
+			if copyErr != nil {
+				tx.Rollback(ctx)
+				cat := classifyError(copyErr)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: copyErr, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
 
-		source := &oracleCopySource{rows: rows, cols: batchCols, colTypes: upsertColTypes}
-		n, copyErr := tx.CopyFrom(ctx, stageIdent, lowerCols, source)
-		rows.Close()
-
-		if copyErr != nil {
-			tx.Rollback(ctx)
-			cat := classifyError(copyErr)
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: cat,
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: copyErr, Recoverable: cat != ErrConnectionLost,
-				Suggestion: suggestFix(cat, "postgres"),
+			if _, execErr := tx.Exec(ctx, insertSQL); execErr != nil {
+				tx.Rollback(ctx)
+				cat := classifyError(execErr)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: execErr, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
 
-		if _, execErr := tx.Exec(ctx, insertSQL); execErr != nil {
-			tx.Rollback(ctx)
-			cat := classifyError(execErr)
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: cat,
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: execErr, Suggestion: suggestFix(cat, "postgres"),
+			if err := tx.Commit(ctx); err != nil {
+				cat := classifyError(err)
+				return &MigrationError{
+					Table: tableName, Phase: "data", Category: cat,
+					BatchNum: batchNum, RowOffset: offset,
+					RootCause: err, Recoverable: isRecoverableCategory(cat),
+					Suggestion: suggestFix(cat, "postgres"),
+				}
 			}
-		}
-
-		if err := tx.Commit(ctx); err != nil {
-			cat := classifyError(err)
-			return offset, &MigrationError{
-				Table: tableName, Phase: "data", Category: cat,
-				BatchNum: batchNum, RowOffset: offset,
-				RootCause: err, Suggestion: suggestFix(cat, "postgres"),
-			}
+			return nil
+		})
+		if retryErr != nil {
+			return offset, retryErr
 		}
 
 		offset += int(n)
