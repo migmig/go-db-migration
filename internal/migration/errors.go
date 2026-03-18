@@ -60,6 +60,26 @@ type RetryEvent struct {
 	WaitSeconds int
 }
 
+// PartialBatchError는 skip_batch 정책으로 일부 배치를 건너뛰고 완료했을 때 사용된다.
+type PartialBatchError struct {
+	Table                string
+	SkippedBatches       int
+	EstimatedSkippedRows int
+	Cause                error
+}
+
+func (e *PartialBatchError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("partial success (table=%s, skipped_batches=%d, estimated_skipped_rows=%d): %v",
+			e.Table, e.SkippedBatches, e.EstimatedSkippedRows, e.Cause)
+	}
+	return fmt.Sprintf("partial success (table=%s, skipped_batches=%d, estimated_skipped_rows=%d)",
+		e.Table, e.SkippedBatches, e.EstimatedSkippedRows)
+}
+
 // DetailedError는 ws 패키지가 순환 의존 없이 에러 상세 필드를 읽을 수 있도록 하는 인터페이스이다.
 type DetailedError interface {
 	ErrorPhase() string

@@ -44,12 +44,12 @@
 - [x] 환경변수 `DBM_MAX_RETRIES`, `DBM_RETRY_INITIAL_WAIT` 파싱 적용
 
 ### 6. FR-5: 부분 실패 허용 정책 (`skip_batch`)
-- [ ] `internal/migration/state.go`에 `StatusPartialSuccess = "partial_success"` 추가
-- [ ] `internal/config/config.go`에 `OnError string` 필드 및 `--on-error` 플래그 추가
+- [x] `internal/migration/state.go`에 `StatusPartialSuccess = "partial_success"` 추가
+- [x] `internal/config/config.go`에 `OnError string` 필드 및 `--on-error` 플래그 추가
 - [ ] `internal/migration/migration.go` 배치 루프 내 `OnError="skip_batch"` 분기 처리
-  - [ ] 건너뛴 배치 수(`skippedBatches`) 카운트
-  - [ ] 완료 후 상태를 `partial_success`로 기록
-- [ ] 최종 리포트에 `skipped_batches`, `estimated_skipped_rows` 필드 추가
+  - [x] 건너뛴 배치 수(`skippedBatches`) 카운트
+  - [x] 완료 후 상태를 `partial_success`로 기록
+- [x] 최종 리포트에 `skipped_batches`, `estimated_skipped_rows` 필드 추가
 
 ### 7. 웹소켓/API 연계
 - [ ] `bus` 패키지에 `retry` 이벤트 타입 추가
@@ -85,6 +85,6 @@
 - [ ] `go test ./...` 전량 통과
 
 ### 11. CLI/릴리즈
-- [ ] `--on-error` 플래그 도움말 및 자동완성(zsh/fish/bash) 업데이트
+- [x] `--on-error` 플래그 도움말 및 자동완성(zsh/fish/bash) 업데이트
 - [ ] feature flag (`DBM_V20_*`) 기반 점진 배포 설정
-- [ ] README 업데이트 (신규 플래그, 환경변수, 오류 처리 정책 설명)
+- [x] README 업데이트 (신규 플래그, 환경변수, 오류 처리 정책 설명)

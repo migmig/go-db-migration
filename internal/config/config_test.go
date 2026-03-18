@@ -137,6 +137,9 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.MasterKey != "" {
 		t.Errorf("MasterKey default = %q, want empty", cfg.MasterKey)
 	}
+	if cfg.OnError != "fail_fast" {
+		t.Errorf("OnError default = %q, want fail_fast", cfg.OnError)
+	}
 }
 
 func TestParseFlags_ExplicitFlags(t *testing.T) {
@@ -227,6 +230,34 @@ func TestParseFlags_EnvRetryOverrides(t *testing.T) {
 	}
 	if cfg.RetryInitialWait != 250*time.Millisecond {
 		t.Fatalf("RetryInitialWait=%v, want 250ms", cfg.RetryInitialWait)
+	}
+}
+
+func TestParseFlags_OnError(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T", "-on-error=skip_batch"}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.OnError != "skip_batch" {
+		t.Fatalf("OnError=%q, want skip_batch", cfg.OnError)
+	}
+}
+
+func TestValidateConfig_InvalidOnError(t *testing.T) {
+	cfg := &Config{
+		BatchSize: 1000,
+		Workers:   4,
+		DBMaxOpen: 10,
+		DBMaxIdle: 2,
+		OnError:   "invalid_policy",
+	}
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected validation error for invalid on-error policy")
 	}
 }
 

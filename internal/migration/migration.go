@@ -373,7 +373,7 @@ func Run(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialect.Dialect
 							f.Close()
 						}
 					} else {
-						writeToBuf(mainBuf, ddl, cfg.PerTable, &outMutex)
+						_ = writeToBuf(mainBuf, ddl, cfg.PerTable, &outMutex)
 					}
 				}
 
@@ -434,6 +434,10 @@ func worker(id int, dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dial
 		rowCount, err := MigrateTable(dbConn, targetDB, pgPool, dia, j.tableName, mainBuf, cfg, outMutex, tracker, mState)
 		finishTable(rowCount, err)
 		if err != nil {
+			if _, ok := err.(*PartialBatchError); ok {
+				slog.Warn("table migrated with skipped batches", "table", j.tableName, "error", err)
+				continue
+			}
 			phase := "data"
 			if detailed, ok := err.(*MigrationError); ok && detailed.Phase != "" {
 				phase = detailed.Phase
@@ -489,6 +493,14 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 	}
 
 	if err == nil {
+		mState.MarkCompleted(tableName)
+		if tracker != nil && tracker.EventBus() != nil {
+			tracker.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: tableName})
+		} else if tracker != nil {
+			tracker.Done(tableName)
+		}
+	}
+	if _, ok := err.(*PartialBatchError); ok {
 		mState.MarkCompleted(tableName)
 		if tracker != nil && tracker.EventBus() != nil {
 			tracker.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: tableName})
@@ -677,12 +689,6 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			mState.UpdateOffset(tableName, rowCount)
 		}
 	} else if targetDB != nil {
-		tx, err := targetDB.Begin()
-		if err != nil {
-			return 0, fmt.Errorf("failed to start target transaction: %v", err)
-		}
-		defer tx.Rollback()
-
 		colTypes, err := rows.ColumnTypes()
 		if err != nil {
 			return 0, err
@@ -696,6 +702,9 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 
 		var currentBatch [][]any
 		batchNum := 0
+		skippedBatches := 0
+		estimatedSkippedRows := 0
+		var lastBatchErr error
 
 		for rows.Next() {
 			err := rows.Scan(valuePtrs...)
@@ -724,15 +733,47 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 			if len(currentBatch) >= cfg.BatchSize {
 				batchNum++
 				stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+				tx, err := targetDB.Begin()
+				if err != nil {
+					return 0, fmt.Errorf("failed to start target transaction: %v", err)
+				}
+				execErr := error(nil)
 				for _, stmt := range stmts {
 					if _, err := tx.Exec(stmt); err != nil {
-						cat := classifyError(err)
-						return rowCount, &MigrationError{
-							Table: tableName, Phase: "data", Category: cat,
-							BatchNum: batchNum, RowOffset: rowCount,
-							RootCause: err, Recoverable: cat != ErrConnectionLost,
-							Suggestion: suggestFix(cat, dia.Name()),
-						}
+						execErr = err
+						break
+					}
+				}
+				if execErr != nil {
+					_ = tx.Rollback()
+					if cfg.OnError == "skip_batch" {
+						skippedBatches++
+						estimatedSkippedRows += len(currentBatch)
+						lastBatchErr = execErr
+						slog.Warn("migration.batch.skipped",
+							"table", tableName,
+							"batch_num", batchNum,
+							"batch_size", len(currentBatch),
+							"error", execErr,
+						)
+						currentBatch = currentBatch[:0]
+						continue
+					}
+					cat := classifyError(execErr)
+					return rowCount, &MigrationError{
+						Table: tableName, Phase: "data", Category: cat,
+						BatchNum: batchNum, RowOffset: rowCount,
+						RootCause: execErr, Recoverable: cat != ErrConnectionLost,
+						Suggestion: suggestFix(cat, dia.Name()),
+					}
+				}
+				if err := tx.Commit(); err != nil {
+					cat := classifyError(err)
+					return rowCount, &MigrationError{
+						Table: tableName, Phase: "data", Category: cat,
+						BatchNum: batchNum, RowOffset: rowCount,
+						RootCause: err, Recoverable: cat != ErrConnectionLost,
+						Suggestion: suggestFix(cat, dia.Name()),
 					}
 				}
 				currentBatch = currentBatch[:0]
@@ -748,8 +789,34 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 		if len(currentBatch) > 0 {
 			batchNum++
 			stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+			tx, err := targetDB.Begin()
+			if err != nil {
+				return 0, fmt.Errorf("failed to start target transaction: %v", err)
+			}
+			execErr := error(nil)
 			for _, stmt := range stmts {
 				if _, err := tx.Exec(stmt); err != nil {
+					execErr = err
+					break
+				}
+			}
+			if execErr != nil {
+				_ = tx.Rollback()
+				if cfg.OnError == "skip_batch" {
+					skippedBatches++
+					estimatedSkippedRows += len(currentBatch)
+					lastBatchErr = execErr
+				} else {
+					cat := classifyError(execErr)
+					return rowCount, &MigrationError{
+						Table: tableName, Phase: "data", Category: cat,
+						BatchNum: batchNum, RowOffset: rowCount,
+						RootCause: execErr, Recoverable: cat != ErrConnectionLost,
+						Suggestion: suggestFix(cat, dia.Name()),
+					}
+				}
+			} else {
+				if err := tx.Commit(); err != nil {
 					cat := classifyError(err)
 					return rowCount, &MigrationError{
 						Table: tableName, Phase: "data", Category: cat,
@@ -758,19 +825,21 @@ func MigrateTableDirect(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia 
 						Suggestion: suggestFix(cat, dia.Name()),
 					}
 				}
-			}
-			mState.UpdateOffset(tableName, rowCount)
-			if tracker != nil && tracker.EventBus() != nil {
-				tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
-			} else if tracker != nil {
-				tracker.Update(tableName, rowCount)
+				mState.UpdateOffset(tableName, rowCount)
+				if tracker != nil && tracker.EventBus() != nil {
+					tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+				} else if tracker != nil {
+					tracker.Update(tableName, rowCount)
+				}
 			}
 		}
 
-		if err := tx.Commit(); err != nil {
-			return rowCount, &MigrationError{
-				Table: tableName, Phase: "data", Category: classifyError(err),
-				RootCause: err, Suggestion: suggestFix(classifyError(err), dia.Name()),
+		if skippedBatches > 0 {
+			return rowCount, &PartialBatchError{
+				Table:                tableName,
+				SkippedBatches:       skippedBatches,
+				EstimatedSkippedRows: estimatedSkippedRows,
+				Cause:                lastBatchErr,
 			}
 		}
 	}
@@ -938,7 +1007,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 			slog.Warn("failed to get table metadata for DDL", "table", tableName, "error", err)
 		} else {
 			ddl := GenerateCreateTableDDL(tableName, cfg.Schema, colsMeta, dia)
-			writeToBuf(tableBuf, ddl+"\n", cfg.PerTable, outMutex)
+			_ = writeToBuf(tableBuf, ddl+"\n", cfg.PerTable, outMutex)
 		}
 
 		pk, err := GetPrimaryKeyMetadata(dbConn, tableName, owner)
@@ -947,7 +1016,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 		} else if pk != nil {
 			ddl := GenerateIndexDDL(*pk, tableName, cfg.Schema, dia)
 			if ddl != "" {
-				writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
+				_ = writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
 				if hasDDLTracker {
 					ddlTracker.DDLProgress("primary_key", pk.Name, "ok", nil)
 				}
@@ -966,7 +1035,7 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 					if ddl == "" {
 						continue
 					}
-					writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
+					_ = writeToBuf(tableBuf, ddl, cfg.PerTable, outMutex)
 					if hasDDLTracker {
 						ddlTracker.DDLProgress("index", idx.Name, "ok", nil)
 					}
@@ -1004,6 +1073,9 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 
 	rowCount := tState.Offset
 	var currentBatch [][]any
+	skippedBatches := 0
+	estimatedSkippedRows := 0
+	var lastBatchErr error
 
 	for rows.Next() {
 		err := rows.Scan(valuePtrs...)
@@ -1027,8 +1099,22 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 
 		if len(currentBatch) >= cfg.BatchSize {
 			stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+			batchErr := error(nil)
 			for _, stmt := range stmts {
-				writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex)
+				if err := writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex); err != nil {
+					batchErr = err
+					break
+				}
+			}
+			if batchErr != nil {
+				if cfg.OnError == "skip_batch" {
+					skippedBatches++
+					estimatedSkippedRows += len(currentBatch)
+					lastBatchErr = batchErr
+					currentBatch = currentBatch[:0]
+					continue
+				}
+				return rowCount, batchErr
 			}
 			currentBatch = currentBatch[:0]
 			mState.UpdateOffset(tableName, rowCount)
@@ -1042,14 +1128,37 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 
 	if len(currentBatch) > 0 {
 		stmts := dia.InsertStatement(tableName, cfg.Schema, cols, currentBatch, cfg.BatchSize)
+		batchErr := error(nil)
 		for _, stmt := range stmts {
-			writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex)
+			if err := writeToBuf(tableBuf, stmt, cfg.PerTable, outMutex); err != nil {
+				batchErr = err
+				break
+			}
 		}
-		mState.UpdateOffset(tableName, rowCount)
-		if tracker != nil && tracker.EventBus() != nil {
-			tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
-		} else if tracker != nil {
-			tracker.Update(tableName, rowCount)
+		if batchErr != nil {
+			if cfg.OnError == "skip_batch" {
+				skippedBatches++
+				estimatedSkippedRows += len(currentBatch)
+				lastBatchErr = batchErr
+			} else {
+				return rowCount, batchErr
+			}
+		} else {
+			mState.UpdateOffset(tableName, rowCount)
+			if tracker != nil && tracker.EventBus() != nil {
+				tracker.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: tableName, Count: rowCount})
+			} else if tracker != nil {
+				tracker.Update(tableName, rowCount)
+			}
+		}
+	}
+
+	if skippedBatches > 0 {
+		return rowCount, &PartialBatchError{
+			Table:                tableName,
+			SkippedBatches:       skippedBatches,
+			EstimatedSkippedRows: estimatedSkippedRows,
+			Cause:                lastBatchErr,
 		}
 	}
 
@@ -1057,12 +1166,13 @@ func MigrateTableToFile(dbConn *sql.DB, dia dialect.Dialect, tableName string, m
 	return rowCount, nil
 }
 
-func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex) {
+func writeToBuf(buf *bufio.Writer, s string, perTable bool, outMutex *sync.Mutex) error {
 	if !perTable {
 		outMutex.Lock()
 		defer outMutex.Unlock()
 	}
-	buf.WriteString(s)
+	_, err := buf.WriteString(s)
+	return err
 }
 
 func retryConfigFromRuntime(cfg *config.Config) RetryConfig {
