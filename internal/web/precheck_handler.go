@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dbmigrator/internal/db"
+	"dbmigrator/internal/dialect"
 	"dbmigrator/internal/migration"
 
 	"github.com/gin-gonic/gin"
@@ -87,7 +88,7 @@ func precheckHandler(metrics *monitoringMetrics) gin.HandlerFunc {
 		}
 		defer oracleDB.Close()
 
-		sourceCountFn := db.SQLDBCountFn(oracleDB)
+		sourceCountFn := db.SQLDBCountFn(oracleDB, nil)
 		var targetCountFn migration.RowCountFn
 
 		if req.TargetURL != "" {
@@ -103,15 +104,25 @@ func precheckHandler(metrics *monitoringMetrics) gin.HandlerFunc {
 					return
 				}
 				defer pgPool.Close()
-				targetCountFn = db.PGPoolCountFn(pgPool)
+				targetDialect, dErr := dialect.GetDialect("postgres")
+				if dErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize target dialect: " + dErr.Error()})
+					return
+				}
+				targetCountFn = db.PGPoolCountFn(pgPool, targetDialect.QuoteIdentifier)
 			} else {
+				targetDialect, dErr := dialect.GetDialect(targetDBName)
+				if dErr != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported target DB: " + dErr.Error()})
+					return
+				}
 				targetConn, tErr := db.ConnectTargetDB(targetDBName, req.TargetURL)
 				if tErr != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to target DB: " + tErr.Error()})
 					return
 				}
 				defer targetConn.Close()
-				targetCountFn = db.SQLDBCountFn(targetConn)
+				targetCountFn = db.SQLDBCountFn(targetConn, targetDialect.QuoteIdentifier)
 			}
 		}
 

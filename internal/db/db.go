@@ -153,25 +153,33 @@ func FetchColumnTypes(ctx context.Context, pool PGPool, schema, table string) (m
 }
 
 // SQLDBCountFn은 *sql.DB를 이용해 테이블 행 수를 조회하는 함수를 반환한다.
-func SQLDBCountFn(d *sql.DB) func(ctx context.Context, tableName string) (int, error) {
+func SQLDBCountFn(d *sql.DB, quoteIdentifier func(string) string) func(ctx context.Context, tableName string) (int, error) {
+	if quoteIdentifier == nil {
+		quoteIdentifier = func(name string) string { return name }
+	}
 	return func(ctx context.Context, tableName string) (int, error) {
 		if d == nil {
 			return 0, fmt.Errorf("db connection unavailable")
 		}
 		var count int
-		err := d.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		quotedTable := quoteIdentifier(tableName)
+		err := d.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+quotedTable).Scan(&count)
 		return count, err
 	}
 }
 
 // PGPoolCountFn은 PGPool을 이용해 테이블 행 수를 조회하는 함수를 반환한다.
-func PGPoolCountFn(pool PGPool) func(ctx context.Context, tableName string) (int, error) {
+func PGPoolCountFn(pool PGPool, quoteIdentifier func(string) string) func(ctx context.Context, tableName string) (int, error) {
+	if quoteIdentifier == nil {
+		quoteIdentifier = func(name string) string { return name }
+	}
 	return func(ctx context.Context, tableName string) (int, error) {
 		if pool == nil {
 			return 0, fmt.Errorf("pg pool unavailable")
 		}
 		var count int
-		err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+tableName).Scan(&count)
+		quotedTable := quoteIdentifier(tableName)
+		err := pool.QueryRow(ctx, "SELECT COUNT(*) FROM "+quotedTable).Scan(&count)
 		return count, err
 	}
 }

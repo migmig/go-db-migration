@@ -9,6 +9,58 @@ import (
 	"github.com/pashagolub/pgxmock/v3"
 )
 
+// ── Count Functions ───────────────────────────────────────────────────────────
+
+func TestSQLDBCountFn_UsesQuotedIdentifier(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM "Users"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+
+	countFn := SQLDBCountFn(db, func(name string) string {
+		return `"` + name + `"`
+	})
+	got, err := countFn(context.Background(), "Users")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 7 {
+		t.Fatalf("expected count 7, got %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPGPoolCountFn_UsesQuotedIdentifier(t *testing.T) {
+	pgMock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("failed to create pgxmock: %v", err)
+	}
+	defer pgMock.Close()
+
+	pgMock.ExpectQuery(`SELECT COUNT\(\*\) FROM "Orders"`).
+		WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(3))
+
+	countFn := PGPoolCountFn(pgMock, func(name string) string {
+		return `"` + name + `"`
+	})
+	got, err := countFn(context.Background(), "Orders")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 3 {
+		t.Fatalf("expected count 3, got %d", got)
+	}
+	if err := pgMock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 // ── FetchTables ───────────────────────────────────────────────────────────────
 
 func TestFetchTables_NoFilter(t *testing.T) {
