@@ -339,31 +339,33 @@ function createSessionId(): string {
   return `v16-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function wsStatusLabel(status: WsStatus): string {
+function wsStatusLabel(status: WsStatus, locale: Locale): string {
+  const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
   switch (status) {
     case "connecting":
-      return "WS connecting";
+      return tr("WS connecting", "WS 연결 중");
     case "connected":
-      return "WS connected";
+      return tr("WS connected", "WS 연결됨");
     case "closed":
-      return "WS disconnected";
+      return tr("WS disconnected", "WS 연결 종료");
     case "error":
-      return "WS error";
+      return tr("WS error", "WS 오류");
     default:
-      return "WS idle";
+      return tr("WS idle", "WS 대기");
   }
 }
 
-function tableStatusLabel(status: TableRunStatus): string {
+function tableStatusLabel(status: TableRunStatus, locale: Locale): string {
+  const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
   switch (status) {
     case "running":
-      return "Running";
+      return tr("Running", "실행 중");
     case "completed":
-      return "Completed";
+      return tr("Completed", "완료");
     case "error":
-      return "Error";
+      return tr("Error", "오류");
     default:
-      return "Pending";
+      return tr("Pending", "대기");
   }
 }
 
@@ -380,8 +382,14 @@ function tableStatusBadgeClass(status: TableRunStatus): string {
   }
 }
 
-function historyStatusLabel(status: TableHistoryState["status"]): string {
-  return status === "success" ? "History success" : "History failed";
+function historyStatusLabel(status: TableHistoryState["status"], locale: Locale): string {
+  return status === "success"
+    ? locale === "ko"
+      ? "이력 성공"
+      : "History success"
+    : locale === "ko"
+      ? "이력 실패"
+      : "History failed";
 }
 
 function historyStatusBadgeClass(status: TableHistoryState["status"]): string {
@@ -666,6 +674,7 @@ export function App() {
   const previewSequences = objectGroupModeEnabled ? discoverySummary?.sequences ?? [] : [];
 
   const t = (key: string): string => UI_TEXT[locale][key] ?? UI_TEXT.en[key] ?? key;
+  const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
 
   useEffect(() => {
     try {
@@ -1710,14 +1719,16 @@ export function App() {
         <section className="grid gap-5 lg:grid-cols-2">
           <div className="card-surface p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">1. Source (Oracle)</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {tr("1. Source (Oracle)", "1. 소스 (Oracle)")}
+              </h2>
               {meta?.authEnabled && (
                 <button
                   className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
                   onClick={() => void openCredentialsPanel("source")}
                   type="button"
                 >
-                  Load Saved Source
+                  {tr("Load Saved Source", "저장된 소스 불러오기")}
                 </button>
               )}
             </div>
@@ -1734,7 +1745,7 @@ export function App() {
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Username</span>
+                <span className="mb-1 block text-slate-700">{tr("Username", "사용자명")}</span>
                 <input
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1744,7 +1755,7 @@ export function App() {
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Password</span>
+                <span className="mb-1 block text-slate-700">{tr("Password", "비밀번호")}</span>
                 <input
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1771,7 +1782,9 @@ export function App() {
                 onClick={() => void connectSource()}
                 type="button"
               >
-                {sourceConnectBusy ? "Loading tables..." : "Connect & Fetch Tables"}
+                {sourceConnectBusy
+                  ? tr("Loading tables...", "테이블 불러오는 중...")
+                  : tr("Connect & Fetch Tables", "연결 후 테이블 조회")}
               </button>
             </div>
             {sourceConnectError && (
@@ -1779,9 +1792,15 @@ export function App() {
             )}
             {allTables.length > 0 && (
               <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                <p className="font-semibold">Found {allTables.length} table(s)</p>
+                <p className="font-semibold">
+                  {tr("Found", "총")} {allTables.length}
+                  {tr(" table(s)", "개 테이블 발견")}
+                </p>
                 <p className="mt-1 text-xs text-emerald-700">
-                  Step 2 is ready. Select tables and options below.
+                  {tr(
+                    "Step 2 is ready. Select tables and options below.",
+                    "2단계 준비 완료. 아래에서 테이블과 옵션을 선택하세요.",
+                  )}
                 </p>
               </div>
             )}
@@ -1789,20 +1808,24 @@ export function App() {
 
           <div className="card-surface p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">2. Target</h2>
+              <h2 className="text-lg font-semibold text-slate-900">
+                {tr("2. Target", "2. 타깃")}
+              </h2>
               {meta?.authEnabled && (
                 <button
                   className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
                   onClick={() => void openCredentialsPanel("target")}
                   type="button"
                 >
-                  Load Saved Target
+                  {tr("Load Saved Target", "저장된 타깃 불러오기")}
                 </button>
               )}
             </div>
             <div className="space-y-3">
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Migration mode</span>
+                <span className="mb-1 block text-slate-700">
+                  {tr("Migration mode", "마이그레이션 모드")}
+                </span>
                 <select
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1813,12 +1836,12 @@ export function App() {
                   }
                   value={target.mode}
                 >
-                  <option value="file">SQL file mode</option>
-                  <option value="direct">Direct migration</option>
+                  <option value="file">{tr("SQL file mode", "SQL 파일 모드")}</option>
+                  <option value="direct">{tr("Direct migration", "직접 마이그레이션")}</option>
                 </select>
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Target DB</span>
+                <span className="mb-1 block text-slate-700">{tr("Target DB", "타깃 DB")}</span>
                 <select
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1834,7 +1857,7 @@ export function App() {
                 </select>
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Target URL</span>
+                <span className="mb-1 block text-slate-700">{tr("Target URL", "타깃 URL")}</span>
                 <input
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1845,7 +1868,7 @@ export function App() {
                 />
               </label>
               <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Schema</span>
+                <span className="mb-1 block text-slate-700">{tr("Schema", "스키마")}</span>
                 <input
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) =>
@@ -1860,7 +1883,9 @@ export function App() {
                 onClick={() => void testTarget()}
                 type="button"
               >
-                {targetTestBusy ? "Testing target..." : "Test Target Connection"}
+                {targetTestBusy
+                  ? tr("Testing target...", "타깃 연결 확인 중...")
+                  : tr("Test Target Connection", "타깃 연결 테스트")}
               </button>
             </div>
             {targetTestError && (
@@ -1876,9 +1901,11 @@ export function App() {
           <section className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
             <div className="card-surface p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold text-slate-900">3. Table Selection</h2>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {tr("3. Table Selection", "3. 테이블 선택")}
+                </h2>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  {selectedTables.length} / {allTables.length} selected
+                  {selectedTables.length} / {allTables.length} {tr("selected", "선택됨")}
                 </span>
               </div>
               {objectGroupModeEnabled && (
@@ -1941,7 +1968,7 @@ export function App() {
                 <input
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                   onChange={(event) => setTableSearch(event.target.value)}
-                  placeholder="Search table..."
+                  placeholder={tr("Search table...", "테이블 검색...")}
                   value={tableSearch}
                 />
                 <select
@@ -1975,7 +2002,7 @@ export function App() {
                     onChange={(event) => setExcludeMigratedSuccess(event.target.checked)}
                     type="checkbox"
                   />
-                  Exclude migrated success
+                  {tr("Exclude migrated success", "성공 이관 테이블 제외")}
                 </label>
                 <button
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
@@ -1983,7 +2010,7 @@ export function App() {
                   onClick={selectAllVisibleTables}
                   type="button"
                 >
-                  Select visible
+                  {tr("Select visible", "현재 목록 전체 선택")}
                 </button>
                 <button
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
@@ -1991,7 +2018,7 @@ export function App() {
                   onClick={deselectAllVisibleTables}
                   type="button"
                 >
-                  Clear visible
+                  {tr("Clear visible", "현재 목록 선택 해제")}
                 </button>
               </div>
               <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 bg-white">
@@ -2013,16 +2040,16 @@ export function App() {
                         />
                       </th>
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
-                        Table
+                        {tr("Table", "테이블")}
                       </th>
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
-                        Status
+                        {tr("Status", "상태")}
                       </th>
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
-                        History
+                        {tr("History", "이력")}
                       </th>
                       <th className="border-b border-slate-200 px-3 py-2 text-left text-xs uppercase tracking-wide text-slate-500">
-                        Actions
+                        {tr("Actions", "작업")}
                       </th>
                     </tr>
                   </thead>
@@ -2033,7 +2060,7 @@ export function App() {
                           className="px-3 py-6 text-center text-slate-500"
                           colSpan={5}
                         >
-                          No tables match your filter.
+                          {tr("No tables match your filter.", "필터에 맞는 테이블이 없습니다.")}
                         </td>
                       </tr>
                     )}
@@ -2041,7 +2068,7 @@ export function App() {
                       const item = tableProgress[table];
                       const historyState = historyByTable[normalizeTableKey(table)];
                       const status = item?.status ?? "pending";
-                      const statusLabel = tableStatusLabel(status);
+                      const statusLabel = tableStatusLabel(status, locale);
                       const badgeClass = tableStatusBadgeClass(status);
 
                       return (
@@ -2069,24 +2096,26 @@ export function App() {
                             {historyState ? (
                               <div className="flex flex-wrap items-center gap-2">
                                 <span
-                                  aria-label={historyStatusLabel(historyState.status)}
+                                  aria-label={historyStatusLabel(historyState.status, locale)}
                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${historyStatusBadgeClass(historyState.status)}`}
                                   role="status"
                                 >
                                   <span aria-hidden="true">●</span>
-                                  {historyState.status === "success" ? "Success" : "Failed"}
+                                  {historyState.status === "success"
+                                    ? tr("Success", "성공")
+                                    : tr("Failed", "실패")}
                                 </span>
-                                <span>{historyState.runCount} run(s)</span>
+                                <span>{historyState.runCount}{tr(" run(s)", "회 실행")}</span>
                                 <span>{formatHistoryTime(historyState.lastRunAt)}</span>
                               </div>
                             ) : (
                               <span
-                                aria-label="History not started"
+                                aria-label={tr("History not started", "이력 미시작")}
                                 className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 font-semibold text-slate-800"
                                 role="status"
                               >
                                 <span aria-hidden="true">●</span>
-                                Not started
+                                {tr("Not started", "미시작")}
                               </span>
                             )}
                           </td>
@@ -2097,7 +2126,7 @@ export function App() {
                               onClick={() => void openTableHistory(table)}
                               type="button"
                             >
-                              View history
+                              {tr("View history", "이력 보기")}
                             </button>
                           </td>
                         </tr>
@@ -2110,18 +2139,22 @@ export function App() {
                 <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="text-sm font-semibold text-slate-900">
-                      Table history: {activeTableHistory}
+                      {tr("Table history:", "테이블 이력:")} {activeTableHistory}
                     </h3>
                     <button
                       className="rounded border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-100"
                       onClick={() => setActiveTableHistory(null)}
                       type="button"
                     >
-                      Close
+                      {tr("Close", "닫기")}
                     </button>
                   </div>
                   {tableHistoryBusy ? (
-                    <div className="space-y-2" role="status" aria-label="Loading table history">
+                    <div
+                      className="space-y-2"
+                      role="status"
+                      aria-label={tr("Loading table history", "테이블 이력 로딩 중")}
+                    >
                       <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
                       <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
                       <div className="h-11 animate-pulse rounded border border-slate-200 bg-slate-100" />
@@ -2134,7 +2167,7 @@ export function App() {
                         onClick={() => activeTableHistory && void openTableHistory(activeTableHistory)}
                         type="button"
                       >
-                        Retry
+                        {tr("Retry", "재시도")}
                       </button>
                     </div>
                   ) : activeHistoryDetail && activeHistoryDetail.entries.length > 0 ? (
@@ -2151,7 +2184,7 @@ export function App() {
                                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${failed ? "border-red-300 bg-red-100 text-red-900" : "border-emerald-300 bg-emerald-100 text-emerald-900"}`}
                               >
                                 <span aria-hidden="true">●</span>
-                                {failed ? "Failed" : "Success"}
+                                {failed ? tr("Failed", "실패") : tr("Success", "성공")}
                               </span>
                               <span>{formatHistoryTime(entry.createdAt)}</span>
                               {failed && (
@@ -2160,7 +2193,7 @@ export function App() {
                                   onClick={() => void replayHistory(entry.id)}
                                   type="button"
                                 >
-                                  Retry settings
+                                  {tr("Retry settings", "설정 다시 적용")}
                                 </button>
                               )}
                             </div>
@@ -2172,14 +2205,18 @@ export function App() {
                       })}
                     </ul>
                   ) : (
-                    <p className="text-xs text-slate-500">No history found for this table.</p>
+                    <p className="text-xs text-slate-500">
+                      {tr("No history found for this table.", "이 테이블의 이력이 없습니다.")}
+                    </p>
                   )}
                 </div>
               )}
             </div>
 
             <div className="card-surface p-5">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900">4. Migration Options</h2>
+              <h2 className="mb-4 text-lg font-semibold text-slate-900">
+                {tr("4. Migration Options", "4. 마이그레이션 옵션")}
+              </h2>
               <div className="space-y-3">
                 {target.mode === "file" && (
                   <>
@@ -2553,23 +2590,25 @@ export function App() {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  5. Run Status {runDryRun ? "(Dry-run)" : ""}
+                  {tr("5. Run Status", "5. 실행 상태")}{" "}
+                  {runDryRun ? tr("(Dry-run)", "(드라이런)") : ""}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  Session: {runSessionId || "untracked"} · {wsStatusLabel(wsStatus)} · Target{" "}
+                  {tr("Session:", "세션:")} {runSessionId || tr("untracked", "미추적")} ·{" "}
+                  {wsStatusLabel(wsStatus, locale)} · {tr("Target", "대상")}{" "}
                   {objectGroupModeEnabled
                     ? reportSummary?.object_group ?? effectiveObjectGroup
                     : "all"}
                 </p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                {runDoneTables} / {runTotalTables} done
+                {runDoneTables} / {runTotalTables} {tr("done", "완료")}
               </span>
             </div>
 
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600">
-                <span>Overall progress</span>
+                <span>{tr("Overall progress", "전체 진행률")}</span>
                 <span>{overallPercent}%</span>
               </div>
               <div className="h-3 rounded-full bg-slate-200">
@@ -2766,7 +2805,7 @@ export function App() {
                                 : "bg-slate-100 text-slate-600"
                         }`}
                       >
-                        {tableStatusLabel(item.status)}
+                        {tableStatusLabel(item.status, locale)}
                       </span>
                     </div>
                     <div className="h-2 rounded-full bg-slate-200">
