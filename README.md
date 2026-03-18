@@ -26,6 +26,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **테이블 상세 이력/재시도 UX (v18):** 목록에서 테이블별 최근 이력을 바로 열어 실패 요약을 확인하고, 실패 항목의 설정을 즉시 재적용(`Retry settings`)해 재시도 준비를 단축할 수 있으며, 빈 상태/오류 상태/로딩 스켈레톤을 제공합니다.
 - **사전 행 수 비교 (Pre-check Row Count) (v19):** 마이그레이션 전 Oracle 원본과 대상 DB의 테이블별 행 수를 병렬로 비교하여 전송 필요 여부를 자동 판정합니다. `transfer_required`, `skip_candidate`, `count_check_failed` 세 가지 decision과 `strict`, `best_effort`, `skip_equal_rows` 세 가지 policy를 지원합니다. Web UI의 Migration Options에서 "Run Pre-check" 버튼으로 즉시 사용할 수 있으며, CLI에서는 `-precheck-row-count` 플래그로 활성화합니다.
 - **CLI 수치형 입력 검증 (v20):** `-batch`, `-workers`, `-db-max-open`, `-db-max-idle` 값에 범위 검증이 적용되어 잘못된 파라미터를 실행 전에 즉시 차단합니다.
+- **인증 세션 자동 정리/상한 (v20):** 인증 모드에서 만료·유휴 세션이 주기적으로 자동 정리되며, `DBM_MAX_SESSIONS` 상한 초과 시 가장 오래된 세션부터 자동 축출됩니다.
 
 ## 설치 (Installation)
 
@@ -82,6 +83,7 @@ export DBM_MASTER_KEY="change-me-32-bytes-or-more"
 
 > 참고: `-auth-enabled` 사용 시 `/api/tables`, `/api/migrate`, `/api/credentials`, `/api/history` 등 주요 API는 로그인 세션이 있어야 접근할 수 있습니다.
 > 인증 세션은 `SameSite=Lax`, `HttpOnly` 쿠키를 사용하며 idle timeout 30분, absolute timeout 24시간 정책을 따릅니다. HTTPS 환경에서는 `Secure` 쿠키가 적용됩니다.
+> v20 추가: `DBM_MAX_SESSIONS`(기본 `100`, `0`이면 무제한)와 `DBM_SESSION_CLEANUP_INTERVAL`(기본 `5m`)로 세션 상한/정리 주기를 조정할 수 있습니다.
 > 운영 모니터링은 로그인 후 `GET /api/monitoring/metrics`에서 확인할 수 있으며, 로그인 실패율/세션 만료율, `credentials`/`history` API 오류율, `all|tables|sequences` 모드별 실행 수/실패율/재시도 성공률을 제공합니다.
 
 ### v18 프런트 미리보기 (Vite + React + Tailwind)
