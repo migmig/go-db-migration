@@ -16,14 +16,16 @@ import (
 
 // TableReport는 단일 테이블 마이그레이션 결과를 담는다.
 type TableReport struct {
-	Name          string   `json:"name"`
-	RowCount      int      `json:"row_count"`
-	DurationNs    int64    `json:"duration_ns"`
-	DurationHuman string   `json:"duration"`
-	RowsPerSec    float64  `json:"rows_per_sec"`
-	DDLExecuted   bool     `json:"ddl_executed"`
-	Status        string   `json:"status"` // "ok", "error"
-	Errors        []string `json:"errors,omitempty"`
+	Name                 string   `json:"name"`
+	RowCount             int      `json:"row_count"`
+	DurationNs           int64    `json:"duration_ns"`
+	DurationHuman        string   `json:"duration"`
+	RowsPerSec           float64  `json:"rows_per_sec"`
+	DDLExecuted          bool     `json:"ddl_executed"`
+	Status               string   `json:"status"` // "ok", "error"
+	Errors               []string `json:"errors,omitempty"`
+	SkippedBatches       int      `json:"skipped_batches,omitempty"`
+	EstimatedSkippedRows int      `json:"estimated_skipped_rows,omitempty"`
 }
 
 type GroupStats struct {
@@ -100,16 +102,31 @@ func (r *MigrationReport) StartTable(name string, withDDL bool) func(rowCount in
 			tr.RowsPerSec = math.Round(float64(rowCount)/elapsed.Seconds()*10) / 10
 		}
 		if err != nil {
-			tr.Status = "error"
-			tr.Errors = append(tr.Errors, err.Error())
+			if partial, ok := err.(*PartialBatchError); ok {
+				tr.Status = StatusPartialSuccess
+				tr.SkippedBatches = partial.SkippedBatches
+				tr.EstimatedSkippedRows = partial.EstimatedSkippedRows
+				if partial.Cause != nil {
+					tr.Errors = append(tr.Errors, partial.Cause.Error())
+				}
+			} else {
+				tr.Status = StatusFailed
+				tr.Errors = append(tr.Errors, err.Error())
+			}
 		} else {
-			tr.Status = "ok"
+			tr.Status = StatusSuccess
 		}
 
 		r.mu.Lock()
 		r.Tables = append(r.Tables, tr)
 		r.TotalRows += rowCount
 		if err != nil {
+			if _, ok := err.(*PartialBatchError); ok {
+				r.SuccessCount++
+				r.recordGroupResultLocked(config.ObjectGroupTables, rowCount, nil)
+				r.mu.Unlock()
+				return
+			}
 			r.ErrorCount++
 		} else {
 			r.SuccessCount++

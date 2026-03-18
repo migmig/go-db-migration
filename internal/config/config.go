@@ -125,6 +125,7 @@ type Config struct {
 	// v20 env overrides
 	MaxRetries       int
 	RetryInitialWait time.Duration
+	OnError          string
 }
 
 func generateCompletionScript(shell string) (string, error) {
@@ -136,7 +137,7 @@ _dbmigrator_completions()
     local cur
     cur="${COMP_WORDS[COMP_CWORD]}"
 
-    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion -auth-enabled -object-group"
+    local opts="-web -url -user -password -tables -target-db -target-url -pg-url -out -batch -schema -per-table -parallel -workers -with-ddl -with-sequences -with-indexes -with-constraints -sequences -oracle-owner -db-max-open -db-max-idle -db-max-life -validate -copy-batch -resume -dry-run -log-json -completion -auth-enabled -object-group -on-error"
     local target_dbs="postgres mysql mariadb sqlite mssql"
 
     case "${COMP_WORDS[COMP_CWORD-1]}" in
@@ -150,6 +151,10 @@ _dbmigrator_completions()
             ;;
         -object-group)
             COMPREPLY=( $(compgen -W "all tables sequences" -- "$cur") )
+            return 0
+            ;;
+        -on-error)
+            COMPREPLY=( $(compgen -W "fail_fast skip_batch" -- "$cur") )
             return 0
             ;;
     esac
@@ -196,6 +201,7 @@ _dbmigrator() {
     '-completion[자동완성 스크립트 생성]:shell:(bash zsh fish powershell)'
     '-auth-enabled[인증 기반 멀티유저 모드 활성화]'
     '-object-group[마이그레이션 객체 그룹 선택]:group:(all tables sequences)'
+    '-on-error[배치 오류 처리 정책]:policy:(fail_fast skip_batch)'
     )
     _arguments -s $opts
     }
@@ -237,6 +243,7 @@ complete -c dbmigrator -l dry-run -d '연결 확인 및 행 수 추정만 수행
 complete -c dbmigrator -l log-json -d 'JSON 구조화 로그 활성화'
 complete -c dbmigrator -l auth-enabled -d '인증 기반 멀티유저 모드 활성화'
 complete -c dbmigrator -l object-group -r -a 'all tables sequences' -d '마이그레이션 객체 그룹 선택'
+complete -c dbmigrator -l on-error -r -a 'fail_fast skip_batch' -d '배치 오류 처리 정책'
 complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동완성 스크립트 생성'
 `, nil
 	case "powershell":
@@ -246,7 +253,7 @@ complete -c dbmigrator -l completion -r -a 'bash zsh fish powershell' -d '자동
         '-web','-url','-user','-password','-tables','-target-db','-target-url','-pg-url','-out','-batch',
         '-schema','-per-table','-parallel','-workers','-with-ddl','-with-sequences','-with-indexes',
         '-with-constraints','-sequences','-oracle-owner','-db-max-open','-db-max-idle','-db-max-life',
-        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion','-auth-enabled','-object-group'
+        '-validate','-copy-batch','-resume','-dry-run','-log-json','-completion','-auth-enabled','-object-group','-on-error'
     )
     $opts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
@@ -366,6 +373,7 @@ func ParseFlags() (*Config, error) {
 	flag.BoolVar(&cfg.PrecheckRowCount, "precheck-row-count", false, "마이그레이션 전 원본/대상 행 수 사전 점검 수행")
 	flag.StringVar(&cfg.PrecheckPolicy, "precheck-policy", "strict", "pre-check 정책 (strict|best_effort|skip_equal_rows)")
 	flag.StringVar(&cfg.PrecheckFilter, "precheck-filter", "all", "pre-check 결과 필터 (all|transfer_required|skip_candidate|count_check_failed)")
+	flag.StringVar(&cfg.OnError, "on-error", "fail_fast", "배치 오류 처리 정책 (fail_fast|skip_batch)")
 
 	flag.Parse()
 
@@ -432,6 +440,9 @@ func validateConfig(cfg *Config) error {
 	}
 	if err := validateRange("db-max-idle", cfg.DBMaxIdle, 0, 1000); err != nil {
 		return err
+	}
+	if cfg.OnError != "fail_fast" && cfg.OnError != "skip_batch" {
+		return fmt.Errorf("-on-error must be one of fail_fast or skip_batch (got %q)", cfg.OnError)
 	}
 	return nil
 }

@@ -27,6 +27,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **사전 행 수 비교 (Pre-check Row Count) (v19):** 마이그레이션 전 Oracle 원본과 대상 DB의 테이블별 행 수를 병렬로 비교하여 전송 필요 여부를 자동 판정합니다. `transfer_required`, `skip_candidate`, `count_check_failed` 세 가지 decision과 `strict`, `best_effort`, `skip_equal_rows` 세 가지 policy를 지원합니다. Web UI의 Migration Options에서 "Run Pre-check" 버튼으로 즉시 사용할 수 있으며, CLI에서는 `-precheck-row-count` 플래그로 활성화합니다.
 - **CLI 수치형 입력 검증 (v20):** `-batch`, `-workers`, `-db-max-open`, `-db-max-idle` 값에 범위 검증이 적용되어 잘못된 파라미터를 실행 전에 즉시 차단합니다.
 - **인증 세션 자동 정리/상한 (v20):** 인증 모드에서 만료·유휴 세션이 주기적으로 자동 정리되며, `DBM_MAX_SESSIONS` 상한 초과 시 가장 오래된 세션부터 자동 축출됩니다.
+- **부분 실패 허용 정책 (v20):** `-on-error skip_batch`를 사용하면 배치 단위 오류를 건너뛰고 다음 배치를 계속 처리하며, 결과 상태를 `partial_success`로 기록합니다.
 
 ## 설치 (Installation)
 
@@ -402,6 +403,7 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | `-precheck-row-count` | 마이그레이션 전 원본/대상 행 수 사전 점검 수행 (v19) | `false` | 아니오 |
 | `-precheck-policy` | pre-check 정책 (`strict`\|`best_effort`\|`skip_equal_rows`) (v19) | `strict` | 아니오 |
 | `-precheck-filter` | pre-check 결과 출력 필터 (`all`\|`transfer_required`\|`skip_candidate`\|`count_check_failed`) (v19) | `all` | 아니오 |
+| `-on-error` | 배치 오류 처리 정책 (`fail_fast`\|`skip_batch`) (v20) | `fail_fast` | 아니오 |
 
 *\* CLI 모드에서는 필수 항목입니다. (Web 모드 시 UI에서 입력)*
 

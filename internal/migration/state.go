@@ -20,6 +20,12 @@ type MigrationState struct {
 	mu     sync.Mutex
 }
 
+const (
+	StatusSuccess        = "ok"
+	StatusFailed         = "error"
+	StatusPartialSuccess = "partial_success"
+)
+
 func NewMigrationState(jobID string) *MigrationState {
 	return &MigrationState{
 		JobID:  jobID,
