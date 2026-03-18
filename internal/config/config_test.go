@@ -109,6 +109,12 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.Workers != 4 {
 		t.Errorf("Workers default = %d, want 4", cfg.Workers)
 	}
+	if cfg.DBMaxOpen != 10 {
+		t.Errorf("DBMaxOpen default = %d, want 10", cfg.DBMaxOpen)
+	}
+	if cfg.DBMaxIdle != 2 {
+		t.Errorf("DBMaxIdle default = %d, want 2", cfg.DBMaxIdle)
+	}
 	if cfg.PerTable {
 		t.Error("PerTable should default to false")
 	}
@@ -251,7 +257,7 @@ func TestParseFlags_ObjectGroup_InvalidFallsBackToAll(t *testing.T) {
 		t.Fatalf("ObjectGroup=%q, want all", cfg.ObjectGroup)
 	}
 }
- 
+
 func TestParseFlags_ObjectGroup_TablesDisablesWithSequences(t *testing.T) {
 	resetFlags()
 	old := os.Args
@@ -269,7 +275,7 @@ func TestParseFlags_ObjectGroup_TablesDisablesWithSequences(t *testing.T) {
 		t.Fatal("expected WithSequences=false when object-group=tables")
 	}
 }
- 
+
 func TestParseFlags_ObjectGroup_SequencesEnablesDDLOptions(t *testing.T) {
 	resetFlags()
 	old := os.Args
@@ -440,5 +446,83 @@ func TestParseFlags_LoadsMasterKeyFromEnv(t *testing.T) {
 	}
 	if cfg.MasterKey != "test-master-key" {
 		t.Fatalf("MasterKey = %q, want %q", cfg.MasterKey, "test-master-key")
+	}
+}
+
+func TestParseFlags_NumericValidation_ValidBoundaries(t *testing.T) {
+	resetFlags()
+	old := os.Args
+	defer func() { os.Args = old }()
+	os.Args = []string{
+		"cmd",
+		"-url=host/svc",
+		"-user=u",
+		"-password=p",
+		"-tables=T",
+		"-batch=1",
+		"-workers=64",
+		"-db-max-open=1000",
+		"-db-max-idle=0",
+	}
+
+	cfg, err := ParseFlags()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.BatchSize != 1 || cfg.Workers != 64 || cfg.DBMaxOpen != 1000 || cfg.DBMaxIdle != 0 {
+		t.Fatalf("unexpected parsed values: %+v", cfg)
+	}
+}
+
+func TestParseFlags_NumericValidation_InvalidValue_Exits(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	oldExit := osExit
+	oldStderr := os.Stderr
+	defer func() {
+		os.Args = oldArgs
+		osExit = oldExit
+		os.Stderr = oldStderr
+	}()
+
+	os.Args = []string{
+		"cmd",
+		"-url=host/svc",
+		"-user=u",
+		"-password=p",
+		"-tables=T",
+		"-workers=65",
+	}
+
+	exitCode := -1
+	osExit = func(code int) {
+		exitCode = code
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	os.Stderr = w
+
+	cfg, err := ParseFlags()
+	_ = w.Close()
+	if err != nil {
+		t.Fatalf("expected nil error when osExit is used, got: %v", err)
+	}
+	if cfg != nil {
+		t.Fatalf("expected nil cfg on invalid numeric input, got: %+v", cfg)
+	}
+
+	out, readErr := io.ReadAll(r)
+	if readErr != nil {
+		t.Fatalf("failed to read stderr: %v", readErr)
+	}
+
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(string(out), "invalid flag value") || !strings.Contains(string(out), "-workers must be between 1 and 64") {
+		t.Fatalf("unexpected stderr output: %s", string(out))
 	}
 }
