@@ -7,15 +7,15 @@
 - [x] `docs/v20/tasks.md` 작성
 
 ### 2. FR-1: 세션 자동 정리 (`internal/web/server.go`)
-- [ ] `authSession` 구조체에 `ExpiresAt time.Time` 필드 추가
-- [ ] `authSessionManager`에 `maxSessions int`, `stopCleanup chan struct{}` 필드 추가
-- [ ] `newAuthSessionManager` 시그니처에 `maxSessions int` 파라미터 추가
-- [ ] `purgeExpired()` 메서드 구현 (만료·유휴 세션 일괄 삭제)
-- [ ] `startCleanupLoop(interval time.Duration)` 고루틴 구현
-- [ ] `evictOldest()` 메서드 구현 (최대 세션 수 초과 시 가장 오래된 세션 삭제)
-- [ ] `createSession` 내 `ExpiresAt` 설정 및 세션 한도 초과 처리 추가
-- [ ] `RunServerWithAuth` 종료 시 `close(stopCleanup)` 연동
-- [ ] 환경변수 `DBM_MAX_SESSIONS`, `DBM_SESSION_CLEANUP_INTERVAL` 파싱 적용
+- [x] `authSession` 구조체에 `ExpiresAt time.Time` 필드 추가
+- [x] `authSessionManager`에 `maxSessions int`, `stopCleanup chan struct{}` 필드 추가
+- [x] `newAuthSessionManager` 시그니처에 `maxSessions int` 파라미터 추가
+- [x] `purgeExpired()` 메서드 구현 (만료·유휴 세션 일괄 삭제)
+- [x] `startCleanupLoop(interval time.Duration)` 고루틴 구현
+- [x] `evictOldest()` 메서드 구현 (최대 세션 수 초과 시 가장 오래된 세션 삭제)
+- [x] `createSession` 내 `ExpiresAt` 설정 및 세션 한도 초과 처리 추가
+- [x] `RunServerWithAuth` 종료 시 `close(stopCleanup)` 연동
+- [x] 환경변수 `DBM_MAX_SESSIONS`, `DBM_SESSION_CLEANUP_INTERVAL` 파싱 적용
 
 ### 3. FR-2: SQL 식별자 인용 (`internal/db/db.go`)
 - [x] `SQLDBCountFn` 시그니처에 `quoteIdentifier func(string) string` 파라미터 추가
@@ -69,10 +69,10 @@
 
 ### 10. 테스트
 - [ ] 세션 단위 테스트 (`internal/web/server_test.go`)
-  - [ ] `purgeExpired`: 만료 세션 삭제 검증
-  - [ ] `evictOldest`: maxSessions 초과 시 가장 오래된 세션 삭제 검증
-  - [ ] `createSession`: `ExpiresAt` 값 검증
-  - [ ] `startCleanupLoop` 종료 검증
+  - [x] `purgeExpired`: 만료 세션 삭제 검증
+  - [x] `evictOldest`: maxSessions 초과 시 가장 오래된 세션 삭제 검증
+  - [x] `createSession`: `ExpiresAt` 값 검증
+  - [x] `startCleanupLoop` 종료 검증
 - [x] 입력 검증 단위 테스트 (`internal/config/config_test.go`)
   - [x] 경계값 이하/이상/경계값 정상 통과 검증
 - [ ] 재시도 단위 테스트 (`internal/migration/retry_test.go` 신규)

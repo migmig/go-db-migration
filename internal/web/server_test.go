@@ -197,7 +197,7 @@ func setupAuthTestRouterWithOptions(t *testing.T, idleTTL, absoluteTTL time.Dura
 	}
 
 	metrics := newMonitoringMetrics()
-	sessions := newAuthSessionManager(idleTTL, absoluteTTL, metrics)
+	sessions := newAuthSessionManager(idleTTL, absoluteTTL, 100, time.Hour, metrics)
 
 	r := gin.New()
 	api := r.Group("/api")
@@ -801,6 +801,141 @@ func TestMonitoring_LoginFailureAndSessionExpiration(t *testing.T) {
 	}
 	if !nearlyEqual(snapshot.Session.ExpirationRatePct, 100.0) {
 		t.Fatalf("expected session expiration rate 100.0, got %.2f", snapshot.Session.ExpirationRatePct)
+	}
+}
+
+func TestAuthSessionManager_PurgeExpired(t *testing.T) {
+	metrics := newMonitoringMetrics()
+	manager := newAuthSessionManager(30*time.Minute, time.Hour, 100, time.Hour, metrics)
+	defer manager.close()
+
+	now := time.Now()
+	manager.mu.Lock()
+	manager.sessions["expired-by-time"] = authSession{
+		UserID:     1,
+		Username:   "alice",
+		CreatedAt:  now.Add(-2 * time.Hour),
+		LastSeenAt: now.Add(-10 * time.Minute),
+		ExpiresAt:  now.Add(-time.Minute),
+	}
+	manager.sessions["expired-by-idle"] = authSession{
+		UserID:     2,
+		Username:   "bob",
+		CreatedAt:  now.Add(-10 * time.Minute),
+		LastSeenAt: now.Add(-2 * time.Hour),
+		ExpiresAt:  now.Add(10 * time.Minute),
+	}
+	manager.sessions["alive"] = authSession{
+		UserID:     3,
+		Username:   "carol",
+		CreatedAt:  now.Add(-time.Minute),
+		LastSeenAt: now.Add(-time.Minute),
+		ExpiresAt:  now.Add(30 * time.Minute),
+	}
+	manager.mu.Unlock()
+
+	manager.purgeExpired()
+
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	if len(manager.sessions) != 1 {
+		t.Fatalf("expected only one active session, got %d", len(manager.sessions))
+	}
+	if _, ok := manager.sessions["alive"]; !ok {
+		t.Fatal("expected alive session to remain")
+	}
+}
+
+func TestAuthSessionManager_EvictOldest(t *testing.T) {
+	manager := newAuthSessionManager(time.Hour, time.Hour, 2, time.Hour, newMonitoringMetrics())
+	defer manager.close()
+
+	manager.mu.Lock()
+	manager.sessions["old"] = authSession{CreatedAt: time.Now().Add(-2 * time.Hour)}
+	manager.sessions["new"] = authSession{CreatedAt: time.Now().Add(-time.Hour)}
+	manager.mu.Unlock()
+
+	manager.mu.Lock()
+	manager.evictOldest()
+	manager.mu.Unlock()
+
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	if _, ok := manager.sessions["old"]; ok {
+		t.Fatal("expected oldest session to be evicted")
+	}
+	if _, ok := manager.sessions["new"]; !ok {
+		t.Fatal("expected newer session to remain")
+	}
+}
+
+func TestAuthSessionManager_CreateSessionSetsExpiresAtAndCapacity(t *testing.T) {
+	manager := newAuthSessionManager(time.Hour, 2*time.Hour, 1, time.Hour, newMonitoringMetrics())
+	defer manager.close()
+
+	firstToken, firstSession, err := manager.createSession(1, "alice")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	if firstSession.ExpiresAt.Sub(firstSession.CreatedAt) != 2*time.Hour {
+		t.Fatalf("expected expiresAt to be absoluteTTL later, got %s", firstSession.ExpiresAt.Sub(firstSession.CreatedAt))
+	}
+
+	secondToken, _, err := manager.createSession(2, "bob")
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	if secondToken == firstToken {
+		t.Fatal("expected unique session token")
+	}
+
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	if len(manager.sessions) != 1 {
+		t.Fatalf("expected only one session after capacity eviction, got %d", len(manager.sessions))
+	}
+	if _, ok := manager.sessions[firstToken]; ok {
+		t.Fatal("expected first session to be evicted")
+	}
+	if _, ok := manager.sessions[secondToken]; !ok {
+		t.Fatal("expected second session to remain")
+	}
+}
+
+func TestAuthSessionManager_StartCleanupLoopStops(t *testing.T) {
+	manager := newAuthSessionManager(time.Hour, time.Hour, 10, 2*time.Millisecond, newMonitoringMetrics())
+	done := make(chan struct{})
+	go func() {
+		manager.close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected cleanup loop close to complete quickly")
+	}
+}
+
+func TestLoadAuthSessionEnv_DefaultsAndOverrides(t *testing.T) {
+	t.Setenv("DBM_MAX_SESSIONS", "")
+	t.Setenv("DBM_SESSION_CLEANUP_INTERVAL", "")
+	maxSessions, cleanupInterval := loadAuthSessionEnv()
+	if maxSessions != 100 {
+		t.Fatalf("expected default maxSessions=100, got %d", maxSessions)
+	}
+	if cleanupInterval != 5*time.Minute {
+		t.Fatalf("expected default cleanup interval 5m, got %s", cleanupInterval)
+	}
+
+	t.Setenv("DBM_MAX_SESSIONS", "42")
+	t.Setenv("DBM_SESSION_CLEANUP_INTERVAL", "30s")
+	maxSessions, cleanupInterval = loadAuthSessionEnv()
+	if maxSessions != 42 {
+		t.Fatalf("expected maxSessions=42, got %d", maxSessions)
+	}
+	if cleanupInterval != 30*time.Second {
+		t.Fatalf("expected cleanup interval 30s, got %s", cleanupInterval)
 	}
 }
 

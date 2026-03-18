@@ -49,6 +49,7 @@ type authSession struct {
 	Username   string
 	CreatedAt  time.Time
 	LastSeenAt time.Time
+	ExpiresAt  time.Time
 }
 
 type authSessionManager struct {
@@ -56,20 +57,26 @@ type authSessionManager struct {
 	sessions    map[string]authSession
 	idleTTL     time.Duration
 	absoluteTTL time.Duration
+	maxSessions int
+	stopCleanup chan struct{}
 	metrics     *monitoringMetrics
 }
 
-func newAuthSessionManager(idleTTL, absoluteTTL time.Duration, metrics ...*monitoringMetrics) *authSessionManager {
+func newAuthSessionManager(idleTTL, absoluteTTL time.Duration, maxSessions int, cleanupInterval time.Duration, metrics ...*monitoringMetrics) *authSessionManager {
 	collector := newMonitoringMetrics()
 	if len(metrics) > 0 && metrics[0] != nil {
 		collector = metrics[0]
 	}
-	return &authSessionManager{
+	manager := &authSessionManager{
 		sessions:    make(map[string]authSession),
 		idleTTL:     idleTTL,
 		absoluteTTL: absoluteTTL,
+		maxSessions: maxSessions,
+		stopCleanup: make(chan struct{}),
 		metrics:     collector,
 	}
+	go manager.startCleanupLoop(cleanupInterval)
+	return manager
 }
 
 func (m *authSessionManager) createSession(userID int64, username string) (string, authSession, error) {
@@ -80,9 +87,12 @@ func (m *authSessionManager) createSession(userID int64, username string) (strin
 
 	token := hex.EncodeToString(tokenBytes)
 	now := time.Now()
-	s := authSession{UserID: userID, Username: username, CreatedAt: now, LastSeenAt: now}
+	s := authSession{UserID: userID, Username: username, CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(m.absoluteTTL)}
 
 	m.mu.Lock()
+	if m.maxSessions > 0 && len(m.sessions) >= m.maxSessions {
+		m.evictOldest()
+	}
 	m.sessions[token] = s
 	m.mu.Unlock()
 
@@ -100,7 +110,7 @@ func (m *authSessionManager) getSession(token string) (authSession, bool) {
 	}
 
 	now := time.Now()
-	if now.Sub(s.CreatedAt) > m.absoluteTTL || now.Sub(s.LastSeenAt) > m.idleTTL {
+	if now.After(s.ExpiresAt) || now.Sub(s.LastSeenAt) > m.idleTTL {
 		delete(m.sessions, token)
 		m.mu.Unlock()
 		m.metrics.recordSessionExpired()
@@ -108,6 +118,7 @@ func (m *authSessionManager) getSession(token string) (authSession, bool) {
 	}
 
 	s.LastSeenAt = now
+	s.ExpiresAt = s.CreatedAt.Add(m.absoluteTTL)
 	m.sessions[token] = s
 	m.mu.Unlock()
 	return s, true
@@ -121,6 +132,59 @@ func (m *authSessionManager) deleteSession(token string) {
 	m.mu.Lock()
 	delete(m.sessions, token)
 	m.mu.Unlock()
+}
+
+func (m *authSessionManager) close() {
+	if m == nil || m.stopCleanup == nil {
+		return
+	}
+	close(m.stopCleanup)
+}
+
+func (m *authSessionManager) startCleanupLoop(interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			m.purgeExpired()
+		case <-m.stopCleanup:
+			return
+		}
+	}
+}
+
+func (m *authSessionManager) purgeExpired() {
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for token, s := range m.sessions {
+		if now.After(s.ExpiresAt) || now.Sub(s.LastSeenAt) > m.idleTTL {
+			delete(m.sessions, token)
+			m.metrics.recordSessionExpired()
+		}
+	}
+}
+
+func (m *authSessionManager) evictOldest() {
+	var (
+		oldestToken string
+		oldestTime  time.Time
+		found       bool
+	)
+	for token, s := range m.sessions {
+		if !found || s.CreatedAt.Before(oldestTime) {
+			found = true
+			oldestToken = token
+			oldestTime = s.CreatedAt
+		}
+	}
+	if found {
+		delete(m.sessions, oldestToken)
+	}
 }
 
 func RunServer(port string) {
@@ -146,7 +210,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		userStore = store
 		defer userStore.Close()
 		metrics = newMonitoringMetrics()
-		authSessions = newAuthSessionManager(30*time.Minute, 24*time.Hour, metrics)
+		maxSessions, cleanupInterval := loadAuthSessionEnv()
+		authSessions = newAuthSessionManager(30*time.Minute, 24*time.Hour, maxSessions, cleanupInterval, metrics)
+		defer authSessions.close()
 	}
 
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
@@ -249,6 +315,28 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	if err := r.Run("0.0.0.0:" + port); err != nil {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
+}
+
+func loadAuthSessionEnv() (int, time.Duration) {
+	maxSessions := 100
+	if raw := strings.TrimSpace(os.Getenv("DBM_MAX_SESSIONS")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			log.Fatalf("invalid DBM_MAX_SESSIONS=%q: must be an integer >= 0", raw)
+		}
+		maxSessions = parsed
+	}
+
+	cleanupInterval := 5 * time.Minute
+	if raw := strings.TrimSpace(os.Getenv("DBM_SESSION_CLEANUP_INTERVAL")); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			log.Fatalf("invalid DBM_SESSION_CLEANUP_INTERVAL=%q: must be a positive duration", raw)
+		}
+		cleanupInterval = parsed
+	}
+
+	return maxSessions, cleanupInterval
 }
 
 func v18TableHistoryEnabled() bool {
@@ -1338,10 +1426,10 @@ func downloadZip(c *gin.Context) {
 func listTableSummariesHandler(store *TableHistoryStore, metrics *monitoringMetrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		f := TableSummaryFilter{
-			Status:   c.Query("status"),
-			Search:   c.Query("search"),
-			Sort:     c.Query("sort"),
-			Order:    c.Query("order"),
+			Status: c.Query("status"),
+			Search: c.Query("search"),
+			Sort:   c.Query("sort"),
+			Order:  c.Query("order"),
 		}
 		if v := c.Query("exclude_success"); v == "true" || v == "1" {
 			f.ExcludeSuccess = true
