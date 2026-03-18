@@ -345,7 +345,7 @@ func ParseFlags() (*Config, error) {
 	flag.StringVar(&cfg.TargetURL, "target-url", "", "대상 DB 연결 URL (PostgreSQL 외 Direct 마이그레이션 시)")
 	// v8 flags
 	flag.BoolVar(&cfg.WithConstraints, "with-constraints", false, "제약조건(Default, FK, Check) 마이그레이션 포함")
-	flag.IntVar(&cfg.DBMaxOpen, "db-max-open", 0, "DB 커넥션 풀 최대 활성 연결 수 (기본값: 0, 무제한)")
+	flag.IntVar(&cfg.DBMaxOpen, "db-max-open", 10, "DB 커넥션 풀 최대 활성 연결 수 (1~1000, 기본값: 10)")
 	flag.IntVar(&cfg.DBMaxIdle, "db-max-idle", 2, "DB 커넥션 풀 최대 유휴 연결 수 (기본값: 2)")
 	flag.IntVar(&cfg.DBMaxLife, "db-max-life", 0, "DB 커넥션 풀 최대 유지 시간(초) (기본값: 0, 무제한)")
 	flag.StringVar(&cfg.ResumeJobID, "resume", "", "재개할 Job ID")
@@ -406,8 +406,36 @@ func ParseFlags() (*Config, error) {
 
 	normalizeDDLOptions(cfg)
 	normalizeObjectGroupOptions(cfg)
+	if err := validateConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid flag value: %v\n", err)
+		osExit(1)
+		return nil, nil // For tests
+	}
 
 	return cfg, nil
+}
+
+func validateConfig(cfg *Config) error {
+	if err := validateRange("batch", cfg.BatchSize, 1, 100000); err != nil {
+		return err
+	}
+	if err := validateRange("workers", cfg.Workers, 1, 64); err != nil {
+		return err
+	}
+	if err := validateRange("db-max-open", cfg.DBMaxOpen, 1, 1000); err != nil {
+		return err
+	}
+	if err := validateRange("db-max-idle", cfg.DBMaxIdle, 0, 1000); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateRange(name string, value, min, max int) error {
+	if value < min || value > max {
+		return fmt.Errorf("-%s must be between %d and %d (got %d)", name, min, max, value)
+	}
+	return nil
 }
 
 func normalizeObjectGroupOptions(cfg *Config) {

@@ -1,4 +1,4 @@
-# Oracle to Multi-Target Data Migration CLI (v19)
+# Oracle to Multi-Target Data Migration CLI (v20)
 
 Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
 
@@ -25,6 +25,7 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **테이블 이력 기반 목록 UX (v18):** v16 UI의 테이블 선택 화면에서 이력 상태 필터(미실행/성공/실패), `성공 제외` 토글, 정렬 컨트롤을 제공하며 상태/이력 뱃지에 텍스트+색상을 함께 적용해 접근성을 높였습니다.
 - **테이블 상세 이력/재시도 UX (v18):** 목록에서 테이블별 최근 이력을 바로 열어 실패 요약을 확인하고, 실패 항목의 설정을 즉시 재적용(`Retry settings`)해 재시도 준비를 단축할 수 있으며, 빈 상태/오류 상태/로딩 스켈레톤을 제공합니다.
 - **사전 행 수 비교 (Pre-check Row Count) (v19):** 마이그레이션 전 Oracle 원본과 대상 DB의 테이블별 행 수를 병렬로 비교하여 전송 필요 여부를 자동 판정합니다. `transfer_required`, `skip_candidate`, `count_check_failed` 세 가지 decision과 `strict`, `best_effort`, `skip_equal_rows` 세 가지 policy를 지원합니다. Web UI의 Migration Options에서 "Run Pre-check" 버튼으로 즉시 사용할 수 있으며, CLI에서는 `-precheck-row-count` 플래그로 활성화합니다.
+- **CLI 수치형 입력 검증 (v20):** `-batch`, `-workers`, `-db-max-open`, `-db-max-idle` 값에 범위 검증이 적용되어 잘못된 파라미터를 실행 전에 즉시 차단합니다.
 
 ## 설치 (Installation)
 
@@ -372,19 +373,19 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | `-target-url` | 대상 DB 연결 URL (PostgreSQL 외 Direct 마이그레이션 시) | 없음 | 아니오 |
 | `-pg-url` | PostgreSQL 연결 URL (Legacy) | 없음 | 아니오 |
 | `-out` | 출력 SQL 파일명 | `migration.sql` | 아니오 |
-| `-batch` | INSERT 배치당 행(Row) 수 | `1000` | 아니오 |
+| `-batch` | INSERT 배치당 행(Row) 수 (1~100000) | `1000` | 아니오 |
 | `-schema` | PostgreSQL 스키마 이름 (선택) | 없음 | 아니오 |
 | `-per-table` | 테이블별 별도 SQL 파일로 출력 | `false` | 아니오 |
 | `-parallel` | 테이블 병렬 처리 | `false` | 아니오 |
-| `-workers` | 병렬 처리 워커 수 | `4` | 아니오 |
+| `-workers` | 병렬 처리 워커 수 (1~64) | `4` | 아니오 |
 | `-with-ddl` | CREATE TABLE DDL 생성/실행 포함 | `false` | 아니오 |
 | `-with-sequences` | 연관 Sequence DDL 포함 | `false` | 아니오 |
 | `-with-indexes` | 연관 Index DDL 포함 | `false` | 아니오 |
 | `-with-constraints` | 제약조건(Default, FK, Check) 마이그레이션 포함 | `false` | 아니오 |
 | `-sequences` | 추가 포함할 Sequence 이름 목록 (쉼표 구분) | 없음 | 아니오 |
 | `-oracle-owner` | Oracle 스키마 소유자 (미지정 시 `-user` 값 사용) | 없음 | 아니오 |
-| `-db-max-open` | DB 커넥션 풀 최대 활성 연결 수 (0: 무제한) | `0` | 아니오 |
-| `-db-max-idle` | DB 커넥션 풀 최대 유휴 연결 수 | `2` | 아니오 |
+| `-db-max-open` | DB 커넥션 풀 최대 활성 연결 수 (1~1000) | `10` | 아니오 |
+| `-db-max-idle` | DB 커넥션 풀 최대 유휴 연결 수 (0~1000) | `2` | 아니오 |
 | `-db-max-life` | DB 커넥션 풀 최대 유지 시간(초) (0: 무제한) | `0` | 아니오 |
 | `-validate` | 마이그레이션 후 소스-타겟 행 수 검증 수행 | `false` | 아니오 |
 | `-copy-batch` | PostgreSQL COPY 배치 크기 (0: 단일 COPY 모드) | `10000` | 아니오 |
