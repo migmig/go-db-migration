@@ -1193,6 +1193,20 @@ func isRecoverableCategory(cat ErrorCategory) bool {
 	return cat == ErrConnectionLost || cat == ErrTimeout
 }
 
+func publishRetryEvent(tracker ProgressTracker, evt RetryEvent) {
+	if tracker == nil || tracker.EventBus() == nil {
+		return
+	}
+	tracker.EventBus().Publish(bus.Event{
+		Type:        bus.EventRetry,
+		Table:       evt.TableName,
+		Attempt:     evt.Attempt,
+		MaxAttempts: evt.MaxAttempts,
+		WaitSeconds: evt.WaitSeconds,
+		Message:     evt.ErrorMsg,
+	})
+}
+
 // migrateTablePgBatchCopy는 PostgreSQL 대상으로 Oracle 데이터를 배치 단위로 분할하여 COPY한다.
 // 각 배치마다 체크포인트를 저장하므로 중단 후 재개가 가능하고, 진행률을 실시간으로 업데이트한다.
 func migrateTablePgBatchCopy(
@@ -1217,7 +1231,9 @@ func migrateTablePgBatchCopy(
 
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		var n int64
-		retryErr := WithRetry(context.Background(), retryConfigFromRuntime(cfg), tableName, nil, func() error {
+		retryErr := WithRetry(context.Background(), retryConfigFromRuntime(cfg), tableName, func(evt RetryEvent) {
+			publishRetryEvent(tracker, evt)
+		}, func() error {
 			query := fmt.Sprintf(
 				"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
 				quotedTable, offset, batchSize,
@@ -1384,7 +1400,9 @@ func migrateTablePgUpsert(
 
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		var n int64
-		retryErr := WithRetry(ctx, retryConfigFromRuntime(cfg), tableName, nil, func() error {
+		retryErr := WithRetry(ctx, retryConfigFromRuntime(cfg), tableName, func(evt RetryEvent) {
+			publishRetryEvent(tracker, evt)
+		}, func() error {
 			query := fmt.Sprintf(
 				"SELECT * FROM %s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY",
 				dialect.QuoteOracleIdentifier(tableName), offset, batchSize,

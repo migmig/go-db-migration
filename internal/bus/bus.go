@@ -12,6 +12,7 @@ const (
 	EventUpdate           EventType = "update"
 	EventDone             EventType = "done"
 	EventError            EventType = "error"
+	EventRetry            EventType = "retry"
 	EventAllDone          EventType = "all_done"
 	EventDryRunResult     EventType = "dry_run_result"
 	EventDDLProgress      EventType = "ddl_progress"
@@ -39,6 +40,9 @@ type Event struct {
 	Tables        []string
 	Sequences     []string
 	ReportSummary interface{} // using interface{} to decouple
+	Attempt       int
+	MaxAttempts   int
+	WaitSeconds   int
 }
 
 // Handler is the callback function when an event is published

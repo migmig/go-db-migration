@@ -52,8 +52,8 @@
 - [x] 최종 리포트에 `skipped_batches`, `estimated_skipped_rows` 필드 추가
 
 ### 7. 웹소켓/API 연계
-- [ ] `bus` 패키지에 `retry` 이벤트 타입 추가
-- [ ] `POST /api/migrate` 요청 바디에 `on_error` 필드 파싱 지원
+- [x] `bus` 패키지에 `retry` 이벤트 타입 추가
+- [x] `POST /api/migrate` 요청 바디에 `on_error` 필드 파싱 지원
 - [ ] 테이블별 응답에 `skipped_batches`, `estimated_skipped_rows` 필드 추가
 
 ### 8. UI

@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"dbmigrator/internal/bus"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -430,6 +431,39 @@ func TestWarning(t *testing.T) {
 	}
 	if msg.Message != "This is a warning" {
 		t.Errorf("msg.Message = %q, want %q", msg.Message, "This is a warning")
+	}
+}
+
+func TestEventBusRetryBroadcast(t *testing.T) {
+	tr := NewWebSocketTracker()
+	conn, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.EventBus().Publish(bus.Event{
+		Type:        bus.EventRetry,
+		Table:       "USERS",
+		Attempt:     2,
+		MaxAttempts: 4,
+		WaitSeconds: 3,
+		Message:     "timeout",
+	})
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var msg ProgressMsg
+	if err := conn.ReadJSON(&msg); err != nil {
+		t.Fatalf("failed to read retry message: %v", err)
+	}
+	if msg.Type != MsgRetry {
+		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgRetry)
+	}
+	if msg.Table != "USERS" {
+		t.Errorf("msg.Table = %q, want %q", msg.Table, "USERS")
+	}
+	if msg.Attempt != 2 || msg.MaxAttempts != 4 || msg.WaitSeconds != 3 {
+		t.Errorf("unexpected retry payload: %+v", msg)
+	}
+	if msg.Message != "timeout" {
+		t.Errorf("msg.Message = %q, want %q", msg.Message, "timeout")
 	}
 }
 

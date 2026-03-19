@@ -26,6 +26,7 @@ const (
 	MsgUpdate           MsgType = "update"
 	MsgDone             MsgType = "done"
 	MsgError            MsgType = "error"
+	MsgRetry            MsgType = "retry"
 	MsgAllDone          MsgType = "all_done"
 	MsgDryRunResult     MsgType = "dry_run_result"
 	MsgDDLProgress      MsgType = "ddl_progress"
@@ -92,6 +93,9 @@ type ProgressMsg struct {
 	Recoverable *bool  `json:"recoverable,omitempty"`
 	BatchNum    int    `json:"batch_num,omitempty"`
 	RowOffset   int    `json:"row_offset,omitempty"`
+	Attempt     int    `json:"attempt,omitempty"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+	WaitSeconds int    `json:"wait_seconds,omitempty"`
 	// v9: 리포트 요약
 	ReportSummary *ReportSummary `json:"report_summary,omitempty"`
 }
@@ -141,6 +145,16 @@ func (t *WebSocketTracker) setupSubscriptions() {
 	t.eventBus.Subscribe(bus.EventValidationStart, func(e bus.Event) { t.ValidationStart(e.Table) })
 	t.eventBus.Subscribe(bus.EventValidationResult, func(e bus.Event) { t.ValidationResult(e.Table, e.Total, e.Count, e.Status, e.Message) })
 	t.eventBus.Subscribe(bus.EventDiscoverySummary, func(e bus.Event) { t.DiscoverySummary(e.ObjectGroup, e.Tables, e.Sequences) })
+	t.eventBus.Subscribe(bus.EventRetry, func(e bus.Event) {
+		t.broadcast(ProgressMsg{
+			Type:        MsgRetry,
+			Table:       e.Table,
+			Attempt:     e.Attempt,
+			MaxAttempts: e.MaxAttempts,
+			WaitSeconds: e.WaitSeconds,
+			Message:     e.Message,
+		})
+	})
 	t.eventBus.Subscribe(bus.EventMetrics, func(e bus.Event) {
 		t.broadcast(ProgressMsg{
 			Type:    MsgType(e.Type),

@@ -856,8 +856,9 @@ type startMigrationRequest struct {
 	// v17
 	ObjectGroup string `json:"objectGroup"`
 	// v18
-	Truncate bool `json:"truncate"`
-	Upsert   bool `json:"upsert"`
+	Truncate bool   `json:"truncate"`
+	Upsert   bool   `json:"upsert"`
+	OnError  string `json:"onError"`
 	// v19
 	UsePrecheckResults bool   `json:"usePrecheckResults"`
 	PrecheckPolicy     string `json:"precheckPolicy"`
@@ -886,6 +887,9 @@ func validateMigrationRequest(req *startMigrationRequest) error {
 	}
 	if req.DBMaxLife < 0 {
 		return fmt.Errorf("dbMaxLife must be non-negative")
+	}
+	if req.OnError != "" && req.OnError != "fail_fast" && req.OnError != "skip_batch" {
+		return fmt.Errorf("onError must be one of fail_fast, skip_batch")
 	}
 	group := strings.ToLower(strings.TrimSpace(req.ObjectGroup))
 	if group != "" && group != config.ObjectGroupAll && group != config.ObjectGroupTables && group != config.ObjectGroupSequences {
@@ -942,6 +946,10 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 	req.ObjectGroup = strings.ToLower(strings.TrimSpace(req.ObjectGroup))
 	if req.ObjectGroup == "" {
 		req.ObjectGroup = config.ObjectGroupAll
+	}
+	req.OnError = strings.ToLower(strings.TrimSpace(req.OnError))
+	if req.OnError == "" {
+		req.OnError = "fail_fast"
 	}
 
 	tracker := sessionManager.GetTracker(req.SessionID)
@@ -1126,6 +1134,7 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 			ObjectGroup:     strings.ToLower(strings.TrimSpace(req.ObjectGroup)),
 			Truncate:        req.Truncate,
 			Upsert:          req.Upsert,
+			OnError:         req.OnError,
 		}
 
 		// Start background metrics collection

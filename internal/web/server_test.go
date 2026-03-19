@@ -324,6 +324,13 @@ func TestValidateMigrationRequest_InvalidObjectGroup(t *testing.T) {
 	}
 }
 
+func TestValidateMigrationRequest_InvalidOnError(t *testing.T) {
+	req := &startMigrationRequest{OnError: "continue"}
+	if err := validateMigrationRequest(req); err == nil {
+		t.Fatal("expected error for invalid onError")
+	}
+}
+
 // ── /api/migrate validation ───────────────────────────────────────────────────
 
 func TestStartMigration_PathTraversal_Returns400(t *testing.T) {
@@ -404,6 +411,23 @@ func TestStartMigration_InvalidObjectGroup_Returns400(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "objectGroup") {
 		t.Errorf("expected objectGroup error in response, got: %s", w.Body.String())
+	}
+}
+
+func TestStartMigration_InvalidOnError_Returns400(t *testing.T) {
+	r := setupTestRouter()
+
+	w := httptest.NewRecorder()
+	body := `{"oracleUrl":"h","username":"u","password":"p","tables":["USERS"],"onError":"continue"}`
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid onError, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "onError") {
+		t.Errorf("expected onError error in response, got: %s", w.Body.String())
 	}
 }
 
