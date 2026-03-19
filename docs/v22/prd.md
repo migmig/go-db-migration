@@ -37,6 +37,7 @@
 - 소스가 Oracle이 아닌 경우의 타겟 비교 (현재 소스는 Oracle 고정).
 - 뷰(View), 트리거, 프로시저 등 테이블 이외 객체 비교.
 - 타겟 테이블 목록의 실시간 폴링(자동 갱신).
+- SQLite, MSSQL, MySQL 타겟에 대한 테이블 목록 조회 및 비교 기능 — v22 지원 대상은 PostgreSQL과 MariaDB로 한정한다.
 
 ## 5. 사용자 스토리
 
@@ -59,9 +60,7 @@
 | DB 타입 | 조회 기준 |
 |---|---|
 | PostgreSQL | `information_schema.tables WHERE table_schema = $schema AND table_type = 'BASE TABLE'` |
-| MySQL / MariaDB | `information_schema.tables WHERE table_schema = $schema AND table_type = 'BASE TABLE'` |
-| MSSQL | `information_schema.tables WHERE table_schema = $schema AND table_type = 'BASE TABLE'` |
-| SQLite | `sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'` |
+| MariaDB | `information_schema.tables WHERE table_schema = $schema AND table_type = 'BASE TABLE'` |
 
 - 연결 오류 또는 권한 부족 시 명확한 오류 메시지를 반환한다.
 - 조회는 읽기 전용(SELECT만 수행)이며 타임아웃은 10초로 제한한다.
@@ -183,7 +182,7 @@ type CompareState = {
 3. 카테고리 탭 필터 선택 시 해당 카테고리의 테이블만 목록에 표시된다.
 4. "소스에만 있는 테이블 선택" 버튼 클릭 시 `source_only` 테이블이 마이그레이션 체크박스에 선택된다.
 5. pre-check 결과가 있으면 비교 패널 행 수 컬럼에 반영되고, `both` + 행 수 불일치 테이블에는 `row_diff` 배지가 표시된다.
-6. SQLite를 제외한 4가지 타겟 DB 타입(PostgreSQL, MySQL, MariaDB, MSSQL)에서 테이블 목록 조회가 정상 동작한다.
+6. 지원 대상 타겟 DB 타입인 PostgreSQL, MariaDB에서 테이블 목록 조회가 정상 동작한다.
 7. 타겟 연결 실패 또는 권한 부족 시 UI에 명확한 오류 메시지가 표시된다.
 8. 한국어/영어 전환 시 비교 패널의 모든 텍스트가 즉시 전환된다.
 
@@ -201,4 +200,4 @@ type CompareState = {
 | 테이블 수가 수천 개인 경우 UI 성능 저하 | 클라이언트 사이드 가상 스크롤(virtualized list) 또는 서버 사이드 페이지네이션 검토; 1차 MVP는 500개 초과 시 경고 표시로 처리 |
 | 소스 테이블명 대소문자와 타겟 테이블명 대소문자 불일치 | 비교 시 대소문자 무시(case-insensitive) 옵션 제공 또는 정규화 처리; Oracle은 대문자 기본이므로 타겟 테이블명을 소문자로 정규화하여 비교 |
 | 마이그레이션 진행 중 타겟 테이블 목록이 변경될 수 있음 | 조회 시각(`fetchedAt`) 표시로 최신성 인지 유도; 마이그레이션 실행 중 재조회 비활성화 |
-| SQLite는 스키마 개념이 없어 조회 방식이 다름 | SQLite는 `sqlite_master` 기반으로 별도 처리; 스키마 입력 필드는 SQLite 선택 시 비활성화 |
+| SQLite, MSSQL, MySQL 타겟을 선택한 경우 | "이 타겟 DB 타입은 v22 비교 기능을 지원하지 않습니다" 안내 메시지를 표시하고 조회 버튼을 비활성화한다 |
