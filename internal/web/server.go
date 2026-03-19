@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"embed"
@@ -302,6 +303,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 			protected.GET("/migrations/precheck/results", precheckResultsHandler())
 		}
 		protected.POST("/test-target", testTargetConnection)
+		protected.POST("/target-tables", targetTablesHandler)
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
 		protected.GET("/report/:id", downloadReport)
@@ -943,6 +945,10 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	if !requirePostgres(c, req.TargetDB) {
+		return
+	}
 	req.ObjectGroup = strings.ToLower(strings.TrimSpace(req.ObjectGroup))
 	if req.ObjectGroup == "" {
 		req.ObjectGroup = config.ObjectGroupAll
@@ -1023,39 +1029,15 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 		}
 
 		if req.Direct && targetURL != "" {
-			if targetDBName == "postgres" {
-				// Wait, pgxpool config needs DBMaxOpen etc.
-				// The db.ConnectPostgres doesn't take these parameters yet, so I will update ConnectPostgres in db.go as well.
-				pgPool, err = db.ConnectPostgres(targetURL, req.DBMaxOpen, req.DBMaxIdle, req.DBMaxLife)
-				if err != nil {
-					log.Printf("Failed to connect to Postgres: %v", err)
-					if !isRetry {
-						tracker.AllDone("", nil)
-					}
-					return
+			pgPool, err = db.ConnectPostgres(targetURL, req.DBMaxOpen, req.DBMaxIdle, req.DBMaxLife)
+			if err != nil {
+				log.Printf("Failed to connect to Postgres: %v", err)
+				if !isRetry {
+					tracker.AllDone("", nil)
 				}
-				defer pgPool.Close()
-			} else {
-				targetDB, err = db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(targetURL))
-				if err != nil {
-					log.Printf("Failed to connect to Target DB: %v", err)
-					if !isRetry {
-						tracker.AllDone("", nil)
-					}
-					return
-				}
-				defer targetDB.Close()
-
-				if req.DBMaxOpen > 0 {
-					targetDB.SetMaxOpenConns(req.DBMaxOpen)
-				}
-				if req.DBMaxIdle > 0 {
-					targetDB.SetMaxIdleConns(req.DBMaxIdle)
-				}
-				if req.DBMaxLife > 0 {
-					targetDB.SetConnMaxLifetime(time.Duration(req.DBMaxLife) * time.Second)
-				}
+				return
 			}
+			defer pgPool.Close()
 		}
 
 		workers := req.Workers
@@ -1486,8 +1468,72 @@ func getTableHistoryHandler(store *TableHistoryStore) gin.HandlerFunc {
 	}
 }
 
+// requirePostgres는 targetDb 값이 postgres가 아니면 400을 반환하고 false를 돌려준다.
+func requirePostgres(c *gin.Context, targetDB string) bool {
+	if targetDB != "" && targetDB != "postgres" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "v22 이후 타겟 DB는 PostgreSQL만 지원합니다 (입력값: " + targetDB + ")",
+		})
+		return false
+	}
+	return true
+}
+
+// isPermissionError는 PostgreSQL permission denied 오류 여부를 판별한다.
+func isPermissionError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "permission denied") || strings.Contains(msg, "42501")
+}
+
+type targetTablesRequest struct {
+	TargetURL string `json:"targetUrl" binding:"required"`
+	Schema    string `json:"schema"    binding:"required"`
+}
+
+type targetTablesResponse struct {
+	Tables    []string `json:"tables"`
+	FetchedAt string   `json:"fetchedAt"`
+}
+
+func targetTablesHandler(c *gin.Context) {
+	var req targetTablesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	pool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 30)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "타겟 DB 연결 실패: " + err.Error()})
+		return
+	}
+	defer pool.Close()
+
+	tables, err := db.FetchTargetTables(ctx, pool, req.Schema)
+	if err != nil {
+		if isPermissionError(err) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "테이블 목록 조회 권한이 없습니다: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "테이블 목록 조회 실패: " + err.Error()})
+		return
+	}
+
+	if tables == nil {
+		tables = []string{}
+	}
+
+	c.JSON(http.StatusOK, targetTablesResponse{
+		Tables:    tables,
+		FetchedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 type testTargetRequest struct {
-	TargetDB  string `json:"targetDb" binding:"required"`
+	TargetDB  string `json:"targetDb"`
 	TargetURL string `json:"targetUrl" binding:"required"`
 }
 
@@ -1498,35 +1544,19 @@ func testTargetConnection(c *gin.Context) {
 		return
 	}
 
-	dia, err := dialect.GetDialect(req.TargetDB)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported target DB: " + req.TargetDB})
+	if !requirePostgres(c, req.TargetDB) {
 		return
 	}
 
-	if req.TargetDB == "postgres" {
-		pgPool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 10)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
-			return
-		}
-		defer pgPool.Close()
-		// Ping to ensure connection is valid
-		if err := pgPool.Ping(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
-			return
-		}
-	} else {
-		targetDB, err := db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(req.TargetURL))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
-			return
-		}
-		defer targetDB.Close()
-		if err := targetDB.Ping(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
-			return
-		}
+	pgPool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 10)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
+		return
+	}
+	defer pgPool.Close()
+	if err := pgPool.Ping(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})

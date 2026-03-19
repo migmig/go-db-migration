@@ -29,10 +29,27 @@ type SourceState = {
 
 type TargetState = {
   mode: "file" | "direct";
-  targetDb: string;
   targetUrl: string;
   schema: string;
 };
+
+type TargetTableEntry = {
+  name: string;
+  inSource: boolean;
+  inTarget: boolean;
+  category: "source_only" | "both" | "target_only";
+  sourceRowCount: number | null;
+  targetRowCount: number | null;
+};
+
+type CompareState = {
+  targetTables: string[];
+  fetchedAt: string | null;
+  busy: boolean;
+  error: string | null;
+};
+
+type CompareFilter = "all" | "source_only" | "both" | "target_only";
 
 type SourceRecent = {
   oracleUrl: string;
@@ -428,7 +445,6 @@ export function App() {
   });
   const [target, setTarget] = useState<TargetState>({
     mode: initialTarget.mode ?? "file",
-    targetDb: initialTarget.targetDb ?? "postgres",
     targetUrl: initialTarget.targetUrl ?? "",
     schema: initialTarget.schema ?? "public",
   });
@@ -487,6 +503,15 @@ export function App() {
   const [tableHistoryError, setTableHistoryError] = useState("");
 
   // v19: precheck state
+  const [compareState, setCompareState] = useState<CompareState>({
+    targetTables: [],
+    fetchedAt: null,
+    busy: false,
+    error: null,
+  });
+  const [compareFilter, setCompareFilter] = useState<CompareFilter>("all");
+  const [compareSearch, setCompareSearch] = useState("");
+
   const [precheckBusy, setPrecheckBusy] = useState(false);
   const [precheckError, setPrecheckError] = useState("");
   const [precheckSummary, setPrecheckSummary] = useState<PrecheckSummary | null>(null);
@@ -617,6 +642,40 @@ export function App() {
 
     return filtered;
   }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
+  const compareEntries = useMemo((): TargetTableEntry[] => {
+    if (allTables.length === 0 || compareState.targetTables.length === 0) return [];
+    const sourceSet = new Set(allTables.map((t) => t.toLowerCase()));
+    const targetSet = new Set(compareState.targetTables.map((t) => t.toLowerCase()));
+    const allNames: Set<string> = new Set([...sourceSet, ...targetSet]);
+    const catOrder: Record<TargetTableEntry["category"], number> = {
+      source_only: 0,
+      both: 1,
+      target_only: 2,
+    };
+    return Array.from(allNames)
+      .map((name): TargetTableEntry => {
+        const inSource = sourceSet.has(name);
+        const inTarget = targetSet.has(name);
+        const category: TargetTableEntry["category"] =
+          inSource && inTarget ? "both" : inSource ? "source_only" : "target_only";
+        const precheckRow = precheckItems.find(
+          (r) => r.table_name.toLowerCase() === name,
+        );
+        return {
+          name,
+          inSource,
+          inTarget,
+          category,
+          sourceRowCount: precheckRow?.source_row_count ?? null,
+          targetRowCount: precheckRow?.target_row_count ?? null,
+        };
+      })
+      .sort((a, b) => {
+        const diff = catOrder[a.category] - catOrder[b.category];
+        return diff !== 0 ? diff : a.name.localeCompare(b.name);
+      });
+  }, [allTables, compareState.targetTables, precheckItems]);
+
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
   const activeHistoryDetail = activeTableHistory
@@ -741,7 +800,7 @@ export function App() {
     } catch {
       // Ignore storage errors in restricted browser environments.
     }
-  }, [target.mode, target.targetDb, target.targetUrl, target.schema]);
+  }, [target.mode, target.targetUrl, target.schema]);
 
   useEffect(() => {
     void boot();
@@ -1165,7 +1224,6 @@ export function App() {
       setTarget((prev) => ({
         ...prev,
         mode: "direct",
-        targetDb: item.dbType || "postgres",
         targetUrl: item.host ?? "",
       }));
       setNotice({ text: `${item.alias} applied to target form.`, tone: "info" });
@@ -1283,7 +1341,6 @@ export function App() {
     setTarget((prev) => ({
       ...prev,
       mode: direct ? "direct" : "file",
-      targetDb: toString(payload.targetDb, prev.targetDb),
       targetUrl: toString(payload.targetUrl ?? payload.pgUrl, ""),
       schema: toString(payload.schema, ""),
     }));
@@ -1347,6 +1404,50 @@ export function App() {
     }
   }
 
+  async function fetchTargetTables() {
+    if (!target.targetUrl || !target.schema) return;
+    setCompareState((prev) => ({ ...prev, busy: true, error: null }));
+    try {
+      const { response, data } = await apiRequest<{
+        tables?: string[];
+        fetchedAt?: string;
+        error?: string;
+      }>("/api/target-tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUrl: target.targetUrl, schema: target.schema }),
+      });
+      if (!response.ok) throw new Error(data.error ?? tr("Fetch failed", "조회 실패"));
+      setCompareState({
+        targetTables: data.tables ?? [],
+        fetchedAt: data.fetchedAt ?? null,
+        busy: false,
+        error: null,
+      });
+    } catch (e) {
+      setCompareState((prev) => ({
+        ...prev,
+        busy: false,
+        error: e instanceof Error ? e.message : tr("Unknown error", "알 수 없는 오류"),
+      }));
+    }
+  }
+
+  function selectByCategory(category: TargetTableEntry["category"]) {
+    const names = new Set(
+      compareEntries
+        .filter((e) => e.category === category)
+        .map((e) => e.name.toUpperCase()),
+    );
+    setSelectedTables((prev) => {
+      const next = new Set(prev);
+      allTables.forEach((t) => {
+        if (names.has(t.toUpperCase())) next.add(t);
+      });
+      return Array.from(next);
+    });
+  }
+
   async function testTarget() {
     setTargetTestError("");
     setTargetTestMessage("");
@@ -1367,7 +1468,6 @@ export function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            targetDb: target.targetDb,
             targetUrl: target.targetUrl,
           }),
         },
@@ -1476,7 +1576,6 @@ export function App() {
             username: source.username,
             password: source.password,
             tables: selectedTables,
-            targetDb: target.targetDb,
             targetUrl: target.mode === "direct" ? target.targetUrl.trim() : "",
             policy: precheckPolicy,
           }),
@@ -1561,7 +1660,6 @@ export function App() {
             password: source.password,
             tables: selectedTables,
             direct: target.mode === "direct",
-            targetDb: target.targetDb,
             targetUrl: target.targetUrl.trim(),
             pgUrl: target.targetUrl.trim(),
             withDdl: options.withDdl,
@@ -1841,22 +1939,12 @@ export function App() {
                   <option value="direct">{tr("Direct migration", "직접 마이그레이션")}</option>
                 </select>
               </label>
-              <label className="block text-sm">
+              <div className="block text-sm">
                 <span className="mb-1 block text-slate-700">{tr("Target DB", "타깃 DB")}</span>
-                <select
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setTarget((prev) => ({ ...prev, targetDb: event.target.value }))
-                  }
-                  value={target.targetDb}
-                >
-                  <option value="postgres">PostgreSQL</option>
-                  <option value="mysql">MySQL</option>
-                  <option value="mariadb">MariaDB</option>
-                  <option value="sqlite">SQLite</option>
-                  <option value="mssql">MSSQL</option>
-                </select>
-              </label>
+                <span className="inline-block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  PostgreSQL
+                </span>
+              </div>
               <label className="block text-sm">
                 <span className="mb-1 block text-slate-700">{tr("Target URL", "타깃 URL")}</span>
                 <input
@@ -1894,6 +1982,36 @@ export function App() {
             )}
             {targetTestMessage && (
               <p className="mt-3 text-sm font-medium text-emerald-700">{targetTestMessage}</p>
+            )}
+            {target.mode === "direct" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={compareState.busy || migrationBusy || !target.targetUrl || !target.schema}
+                  onClick={() => void fetchTargetTables()}
+                  type="button"
+                >
+                  {compareState.busy
+                    ? tr("Fetching...", "조회 중...")
+                    : compareState.fetchedAt
+                      ? tr("Refresh", "새로고침")
+                      : tr("Fetch Target Tables", "타겟 테이블 조회")}
+                </button>
+                {compareState.targetTables.length > 0 && (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {compareState.targetTables.length} {tr("tables in target", "개 타겟 테이블")}
+                  </span>
+                )}
+                {compareState.fetchedAt && (
+                  <span className="text-xs text-slate-400">
+                    {tr("as of", "기준 시각")}{" "}
+                    {new Date(compareState.fetchedAt).toLocaleTimeString()}
+                  </span>
+                )}
+                {compareState.error && (
+                  <p className="w-full text-sm font-medium text-red-600">{compareState.error}</p>
+                )}
+              </div>
             )}
           </div>
         </section>
@@ -1965,6 +2083,120 @@ export function App() {
                   </details>
                 </div>
               )}
+              {compareEntries.length > 0 && (() => {
+                const catOrder: Record<TargetTableEntry["category"], number> = { source_only: 0, both: 1, target_only: 2 };
+                const sourceOnlyCount = compareEntries.filter((e) => e.category === "source_only").length;
+                const bothCount = compareEntries.filter((e) => e.category === "both").length;
+                const targetOnlyCount = compareEntries.filter((e) => e.category === "target_only").length;
+                const filteredCompare = compareEntries.filter((e) => {
+                  if (compareFilter !== "all" && e.category !== compareFilter) return false;
+                  if (compareSearch && !e.name.toLowerCase().includes(compareSearch.toLowerCase())) return false;
+                  return true;
+                });
+                return (
+                  <details className="mb-4 rounded-xl border border-slate-200 bg-slate-50">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+                      {tr("Source vs Target Comparison", "소스-타겟 비교")}
+                      <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {compareEntries.length}
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-200 p-4">
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-blue-300 bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+                          {tr("Source only", "소스에만")} {sourceOnlyCount}
+                        </span>
+                        <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                          {tr("Both", "양쪽")} {bothCount}
+                        </span>
+                        <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          {tr("Target only", "타겟에만")} {targetOnlyCount}
+                        </span>
+                      </div>
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {(["all", "source_only", "both", "target_only"] as CompareFilter[]).map((f) => (
+                          <button
+                            key={f}
+                            className={`rounded-lg border px-3 py-1 text-xs font-medium ${compareFilter === f ? "border-brand-500 bg-brand-100 text-brand-800" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"}`}
+                            onClick={() => setCompareFilter(f)}
+                            type="button"
+                          >
+                            {f === "all" ? tr("All", "전체") : f === "source_only" ? tr("Source only", "소스만") : f === "both" ? tr("Both", "양쪽") : tr("Target only", "타겟만")}
+                          </button>
+                        ))}
+                        <input
+                          className="ml-auto rounded-lg border border-slate-300 px-3 py-1 text-xs outline-none focus:border-brand-500"
+                          onChange={(e) => setCompareSearch(e.target.value)}
+                          placeholder={tr("Search...", "검색...")}
+                          value={compareSearch}
+                        />
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-100 text-left text-slate-600">
+                              <th className="px-2 py-1.5">{tr("Table", "테이블명")}</th>
+                              <th className="px-2 py-1.5 text-center">{tr("Source", "소스")}</th>
+                              <th className="px-2 py-1.5 text-center">{tr("Target", "타겟")}</th>
+                              <th className="px-2 py-1.5 text-right">{tr("Src rows", "소스 행 수")}</th>
+                              <th className="px-2 py-1.5 text-right">{tr("Tgt rows", "타겟 행 수")}</th>
+                              <th className="px-2 py-1.5">{tr("Status", "상태")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredCompare.map((e) => {
+                              const isRowDiff =
+                                e.category === "both" &&
+                                e.sourceRowCount !== null &&
+                                e.targetRowCount !== null &&
+                                e.sourceRowCount !== e.targetRowCount;
+                              return (
+                                <tr key={e.name} className="border-t border-slate-100 hover:bg-white">
+                                  <td className="px-2 py-1.5 font-mono">{e.name}</td>
+                                  <td className="px-2 py-1.5 text-center">{e.inSource ? "✓" : "—"}</td>
+                                  <td className="px-2 py-1.5 text-center">{e.inTarget ? "✓" : "—"}</td>
+                                  <td className="px-2 py-1.5 text-right text-slate-600">
+                                    {e.sourceRowCount !== null ? e.sourceRowCount.toLocaleString() : "—"}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right text-slate-600">
+                                    {e.targetRowCount !== null ? e.targetRowCount.toLocaleString() : "—"}
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                      e.category === "source_only"
+                                        ? "border-blue-300 bg-blue-100 text-blue-800"
+                                        : e.category === "both"
+                                          ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                                          : "border-amber-300 bg-amber-100 text-amber-800"
+                                    }`}>
+                                      {e.category === "source_only" ? tr("Source only", "소스만") : e.category === "both" ? tr("Both", "양쪽") : tr("Target only", "타겟만")}
+                                    </span>
+                                    {isRowDiff && (
+                                      <span className="ml-1 rounded-full border border-orange-300 bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                                        {tr("Row diff", "행 수 불일치")}
+                                      </span>
+                                    )}
+                                    {e.category === "both" && e.sourceRowCount === null && (
+                                      <span className="ml-1 text-xs text-slate-400">
+                                        {tr("Run pre-check to see row counts", "Pre-check 실행 후 행 수가 표시됩니다")}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {filteredCompare.length === 0 && (
+                          <p className="py-4 text-center text-xs text-slate-400">
+                            {tr("No tables match the filter.", "필터 조건에 맞는 테이블이 없습니다.")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                );
+              })()}
               <div className="mb-3 flex flex-wrap gap-2">
                 <input
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
@@ -2021,6 +2253,26 @@ export function App() {
                 >
                   {tr("Clear visible", "현재 목록 선택 해제")}
                 </button>
+                {compareEntries.length > 0 && (
+                  <>
+                    <button
+                      className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                      disabled={migrationBusy}
+                      onClick={() => selectByCategory("source_only")}
+                      type="button"
+                    >
+                      {tr("Select source-only", "소스에만 있는 테이블 선택")}
+                    </button>
+                    <button
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                      disabled={migrationBusy}
+                      onClick={() => selectByCategory("both")}
+                      type="button"
+                    >
+                      {tr("Select both", "양쪽에 있는 테이블 선택")}
+                    </button>
+                  </>
+                )}
               </div>
               <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 bg-white">
                 <table className="w-full border-collapse text-sm">

@@ -32,6 +32,7 @@ func setupTestRouter() *gin.Engine {
 	api.POST("/migrate", startMigration)
 	api.POST("/migrate/retry", retryMigration)
 	api.POST("/test-target", testTargetConnection)
+	api.POST("/target-tables", targetTablesHandler)
 	api.GET("/download/:id", downloadZip)
 	return r
 }
@@ -1158,4 +1159,90 @@ func TestDownloadZip_EmptyID(t *testing.T) {
 
 func nearlyEqual(got, want float64) bool {
 	return math.Abs(got-want) <= 0.0001
+}
+
+// ── v22: requirePostgres ──────────────────────────────────────────────────────
+
+func TestRequirePostgres_AllowsEmpty(t *testing.T) {
+	r := setupTestRouter()
+	// targetDb 필드 없이 test-target 요청 → requirePostgres 통과 (targetUrl 필수값 누락으로 400)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/test-target", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	// targetUrl binding required → 400, but NOT because of requirePostgres
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+	var body map[string]string
+	_ = json.NewDecoder(w.Body).Decode(&body)
+	if body["error"] == "v22 이후 타겟 DB는 PostgreSQL만 지원합니다 (입력값: mysql)" {
+		t.Errorf("should not have hit requirePostgres with empty targetDb")
+	}
+}
+
+func TestTestTargetConnection_NonPostgresRejected(t *testing.T) {
+	r := setupTestRouter()
+	for _, db := range []string{"mysql", "mariadb", "sqlite", "mssql"} {
+		w := httptest.NewRecorder()
+		body := `{"targetDb":"` + db + `","targetUrl":"some_url"}`
+		req, _ := http.NewRequest("POST", "/api/test-target", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("targetDb=%s: expected 400, got %d", db, w.Code)
+		}
+		var resp map[string]string
+		_ = json.NewDecoder(w.Body).Decode(&resp)
+		if !strings.Contains(resp["error"], "v22") {
+			t.Errorf("targetDb=%s: expected v22 error message, got %q", db, resp["error"])
+		}
+	}
+}
+
+func TestStartMigration_NonPostgresRejected(t *testing.T) {
+	r := setupTestRouter()
+	body := `{"oracleUrl":"h/s","username":"u","password":"p","tables":["T"],"targetDb":"mysql"}`
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/migrate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for non-postgres targetDb in migrate, got %d", w.Code)
+	}
+}
+
+// ── v22: POST /api/target-tables ─────────────────────────────────────────────
+
+func TestTargetTablesHandler_MissingTargetUrl(t *testing.T) {
+	r := setupTestRouter()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/target-tables", strings.NewReader(`{"schema":"public"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing targetUrl, got %d", w.Code)
+	}
+}
+
+func TestTargetTablesHandler_MissingSchema(t *testing.T) {
+	r := setupTestRouter()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/target-tables", strings.NewReader(`{"targetUrl":"postgres://x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for missing schema, got %d", w.Code)
+	}
+}
+
+func TestTargetTablesHandler_InvalidJSON(t *testing.T) {
+	r := setupTestRouter()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/target-tables", strings.NewReader("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid JSON, got %d; body: %s", w.Code, w.Body.String())
+	}
 }
