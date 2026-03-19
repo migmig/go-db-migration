@@ -153,10 +153,10 @@
 - [x] `requirePostgres` — 빈 targetDb는 통과하는지 검증
 
 #### 10.2 프론트엔드
-- [ ] `compareEntries` 메모: source-only / both / target-only 분류 검증
-- [ ] 대소문자 정규화: 소스 `"USERS"` + 타겟 `"users"` → `both` 확인
-- [ ] `selectByCategory("source_only")`: 해당 테이블만 추가 확인
-- [ ] `isRowDiff` 조건 검증
+- [x] `compareEntries` 메모: source-only / both / target-only 분류 검증
+- [x] 대소문자 정규화: 소스 `"USERS"` + 타겟 `"users"` → `both` 확인
+- [x] `selectByCategory("source_only")`: 해당 테이블만 추가 확인
+- [x] `isRowDiff` 조건 검증
 
 #### 10.3 최종 확인
 - [ ] `go test ./...` 전량 통과

@@ -947,3 +947,185 @@ describe("App", () => {
     });
   });
 });
+
+// ── v22: 소스-타겟 비교 UI ────────────────────────────────────────────────────
+
+describe("v22 소스-타겟 비교 UI", () => {
+  /** 공통 fetch mock 설정 */
+  function setupCompareFetch(sourceTables: string[], targetTables: string[]) {
+    return mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: sourceTables });
+      }
+      if (url === "/api/target-tables" && method === "POST") {
+        return jsonResponse({ tables: targetTables, fetchedAt: "2026-03-19T10:00:00Z" });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+  }
+
+  /** 소스 테이블 로드 → direct 모드 전환 → 타겟 테이블 조회 */
+  async function loadAndFetchTables(
+    user: ReturnType<typeof userEvent.setup>,
+    sourceTables: string[],
+  ) {
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "hr");
+    await user.type(screen.getByLabelText("Password"), "hr");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText(`Found ${sourceTables.length} table(s)`);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Migration mode" }),
+      "Direct migration",
+    );
+    await user.type(screen.getByLabelText("Target URL"), "postgres://localhost/db");
+    await user.type(screen.getByLabelText("Schema"), "public");
+
+    await user.click(screen.getByRole("button", { name: "Fetch Target Tables" }));
+    await screen.findByText(/tables in target|개 타겟 테이블/);
+  }
+
+  it("source_only / both / target_only 카테고리를 올바르게 분류한다", async () => {
+    const user = userEvent.setup();
+    // 소스: USERS, ORDERS, PRODUCTS / 타겟: USERS, PRODUCTS, DEPT
+    // source_only=ORDERS(1), both=USERS+PRODUCTS(2), target_only=DEPT(1)
+    setupCompareFetch(["USERS", "ORDERS", "PRODUCTS"], ["USERS", "PRODUCTS", "DEPT"]);
+
+    await loadAndFetchTables(user, ["USERS", "ORDERS", "PRODUCTS"]);
+
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      // 요약 카드: source_only=1, both=2, target_only=1
+      expect(text).toMatch(/소스에만|Source only/);
+      expect(text).toMatch(/양쪽|Both/);
+      expect(text).toMatch(/타겟에만|Target only/);
+    });
+
+    // 테이블 행 검증
+    await waitFor(() => {
+      expect(screen.getByText("orders")).toBeInTheDocument(); // source_only (lowercase normalized)
+      expect(screen.getByText("dept")).toBeInTheDocument();   // target_only
+    });
+  });
+
+  it("대소문자 정규화: 소스 USERS + 타겟 users → both 분류 (source_only/target_only=0)", async () => {
+    const user = userEvent.setup();
+    setupCompareFetch(["USERS"], ["users"]);
+
+    await loadAndFetchTables(user, ["USERS"]);
+
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      // both=1 → "users" 행이 both 배지로 표시
+      expect(screen.getByText("users")).toBeInTheDocument();
+    });
+
+    // source_only / target_only 행이 없음을 확인
+    const rows = screen.queryAllByText(/orders|dept/i);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("'소스에만 있는 테이블 선택' 버튼이 source_only 테이블을 선택에 추가한다", async () => {
+    const user = userEvent.setup();
+    // ORDERS만 source_only, USERS는 both
+    setupCompareFetch(["USERS", "ORDERS"], ["users", "dept"]);
+
+    await loadAndFetchTables(user, ["USERS", "ORDERS"]);
+
+    // 테이블 선택 섹션에서 선택 카운트 확인 (초기: 0)
+    expect(screen.getByText(/0 \/ 2 selected|0 \/ 2 선택됨/)).toBeInTheDocument();
+
+    // 빠른 선택 버튼 클릭
+    await user.click(
+      screen.getByRole("button", { name: /소스에만 있는 테이블 선택|Select source-only/ }),
+    );
+
+    await waitFor(() => {
+      // source_only = ORDERS 1개만 선택됨
+      expect(screen.getByText(/1 \/ 2 selected|1 \/ 2 선택됨/)).toBeInTheDocument();
+    });
+  });
+
+  it("row_diff: both + 행 수 불일치 시 배지가 표시된다", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS"] });
+      }
+      if (url === "/api/target-tables" && method === "POST") {
+        return jsonResponse({ tables: ["users"], fetchedAt: "2026-03-19T10:00:00Z" });
+      }
+      if (url === "/api/migrations/precheck" && method === "POST") {
+        return jsonResponse({
+          summary: {
+            total_tables: 1,
+            transfer_required_count: 1,
+            skip_candidate_count: 0,
+            count_check_failed_count: 0,
+          },
+          items: [
+            {
+              table_name: "USERS",
+              source_row_count: 1000,
+              target_row_count: 500,
+              diff: -500,
+              decision: "transfer_required",
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "hr");
+    await user.type(screen.getByLabelText("Password"), "hr");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 1 table(s)");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Migration mode" }),
+      "Direct migration",
+    );
+    await user.type(screen.getByLabelText("Target URL"), "postgres://localhost/db");
+    await user.type(screen.getByLabelText("Schema"), "public");
+
+    // USERS 테이블 체크 후 pre-check 실행
+    const checkboxes = screen.getAllByRole("checkbox");
+    await user.click(checkboxes[0]); // 전체 선택
+    await user.click(screen.getByRole("button", { name: /Pre-check|pre-check/i }));
+    await waitFor(() => {
+      expect(screen.queryByText(/1,000|1000/)).toBeInTheDocument();
+    });
+
+    // 타겟 테이블 조회
+    await user.click(screen.getByRole("button", { name: "Fetch Target Tables" }));
+    await screen.findByText(/tables in target|개 타겟 테이블/);
+
+    // 비교 패널 열기
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Row diff|행 수 불일치/)).toBeInTheDocument();
+    });
+  });
+});
