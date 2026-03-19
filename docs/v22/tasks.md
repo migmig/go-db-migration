@@ -165,5 +165,6 @@
 ---
 
 ### 11. 릴리즈 노트
-- [ ] CHANGELOG / README에 breaking change 명시 (타겟 DB 단일화, MariaDB/MySQL/MSSQL/SQLite 지원 종료)
-- [ ] 기존 설정 파일 `targetDb != "postgres"` 시 서버 시작 경고 로그 추가 검토
+- [x] README에 breaking change 명시 (타겟 DB 단일화, MariaDB/MySQL/MSSQL/SQLite 지원 종료)
+- [x] CLI(`main.go`)에서 non-postgres targetDb 진입 시 오류 종료 처리 (`requirePostgres` 동등 로직)
+- [x] `internal/db/db.go`에서 불필요한 드라이버 imports 제거 (`go-sql-driver/mysql`, `go-sqlite3`, `go-mssqldb`)

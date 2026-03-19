@@ -11,11 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	go_ora "github.com/sijms/go-ora/v2"
-
-	// Drivers for targets
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
-	_ "github.com/microsoft/go-mssqldb"
 )
 
 // PGPool interface for testability

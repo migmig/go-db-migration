@@ -1,11 +1,13 @@
-# Oracle to Multi-Target Data Migration CLI (v20)
+# Oracle to PostgreSQL Data Migration CLI (v22)
 
-Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, MySQL, MariaDB, SQLite, MSSQL)로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
+Oracle 데이터베이스에서 PostgreSQL로 데이터를 마이그레이션하기 위해 설계된 고성능 Go 기반 CLI 애플리케이션입니다. 실시간 모니터링, 자동 복구(Auto-healing), 대용량 테이블 청크(Chunking) 처리가 가능한 고급 웹 UI를 제공합니다.
+
+> **⚠ v22 Breaking Change:** 타겟 DB가 **PostgreSQL로 단일화**되었습니다. MariaDB, MySQL, MSSQL, SQLite 타겟 지원이 CLI·Web UI·API 전체에서 제거되었습니다. 기존 설정에서 `targetDb`가 `postgres` 이외 값인 경우 서버/CLI 시작 시 오류로 종료됩니다.
 
 ## 주요 기능 (Features)
 
 - **순수 Go 드라이버 (Pure Go Drivers):** Oracle Instant Client나 CGO 설치가 필요하지 않습니다.
-- **다중 대상 데이터베이스 지원:** PostgreSQL, MySQL, MariaDB, SQLite, MSSQL로 직접 데이터를 마이그레이션 할 수 있습니다.
+- **PostgreSQL 타겟 지원 (v22):** 타겟 DB를 PostgreSQL로 단일화하여 고성능 `COPY` 프로토콜 기반 직접 마이그레이션을 제공합니다.
 - **고급 웹 UI (Advanced Web UI) (v11):** WebSocket 기반의 실시간 진행률 추적, 대시보드 모니터링 및 스키마 토폴로지를 제공하는 대화형 웹 인터페이스입니다.
 - **테이블 청크 분할 (Table Chunking) (v11):** 대용량 테이블을 자동으로 분할하여 테이블 내 병렬 처리(Intra-table parallel migration)를 지원함으로써 처리 속도를 극대화합니다.
 - **자동 복구 (Auto-Healing) (v11):** 네트워크 타임아웃이나 일시적 오류 발생 시 스마트 자동 재시도 메커니즘을 통해 안정적인 마이그레이션을 보장합니다.
@@ -28,6 +30,8 @@ Oracle 데이터베이스에서 다양한 대상 데이터베이스(PostgreSQL, 
 - **CLI 수치형 입력 검증 (v20):** `-batch`, `-workers`, `-db-max-open`, `-db-max-idle` 값에 범위 검증이 적용되어 잘못된 파라미터를 실행 전에 즉시 차단합니다.
 - **인증 세션 자동 정리/상한 (v20):** 인증 모드에서 만료·유휴 세션이 주기적으로 자동 정리되며, `DBM_MAX_SESSIONS` 상한 초과 시 가장 오래된 세션부터 자동 축출됩니다.
 - **부분 실패 허용 정책 (v20):** `-on-error skip_batch`를 사용하면 배치 단위 오류를 건너뛰고 다음 배치를 계속 처리하며, 결과 상태를 `partial_success`로 기록합니다.
+- **타겟 DB 단일화 (v22):** MariaDB, MySQL, MSSQL, SQLite 타겟 지원을 제거하고 PostgreSQL로 단일화했습니다. (**Breaking Change**)
+- **소스-타겟 비교 UI (v22):** 타겟 PostgreSQL의 테이블 목록을 조회하여 소스 Oracle 목록과 나란히 비교하는 패널을 추가했습니다. `source_only` / `both` / `target_only` 카테고리 분류, 빠른 선택 버튼, pre-check 행 수 연동을 지원합니다.
 
 ## 설치 (Installation)
 
@@ -372,7 +376,7 @@ Sequences Group: 3 ok · 0 error · 3 objects
 | `-user` | Oracle 데이터베이스 사용자명 | 없음 | 예* |
 | `-password` | Oracle 데이터베이스 비밀번호 | 없음 | 예* |
 | `-tables` | 마이그레이션할 테이블 목록 (쉼표로 구분) | 없음 | 예* |
-| `-target-db` | 출력 대상 DB 종류 (`postgres`, `mysql`, `mariadb`, `sqlite`, `mssql`) | `postgres` | 아니오 |
+| `-target-db` | 출력 대상 DB 종류 (`postgres` 고정, v22 이후 다른 값은 오류) | `postgres` | 아니오 |
 | `-target-url` | 대상 DB 연결 URL (PostgreSQL 외 Direct 마이그레이션 시) | 없음 | 아니오 |
 | `-pg-url` | PostgreSQL 연결 URL (Legacy) | 없음 | 아니오 |
 | `-out` | 출력 SQL 파일명 | `migration.sql` | 아니오 |
