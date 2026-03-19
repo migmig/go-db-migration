@@ -2345,11 +2345,13 @@
     // ── Table search ──
     document.getElementById('tableSearch').addEventListener('input', (e) => {
         const q = e.target.value.trim().toLowerCase();
+        const searchTerms = q.split(',').map(t => t.trim()).filter(t => t.length > 0);
         const items = document.querySelectorAll('#tableList .table-item-row');
         let visible = 0;
         items.forEach(item => {
             const label = item.querySelector('label');
-            const match = !q || label.textContent.toLowerCase().includes(q);
+            const text = label.textContent.toLowerCase();
+            const match = searchTerms.length === 0 || searchTerms.some(term => text.includes(term));
             item.style.display = match ? '' : 'none';
             if (match) visible++;
         });

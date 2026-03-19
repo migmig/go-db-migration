@@ -563,7 +563,8 @@ export function App() {
 
   const filteredTables = useMemo(() => {
     const filtered = allTables.filter((table) => {
-      if (!table.toLowerCase().includes(tableSearch.toLowerCase())) {
+      const searchTerms = tableSearch.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
+      if (searchTerms.length > 0 && !searchTerms.some(term => table.toLowerCase().includes(term))) {
         return false;
       }
       const historyState = historyByTable[normalizeTableKey(table)];
