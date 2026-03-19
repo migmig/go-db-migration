@@ -29,10 +29,27 @@ type SourceState = {
 
 type TargetState = {
   mode: "file" | "direct";
-  targetDb: string;
   targetUrl: string;
   schema: string;
 };
+
+type TargetTableEntry = {
+  name: string;
+  inSource: boolean;
+  inTarget: boolean;
+  category: "source_only" | "both" | "target_only";
+  sourceRowCount: number | null;
+  targetRowCount: number | null;
+};
+
+type CompareState = {
+  targetTables: string[];
+  fetchedAt: string | null;
+  busy: boolean;
+  error: string | null;
+};
+
+type CompareFilter = "all" | "source_only" | "both" | "target_only";
 
 type SourceRecent = {
   oracleUrl: string;
@@ -175,10 +192,10 @@ const UI_LOCALE_KEY = "dbm:v18:ui-locale";
 
 const UI_TEXT: Record<Locale, Record<string, string>> = {
   en: {
-    loading: "Loading v18 preview...",
-    bootFailed: "v18 boot failed",
+    loading: "Loading v21 preview...",
+    bootFailed: "v21 boot failed",
     retry: "Retry",
-    workspaceTitle: "v18 Migration Workspace",
+    workspaceTitle: "v21 Migration Workspace",
     workspaceDesc: "Source/target setup, migration options, and real-time run status.",
     authEnabled: "Auth enabled",
     authDisabled: "Auth disabled",
@@ -193,10 +210,10 @@ const UI_TEXT: Record<Locale, Record<string, string>> = {
     switchToEnglish: "English",
   },
   ko: {
-    loading: "v18 미리보기를 불러오는 중...",
-    bootFailed: "v18 부팅 실패",
+    loading: "v21 미리보기를 불러오는 중...",
+    bootFailed: "v21 부팅 실패",
     retry: "다시 시도",
-    workspaceTitle: "v18 마이그레이션 작업공간",
+    workspaceTitle: "v21 마이그레이션 작업공간",
     workspaceDesc: "소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.",
     authEnabled: "인증 사용 중",
     authDisabled: "인증 비활성화",
@@ -428,7 +445,6 @@ export function App() {
   });
   const [target, setTarget] = useState<TargetState>({
     mode: initialTarget.mode ?? "file",
-    targetDb: initialTarget.targetDb ?? "postgres",
     targetUrl: initialTarget.targetUrl ?? "",
     schema: initialTarget.schema ?? "public",
   });
@@ -487,6 +503,15 @@ export function App() {
   const [tableHistoryError, setTableHistoryError] = useState("");
 
   // v19: precheck state
+  const [compareState, setCompareState] = useState<CompareState>({
+    targetTables: [],
+    fetchedAt: null,
+    busy: false,
+    error: null,
+  });
+  const [compareFilter, setCompareFilter] = useState<CompareFilter>("all");
+  const [compareSearch, setCompareSearch] = useState("");
+
   const [precheckBusy, setPrecheckBusy] = useState(false);
   const [precheckError, setPrecheckError] = useState("");
   const [precheckSummary, setPrecheckSummary] = useState<PrecheckSummary | null>(null);
@@ -617,6 +642,40 @@ export function App() {
 
     return filtered;
   }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
+  const compareEntries = useMemo((): TargetTableEntry[] => {
+    if (allTables.length === 0 || compareState.targetTables.length === 0) return [];
+    const sourceSet = new Set(allTables.map((t) => t.toLowerCase()));
+    const targetSet = new Set(compareState.targetTables.map((t) => t.toLowerCase()));
+    const allNames: Set<string> = new Set([...sourceSet, ...targetSet]);
+    const catOrder: Record<TargetTableEntry["category"], number> = {
+      source_only: 0,
+      both: 1,
+      target_only: 2,
+    };
+    return Array.from(allNames)
+      .map((name): TargetTableEntry => {
+        const inSource = sourceSet.has(name);
+        const inTarget = targetSet.has(name);
+        const category: TargetTableEntry["category"] =
+          inSource && inTarget ? "both" : inSource ? "source_only" : "target_only";
+        const precheckRow = precheckItems.find(
+          (r) => r.table_name.toLowerCase() === name,
+        );
+        return {
+          name,
+          inSource,
+          inTarget,
+          category,
+          sourceRowCount: precheckRow?.source_row_count ?? null,
+          targetRowCount: precheckRow?.target_row_count ?? null,
+        };
+      })
+      .sort((a, b) => {
+        const diff = catOrder[a.category] - catOrder[b.category];
+        return diff !== 0 ? diff : a.name.localeCompare(b.name);
+      });
+  }, [allTables, compareState.targetTables, precheckItems]);
+
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
   const selectedTableSet = new Set(selectedTables);
   const activeHistoryDetail = activeTableHistory
@@ -741,7 +800,7 @@ export function App() {
     } catch {
       // Ignore storage errors in restricted browser environments.
     }
-  }, [target.mode, target.targetDb, target.targetUrl, target.schema]);
+  }, [target.mode, target.targetUrl, target.schema]);
 
   useEffect(() => {
     void boot();
@@ -1165,7 +1224,6 @@ export function App() {
       setTarget((prev) => ({
         ...prev,
         mode: "direct",
-        targetDb: item.dbType || "postgres",
         targetUrl: item.host ?? "",
       }));
       setNotice({ text: `${item.alias} applied to target form.`, tone: "info" });
@@ -1283,7 +1341,6 @@ export function App() {
     setTarget((prev) => ({
       ...prev,
       mode: direct ? "direct" : "file",
-      targetDb: toString(payload.targetDb, prev.targetDb),
       targetUrl: toString(payload.targetUrl ?? payload.pgUrl, ""),
       schema: toString(payload.schema, ""),
     }));
@@ -1347,6 +1404,50 @@ export function App() {
     }
   }
 
+  async function fetchTargetTables() {
+    if (!target.targetUrl || !target.schema) return;
+    setCompareState((prev) => ({ ...prev, busy: true, error: null }));
+    try {
+      const { response, data } = await apiRequest<{
+        tables?: string[];
+        fetchedAt?: string;
+        error?: string;
+      }>("/api/target-tables", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUrl: target.targetUrl, schema: target.schema }),
+      });
+      if (!response.ok) throw new Error(data.error ?? tr("Fetch failed", "조회 실패"));
+      setCompareState({
+        targetTables: data.tables ?? [],
+        fetchedAt: data.fetchedAt ?? null,
+        busy: false,
+        error: null,
+      });
+    } catch (e) {
+      setCompareState((prev) => ({
+        ...prev,
+        busy: false,
+        error: e instanceof Error ? e.message : tr("Unknown error", "알 수 없는 오류"),
+      }));
+    }
+  }
+
+  function selectByCategory(category: TargetTableEntry["category"]) {
+    const names = new Set(
+      compareEntries
+        .filter((e) => e.category === category)
+        .map((e) => e.name.toUpperCase()),
+    );
+    setSelectedTables((prev) => {
+      const next = new Set(prev);
+      allTables.forEach((t) => {
+        if (names.has(t.toUpperCase())) next.add(t);
+      });
+      return Array.from(next);
+    });
+  }
+
   async function testTarget() {
     setTargetTestError("");
     setTargetTestMessage("");
@@ -1367,7 +1468,6 @@ export function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            targetDb: target.targetDb,
             targetUrl: target.targetUrl,
           }),
         },
@@ -1476,7 +1576,6 @@ export function App() {
             username: source.username,
             password: source.password,
             tables: selectedTables,
-            targetDb: target.targetDb,
             targetUrl: target.mode === "direct" ? target.targetUrl.trim() : "",
             policy: precheckPolicy,
           }),
@@ -1561,7 +1660,6 @@ export function App() {
             password: source.password,
             tables: selectedTables,
             direct: target.mode === "direct",
-            targetDb: target.targetDb,
             targetUrl: target.targetUrl.trim(),
             pgUrl: target.targetUrl.trim(),
             withDdl: options.withDdl,
@@ -1841,22 +1939,12 @@ export function App() {
                   <option value="direct">{tr("Direct migration", "직접 마이그레이션")}</option>
                 </select>
               </label>
-              <label className="block text-sm">
+              <div className="block text-sm">
                 <span className="mb-1 block text-slate-700">{tr("Target DB", "타깃 DB")}</span>
-                <select
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setTarget((prev) => ({ ...prev, targetDb: event.target.value }))
-                  }
-                  value={target.targetDb}
-                >
-                  <option value="postgres">PostgreSQL</option>
-                  <option value="mysql">MySQL</option>
-                  <option value="mariadb">MariaDB</option>
-                  <option value="sqlite">SQLite</option>
-                  <option value="mssql">MSSQL</option>
-                </select>
-              </label>
+                <span className="inline-block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  PostgreSQL
+                </span>
+              </div>
               <label className="block text-sm">
                 <span className="mb-1 block text-slate-700">{tr("Target URL", "타깃 URL")}</span>
                 <input
@@ -1895,6 +1983,36 @@ export function App() {
             {targetTestMessage && (
               <p className="mt-3 text-sm font-medium text-emerald-700">{targetTestMessage}</p>
             )}
+            {target.mode === "direct" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={compareState.busy || migrationBusy || !target.targetUrl || !target.schema}
+                  onClick={() => void fetchTargetTables()}
+                  type="button"
+                >
+                  {compareState.busy
+                    ? tr("Fetching...", "조회 중...")
+                    : compareState.fetchedAt
+                      ? tr("Refresh", "새로고침")
+                      : tr("Fetch Target Tables", "타겟 테이블 조회")}
+                </button>
+                {compareState.targetTables.length > 0 && (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                    {compareState.targetTables.length} {tr("tables in target", "개 타겟 테이블")}
+                  </span>
+                )}
+                {compareState.fetchedAt && (
+                  <span className="text-xs text-slate-400">
+                    {tr("as of", "기준 시각")}{" "}
+                    {new Date(compareState.fetchedAt).toLocaleTimeString()}
+                  </span>
+                )}
+                {compareState.error && (
+                  <p className="w-full text-sm font-medium text-red-600">{compareState.error}</p>
+                )}
+              </div>
+            )}
           </div>
         </section>
 
@@ -1913,15 +2031,15 @@ export function App() {
                 <div className="mb-4 grid gap-3 lg:grid-cols-2">
                   <details className="rounded-xl border border-slate-200 bg-slate-50 p-3" open>
                     <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                      Tables Group
+                      {tr("Tables Group", "테이블 그룹")}
                       <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
                         {previewTables.length}
                       </span>
                     </summary>
                     <p className="mt-2 text-xs text-slate-500">
                       {discoverySummary
-                        ? "Oracle discovery completed for tables group."
-                        : "Selected tables to be migrated."}
+                        ? tr("Oracle discovery completed for tables group.", "테이블 그룹 Oracle 탐색이 완료되었습니다.")
+                        : tr("Selected tables to be migrated.", "마이그레이션할 테이블을 선택하세요.")}
                     </p>
                     <div className="mt-2 max-h-32 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
                       {previewTables.length > 0 ? (
@@ -1931,27 +2049,27 @@ export function App() {
                           ))}
                         </ul>
                       ) : (
-                        <p className="text-sm text-slate-500">No tables selected.</p>
+                        <p className="text-sm text-slate-500">{tr("No tables selected.", "선택된 테이블이 없습니다.")}</p>
                       )}
                     </div>
                   </details>
                   <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                      Sequences Group
+                      {tr("Sequences Group", "시퀀스 그룹")}
                       <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
                         {previewObjectGroup === "tables" ? 0 : previewSequences.length}
                       </span>
                     </summary>
                     <p className="mt-2 text-xs text-slate-500">
                       {previewObjectGroup === "tables"
-                        ? "Tables-only mode disables sequence discovery."
+                        ? tr("Tables-only mode disables sequence discovery.", "테이블 전용 모드에서는 시퀀스 탐색이 비활성화됩니다.")
                         : discoverySummary
-                          ? "Discovered from Oracle metadata at run start."
-                          : "Sequence discovery runs automatically when migration starts."}
+                          ? tr("Discovered from Oracle metadata at run start.", "실행 시작 시 Oracle 메타데이터에서 탐색됩니다.")
+                          : tr("Sequence discovery runs automatically when migration starts.", "마이그레이션 시작 시 시퀀스 탐색이 자동으로 실행됩니다.")}
                     </p>
                     <div className="mt-2 max-h-32 overflow-auto rounded-lg border border-slate-200 bg-white p-2">
                       {previewObjectGroup === "tables" ? (
-                        <p className="text-sm text-slate-500">Sequence group is disabled.</p>
+                        <p className="text-sm text-slate-500">{tr("Sequence group is disabled.", "시퀀스 그룹이 비활성화되어 있습니다.")}</p>
                       ) : previewSequences.length > 0 ? (
                         <ul className="space-y-1 text-sm text-slate-700">
                           {previewSequences.map((sequence) => (
@@ -1959,12 +2077,126 @@ export function App() {
                           ))}
                         </ul>
                       ) : (
-                        <p className="text-sm text-slate-500">No sequences discovered yet.</p>
+                        <p className="text-sm text-slate-500">{tr("No sequences discovered yet.", "아직 탐색된 시퀀스가 없습니다.")}</p>
                       )}
                     </div>
                   </details>
                 </div>
               )}
+              {compareEntries.length > 0 && (() => {
+                const catOrder: Record<TargetTableEntry["category"], number> = { source_only: 0, both: 1, target_only: 2 };
+                const sourceOnlyCount = compareEntries.filter((e) => e.category === "source_only").length;
+                const bothCount = compareEntries.filter((e) => e.category === "both").length;
+                const targetOnlyCount = compareEntries.filter((e) => e.category === "target_only").length;
+                const filteredCompare = compareEntries.filter((e) => {
+                  if (compareFilter !== "all" && e.category !== compareFilter) return false;
+                  if (compareSearch && !e.name.toLowerCase().includes(compareSearch.toLowerCase())) return false;
+                  return true;
+                });
+                return (
+                  <details className="mb-4 rounded-xl border border-slate-200 bg-slate-50">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+                      {tr("Source vs Target Comparison", "소스-타겟 비교")}
+                      <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs text-slate-600">
+                        {compareEntries.length}
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-200 p-4">
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-blue-300 bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
+                          {tr("Source only", "소스에만")} {sourceOnlyCount}
+                        </span>
+                        <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                          {tr("Both", "양쪽")} {bothCount}
+                        </span>
+                        <span className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                          {tr("Target only", "타겟에만")} {targetOnlyCount}
+                        </span>
+                      </div>
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {(["all", "source_only", "both", "target_only"] as CompareFilter[]).map((f) => (
+                          <button
+                            key={f}
+                            className={`rounded-lg border px-3 py-1 text-xs font-medium ${compareFilter === f ? "border-brand-500 bg-brand-100 text-brand-800" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"}`}
+                            onClick={() => setCompareFilter(f)}
+                            type="button"
+                          >
+                            {f === "all" ? tr("All", "전체") : f === "source_only" ? tr("Source only", "소스만") : f === "both" ? tr("Both", "양쪽") : tr("Target only", "타겟만")}
+                          </button>
+                        ))}
+                        <input
+                          className="ml-auto rounded-lg border border-slate-300 px-3 py-1 text-xs outline-none focus:border-brand-500"
+                          onChange={(e) => setCompareSearch(e.target.value)}
+                          placeholder={tr("Search...", "검색...")}
+                          value={compareSearch}
+                        />
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-100 text-left text-slate-600">
+                              <th className="px-2 py-1.5">{tr("Table", "테이블명")}</th>
+                              <th className="px-2 py-1.5 text-center">{tr("Source", "소스")}</th>
+                              <th className="px-2 py-1.5 text-center">{tr("Target", "타겟")}</th>
+                              <th className="px-2 py-1.5 text-right">{tr("Src rows", "소스 행 수")}</th>
+                              <th className="px-2 py-1.5 text-right">{tr("Tgt rows", "타겟 행 수")}</th>
+                              <th className="px-2 py-1.5">{tr("Status", "상태")}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredCompare.map((e) => {
+                              const isRowDiff =
+                                e.category === "both" &&
+                                e.sourceRowCount !== null &&
+                                e.targetRowCount !== null &&
+                                e.sourceRowCount !== e.targetRowCount;
+                              return (
+                                <tr key={e.name} className="border-t border-slate-100 hover:bg-white">
+                                  <td className="px-2 py-1.5 font-mono">{e.name}</td>
+                                  <td className="px-2 py-1.5 text-center">{e.inSource ? "✓" : "—"}</td>
+                                  <td className="px-2 py-1.5 text-center">{e.inTarget ? "✓" : "—"}</td>
+                                  <td className="px-2 py-1.5 text-right text-slate-600">
+                                    {e.sourceRowCount !== null ? e.sourceRowCount.toLocaleString() : "—"}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right text-slate-600">
+                                    {e.targetRowCount !== null ? e.targetRowCount.toLocaleString() : "—"}
+                                  </td>
+                                  <td className="px-2 py-1.5">
+                                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                                      e.category === "source_only"
+                                        ? "border-blue-300 bg-blue-100 text-blue-800"
+                                        : e.category === "both"
+                                          ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                                          : "border-amber-300 bg-amber-100 text-amber-800"
+                                    }`}>
+                                      {e.category === "source_only" ? tr("Source only", "소스만") : e.category === "both" ? tr("Both", "양쪽") : tr("Target only", "타겟만")}
+                                    </span>
+                                    {isRowDiff && (
+                                      <span className="ml-1 rounded-full border border-orange-300 bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">
+                                        {tr("Row diff", "행 수 불일치")}
+                                      </span>
+                                    )}
+                                    {e.category === "both" && e.sourceRowCount === null && (
+                                      <span className="ml-1 text-xs text-slate-400">
+                                        {tr("Run pre-check to see row counts", "Pre-check 실행 후 행 수가 표시됩니다")}
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {filteredCompare.length === 0 && (
+                          <p className="py-4 text-center text-xs text-slate-400">
+                            {tr("No tables match the filter.", "필터 조건에 맞는 테이블이 없습니다.")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                );
+              })()}
               <div className="mb-3 flex flex-wrap gap-2">
                 <input
                   className="min-w-[220px] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
@@ -1980,10 +2212,10 @@ export function App() {
                   }
                   value={tableStatusFilter}
                 >
-                  <option value="all">All history status</option>
-                  <option value="not_started">Not started</option>
-                  <option value="success">Migrated (success)</option>
-                  <option value="failed">Migrated (failed)</option>
+                  <option value="all">{tr("All history status", "전체 이력 상태")}</option>
+                  <option value="not_started">{tr("Not started", "미시작")}</option>
+                  <option value="success">{tr("Migrated (success)", "이관 완료 (성공)")}</option>
+                  <option value="failed">{tr("Migrated (failed)", "이관 완료 (실패)")}</option>
                 </select>
                 <select
                   aria-label="Table sort"
@@ -1991,11 +2223,11 @@ export function App() {
                   onChange={(event) => setTableSort(event.target.value as TableSortOption)}
                   value={tableSort}
                 >
-                  <option value="table_asc">Sort: Table name (A-Z)</option>
-                  <option value="table_desc">Sort: Table name (Z-A)</option>
-                  <option value="recent_desc">Sort: Latest history</option>
-                  <option value="runs_desc">Sort: Run count</option>
-                  <option value="history_status">Sort: History status</option>
+                  <option value="table_asc">{tr("Sort: Table name (A-Z)", "정렬: 테이블명 (A-Z)")}</option>
+                  <option value="table_desc">{tr("Sort: Table name (Z-A)", "정렬: 테이블명 (Z-A)")}</option>
+                  <option value="recent_desc">{tr("Sort: Latest history", "정렬: 최근 이력순")}</option>
+                  <option value="runs_desc">{tr("Sort: Run count", "정렬: 실행 횟수순")}</option>
+                  <option value="history_status">{tr("Sort: History status", "정렬: 이력 상태순")}</option>
                 </select>
                 <label className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
                   <input
@@ -2021,6 +2253,26 @@ export function App() {
                 >
                   {tr("Clear visible", "현재 목록 선택 해제")}
                 </button>
+                {compareEntries.length > 0 && (
+                  <>
+                    <button
+                      className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+                      disabled={migrationBusy}
+                      onClick={() => selectByCategory("source_only")}
+                      type="button"
+                    >
+                      {tr("Select source-only", "소스에만 있는 테이블 선택")}
+                    </button>
+                    <button
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                      disabled={migrationBusy}
+                      onClick={() => selectByCategory("both")}
+                      type="button"
+                    >
+                      {tr("Select both", "양쪽에 있는 테이블 선택")}
+                    </button>
+                  </>
+                )}
               </div>
               <div className="max-h-[420px] overflow-auto rounded-xl border border-slate-200 bg-white">
                 <table className="w-full border-collapse text-sm">
@@ -2222,7 +2474,7 @@ export function App() {
                 {target.mode === "file" && (
                   <>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">Output file</span>
+                      <span className="mb-1 block text-slate-700">{tr("Output file", "출력 파일")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2239,14 +2491,14 @@ export function App() {
                         }
                         type="checkbox"
                       />
-                      Per-table output files
+                      {tr("Per-table output files", "테이블별 출력 파일")}
                     </label>
                   </>
                 )}
 
                 {objectGroupModeEnabled && (
                   <label className="block text-sm">
-                    <span className="mb-1 block text-slate-700">Migration target</span>
+                    <span className="mb-1 block text-slate-700">{tr("Migration target", "마이그레이션 대상")}</span>
                     <select
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                       onChange={(event) =>
@@ -2254,9 +2506,9 @@ export function App() {
                       }
                       value={options.objectGroup}
                     >
-                      <option value="all">All objects</option>
-                      <option value="tables">Tables only</option>
-                      <option value="sequences">Sequences only</option>
+                      <option value="all">{tr("All objects", "전체 객체")}</option>
+                      <option value="tables">{tr("Tables only", "테이블만")}</option>
+                      <option value="sequences">{tr("Sequences only", "시퀀스만")}</option>
                     </select>
                   </label>
                 )}
@@ -2270,7 +2522,7 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Include CREATE TABLE DDL
+                  {tr("Include CREATE TABLE DDL", "CREATE TABLE DDL 포함")}
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -2281,13 +2533,13 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Include sequences
+                  {tr("Include sequences", "시퀀스 포함")}
                 </label>
                 {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
                   <p className="text-xs text-slate-500">
                     {effectiveObjectGroup === "tables"
-                      ? "Tables-only mode disables sequence DDL automatically."
-                      : "Sequences-only mode forces DDL + sequence generation automatically."}
+                      ? tr("Tables-only mode disables sequence DDL automatically.", "테이블 전용 모드에서는 시퀀스 DDL이 자동으로 비활성화됩니다.")
+                      : tr("Sequences-only mode forces DDL + sequence generation automatically.", "시퀀스 전용 모드에서는 DDL + 시퀀스 생성이 자동으로 활성화됩니다.")}
                   </p>
                 )}
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
@@ -2298,7 +2550,7 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Include indexes
+                  {tr("Include indexes", "인덱스 포함")}
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -2311,7 +2563,7 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Include constraints
+                  {tr("Include constraints", "제약 조건 포함")}
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -2321,7 +2573,7 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Validate row counts after migration
+                  {tr("Validate row counts after migration", "마이그레이션 후 행 수 검증")}
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -2331,7 +2583,7 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Truncate target tables before migration (prevents duplicates)
+                  {tr("Truncate target tables before migration (prevents duplicates)", "마이그레이션 전 타깃 테이블 초기화 (중복 방지)")}
                 </label>
                 <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input
@@ -2341,27 +2593,27 @@ export function App() {
                     }
                     type="checkbox"
                   />
-                  Upsert mode — skip duplicate rows by PK (table must have PK)
+                  {tr("Upsert mode — skip duplicate rows by PK (table must have PK)", "Upsert 모드 — PK 기준 중복 행 건너뛰기 (PK 필수)")}
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-slate-700">Oracle owner (optional)</span>
+                  <span className="mb-1 block text-slate-700">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</span>
                   <input
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                     onChange={(event) =>
                       setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
                     }
-                    placeholder="defaults to connected account"
+                    placeholder={tr("defaults to connected account", "연결 계정 기본값 사용")}
                     value={options.oracleOwner}
                   />
                 </label>
 
                 <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
                   <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                    Advanced
+                    {tr("Advanced", "고급 설정")}
                   </summary>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">Batch size</span>
+                      <span className="mb-1 block text-slate-700">{tr("Batch size", "배치 크기")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2375,7 +2627,7 @@ export function App() {
                       />
                     </label>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">Workers</span>
+                      <span className="mb-1 block text-slate-700">{tr("Workers", "워커 수")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2389,7 +2641,7 @@ export function App() {
                       />
                     </label>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">COPY batch</span>
+                      <span className="mb-1 block text-slate-700">{tr("COPY batch", "COPY 배치")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2403,7 +2655,7 @@ export function App() {
                       />
                     </label>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">DB max open</span>
+                      <span className="mb-1 block text-slate-700">{tr("DB max open", "DB 최대 연결")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2417,7 +2669,7 @@ export function App() {
                       />
                     </label>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">DB max idle</span>
+                      <span className="mb-1 block text-slate-700">{tr("DB max idle", "DB 최대 유휴")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2431,7 +2683,7 @@ export function App() {
                       />
                     </label>
                     <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">DB max life (sec)</span>
+                      <span className="mb-1 block text-slate-700">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</span>
                       <input
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                         onChange={(event) =>
@@ -2454,7 +2706,7 @@ export function App() {
                         }
                         type="checkbox"
                       />
-                      JSON logging
+                      {tr("JSON logging", "JSON 로깅")}
                     </label>
                     <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                       <input
@@ -2464,7 +2716,7 @@ export function App() {
                         }
                         type="checkbox"
                       />
-                      Dry-run mode
+                      {tr("Dry-run mode", "드라이런 모드")}
                     </label>
                   </div>
                 </details>
@@ -2473,7 +2725,7 @@ export function App() {
                 {meta?.features?.precheckRowCount !== false && (
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="mb-3 flex flex-wrap items-center gap-3">
-                      <h3 className="text-sm font-semibold text-slate-800">Pre-check Row Count</h3>
+                      <h3 className="text-sm font-semibold text-slate-800">{tr("Pre-check Row Count", "사전 행 수 점검")}</h3>
                       <select
                         className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700"
                         value={precheckPolicy}
@@ -2489,7 +2741,7 @@ export function App() {
                         onClick={() => void runPrecheck()}
                         type="button"
                       >
-                        {precheckBusy ? "Checking..." : "Run Pre-check"}
+                        {precheckBusy ? tr("Checking...", "점검 중...") : tr("Run Pre-check", "사전 점검 실행")}
                       </button>
                     </div>
                     {precheckError && (
@@ -2500,10 +2752,10 @@ export function App() {
                         <div className="mb-3 grid grid-cols-4 gap-2">
                           {(
                             [
-                              { label: "Total", value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800" },
-                              { label: "Transfer Required", value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800" },
-                              { label: "Skip Candidate", value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800" },
-                              { label: "Check Failed", value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800" },
+                              { label: tr("Total", "전체"), value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800" },
+                              { label: tr("Transfer Required", "이관 필요"), value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800" },
+                              { label: tr("Skip Candidate", "건너뛰기 후보"), value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800" },
+                              { label: tr("Check Failed", "점검 실패"), value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800" },
                             ] as { label: string; value: number; cls: string }[]
                           ).map(({ label, value, cls }) => (
                             <div className={`rounded-lg p-2 text-center ${cls}`} key={label}>
@@ -2520,7 +2772,7 @@ export function App() {
                               onClick={() => setPrecheckDecisionFilter(f)}
                               type="button"
                             >
-                              {f === "all" ? "All" : f === "transfer_required" ? "Transfer Required" : f === "skip_candidate" ? "Skip" : "Failed"}
+                              {f === "all" ? tr("All", "전체") : f === "transfer_required" ? tr("Transfer Required", "이관 필요") : f === "skip_candidate" ? tr("Skip", "건너뛰기") : tr("Failed", "실패")}
                             </button>
                           ))}
                         </div>
@@ -2528,11 +2780,11 @@ export function App() {
                           <table className="w-full text-xs">
                             <thead className="bg-slate-100 text-slate-600">
                               <tr>
-                                <th className="px-2 py-1.5 text-left">Table</th>
-                                <th className="px-2 py-1.5 text-right">Source</th>
-                                <th className="px-2 py-1.5 text-right">Target</th>
-                                <th className="px-2 py-1.5 text-right">Diff</th>
-                                <th className="px-2 py-1.5 text-left">Decision</th>
+                                <th className="px-2 py-1.5 text-left">{tr("Table", "테이블")}</th>
+                                <th className="px-2 py-1.5 text-right">{tr("Source", "소스")}</th>
+                                <th className="px-2 py-1.5 text-right">{tr("Target", "타깃")}</th>
+                                <th className="px-2 py-1.5 text-right">{tr("Diff", "차이")}</th>
+                                <th className="px-2 py-1.5 text-left">{tr("Decision", "결정")}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2572,11 +2824,11 @@ export function App() {
                 >
                   {migrationBusy
                     ? options.dryRun
-                      ? "Verification running..."
-                      : "Migration running..."
+                      ? tr("Verification running...", "검증 실행 중...")
+                      : tr("Migration running...", "마이그레이션 실행 중...")
                     : options.dryRun
-                      ? "Run Verification"
-                      : "Start Migration"}
+                      ? tr("Run Verification", "검증 실행")
+                      : tr("Start Migration", "마이그레이션 시작")}
                 </button>
               </div>
               {migrationError && (
@@ -2623,25 +2875,25 @@ export function App() {
             <div className="grid gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Success
+                  {tr("Success", "성공")}
                 </p>
                 <p className="mt-1 text-xl font-bold text-emerald-700">{runSuccessCount}</p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Failed
+                  {tr("Failed", "실패")}
                 </p>
                 <p className="mt-1 text-xl font-bold text-red-700">{runFailCount}</p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Warnings
+                  {tr("Warnings", "경고")}
                 </p>
                 <p className="mt-1 text-xl font-bold text-amber-700">{warnings.length}</p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Rows
+                  {tr("Rows", "행 수")}
                 </p>
                 <p className="mt-1 text-xl font-bold text-slate-900">
                   {processedRows.toLocaleString()}
@@ -2652,13 +2904,13 @@ export function App() {
             <div className="mt-3 grid gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Elapsed
+                  {tr("Elapsed", "경과 시간")}
                 </p>
                 <p className="mt-1 text-base font-bold text-slate-900">{elapsedSeconds}s</p>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Speed
+                  {tr("Speed", "처리 속도")}
                 </p>
                 <p className="mt-1 text-base font-bold text-slate-900">
                   {rowsPerSecond.toLocaleString()} rows/s
@@ -2666,7 +2918,7 @@ export function App() {
               </div>
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  ETA
+                  {tr("ETA", "예상 완료")}
                 </p>
                 <p className="mt-1 text-base font-bold text-slate-900">
                   {etaSeconds === null ? "-" : `${etaSeconds}s`}
@@ -2686,30 +2938,30 @@ export function App() {
               <div className="mt-4 grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Tables Group
+                    {tr("Tables Group", "테이블 그룹")}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    {groupSummary.tables.success_count} ok · {groupSummary.tables.error_count} error
+                    {groupSummary.tables.success_count} {tr("ok", "성공")} · {groupSummary.tables.error_count} {tr("error", "오류")}
                     {groupSummary.tables.skipped_count > 0
-                      ? ` · ${groupSummary.tables.skipped_count} skipped`
+                      ? ` · ${groupSummary.tables.skipped_count} ${tr("skipped", "건너뜀")}`
                       : ""}
                   </p>
                   <p className="mt-2 text-xl font-bold text-slate-900">
-                    {groupSummary.tables.total_rows?.toLocaleString() ?? "0"} rows
+                    {groupSummary.tables.total_rows?.toLocaleString() ?? "0"} {tr("rows", "행")}
                   </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Sequences Group
+                    {tr("Sequences Group", "시퀀스 그룹")}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    {groupSummary.sequences.success_count} ok · {groupSummary.sequences.error_count} error
+                    {groupSummary.sequences.success_count} {tr("ok", "성공")} · {groupSummary.sequences.error_count} {tr("error", "오류")}
                     {groupSummary.sequences.skipped_count > 0
-                      ? ` · ${groupSummary.sequences.skipped_count} skipped`
+                      ? ` · ${groupSummary.sequences.skipped_count} ${tr("skipped", "건너뜀")}`
                       : ""}
                   </p>
                   <p className="mt-2 text-xl font-bold text-slate-900">
-                    {groupSummary.sequences.total_items.toLocaleString()} objects
+                    {groupSummary.sequences.total_items.toLocaleString()} {tr("objects", "객체")}
                   </p>
                 </div>
               </div>
@@ -2717,7 +2969,7 @@ export function App() {
 
             {warnings.length > 0 && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                <p className="text-sm font-semibold text-amber-800">Warnings</p>
+                <p className="text-sm font-semibold text-amber-800">{tr("Warnings", "경고")}</p>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
                   {warnings.slice(0, 8).map((warning) => (
                     <li key={warning}>{warning}</li>
@@ -2728,7 +2980,7 @@ export function App() {
 
             {ddlEvents.length > 0 && (
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-sm font-semibold text-slate-800">DDL Events</p>
+                <p className="text-sm font-semibold text-slate-800">{tr("DDL Events", "DDL 이벤트")}</p>
                 <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs">
                   {ddlEvents.map((event) => (
                     <p key={event.key}>
@@ -2743,15 +2995,15 @@ export function App() {
 
             {Object.keys(validation).length > 0 && (
               <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-sm font-semibold text-slate-800">Validation</p>
+                <p className="text-sm font-semibold text-slate-800">{tr("Validation", "검증")}</p>
                 <div className="mt-2 overflow-auto">
                   <table className="w-full border-collapse text-sm">
                     <thead>
                       <tr>
-                        <th className="border-b border-slate-200 px-2 py-1 text-left">Table</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-right">Source</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-right">Target</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-left">Status</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-left">{tr("Table", "테이블")}</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-right">{tr("Source", "소스")}</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-right">{tr("Target", "타깃")}</th>
+                        <th className="border-b border-slate-200 px-2 py-1 text-left">{tr("Status", "상태")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2836,7 +3088,7 @@ export function App() {
                     className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
                     href={`/api/download/${zipFileId}`}
                   >
-                    Download ZIP
+                    {tr("Download ZIP", "ZIP 다운로드")}
                   </a>
                 )}
                 {reportSummary?.report_id && (
@@ -2844,7 +3096,7 @@ export function App() {
                     className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                     href={`/api/report/${reportSummary.report_id}`}
                   >
-                    Download Report
+                    {tr("Download Report", "리포트 다운로드")}
                   </a>
                 )}
                 <button
@@ -2852,7 +3104,7 @@ export function App() {
                   onClick={resetRunState}
                   type="button"
                 >
-                  Clear Run Board
+                  {tr("Clear Run Board", "실행 현황 초기화")}
                 </button>
               </div>
             )}
@@ -2863,22 +3115,22 @@ export function App() {
       {credentialsPanelOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 w-full max-w-md border-l border-slate-200 bg-white p-5 shadow-2xl">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">Saved Connections</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{tr("Saved Connections", "저장된 연결")}</h3>
             <button
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
               onClick={() => setCredentialsPanelOpen(false)}
               type="button"
             >
-              Close
+              {tr("Close", "닫기")}
             </button>
           </div>
           <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            Filter:{" "}
+            {tr("Filter:", "필터:")}{" "}
             {credentialFilter === "all"
-              ? "All"
+              ? tr("All", "전체")
               : credentialFilter === "source"
-                ? "Source only (Oracle)"
-                : "Target only (non-Oracle)"}
+                ? tr("Source only (Oracle)", "소스만 (Oracle)")
+                : tr("Target only (non-Oracle)", "타깃만 (Oracle 제외)")}
           </div>
           <div className="mb-4 flex gap-2">
             {(["all", "source", "target"] as RoleFilter[]).map((role) => (
@@ -2892,19 +3144,19 @@ export function App() {
                 onClick={() => setCredentialFilter(role)}
                 type="button"
               >
-                {role === "all" ? "All" : role === "source" ? "Source" : "Target"}
+                {role === "all" ? tr("All", "전체") : role === "source" ? tr("Source", "소스") : tr("Target", "타깃")}
               </button>
             ))}
           </div>
-          {credentialsBusy && <p className="text-sm text-slate-600">Loading...</p>}
+          {credentialsBusy && <p className="text-sm text-slate-600">{tr("Loading...", "불러오는 중...")}</p>}
           {credentialsError && <p className="text-sm text-red-600">{credentialsError}</p>}
           {!credentialsBusy && !credentialsError && filteredCredentials.length === 0 && (
             <p className="text-sm text-slate-500">
               {credentialFilter === "source"
-                ? "No saved source connections found."
+                ? tr("No saved source connections found.", "저장된 소스 연결이 없습니다.")
                 : credentialFilter === "target"
-                  ? "No saved target connections found."
-                  : "No saved connections found."}
+                  ? tr("No saved target connections found.", "저장된 타깃 연결이 없습니다.")
+                  : tr("No saved connections found.", "저장된 연결이 없습니다.")}
             </p>
           )}
           <div className="space-y-3">
@@ -2912,7 +3164,7 @@ export function App() {
               <div className="rounded-xl border border-slate-200 p-3" key={item.id}>
                 <p className="text-sm font-semibold text-slate-900">{item.alias}</p>
                 <p className="text-xs text-slate-500">
-                  {item.dbType === "oracle" ? "Source" : "Target"} · {item.dbType}
+                  {item.dbType === "oracle" ? tr("Source", "소스") : tr("Target", "타깃")} · {item.dbType}
                 </p>
                 <p className="mt-1 break-all text-xs text-slate-700">{item.host}</p>
                 <button
@@ -2920,7 +3172,7 @@ export function App() {
                   onClick={() => applyCredential(item)}
                   type="button"
                 >
-                  Apply to form
+                  {tr("Apply to form", "폼에 적용")}
                 </button>
               </div>
             ))}
@@ -2931,19 +3183,19 @@ export function App() {
       {historyPanelOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 w-full max-w-md border-l border-slate-200 bg-white p-5 shadow-2xl">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">My History</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{tr("My History", "내 작업 이력")}</h3>
             <button
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
               onClick={() => setHistoryPanelOpen(false)}
               type="button"
             >
-              Close
+              {tr("Close", "닫기")}
             </button>
           </div>
-          {historyBusy && <p className="text-sm text-slate-600">Loading history...</p>}
+          {historyBusy && <p className="text-sm text-slate-600">{tr("Loading history...", "이력 불러오는 중...")}</p>}
           {historyError && <p className="text-sm text-red-600">{historyError}</p>}
           {!historyBusy && !historyError && history.length === 0 && (
-            <p className="text-sm text-slate-500">No migration history yet.</p>
+            <p className="text-sm text-slate-500">{tr("No migration history yet.", "아직 마이그레이션 이력이 없습니다.")}</p>
           )}
           <div className="space-y-3">
             {history.map((entry) => (
@@ -2959,7 +3211,7 @@ export function App() {
                   onClick={() => void replayHistory(entry.id)}
                   type="button"
                 >
-                  Replay into form
+                  {tr("Replay into form", "폼에 재적용")}
                 </button>
               </div>
             ))}
@@ -2970,12 +3222,12 @@ export function App() {
       {meta?.authEnabled && !user && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 px-4">
           <form className="card-surface w-full max-w-sm p-6" onSubmit={handleLogin}>
-            <h3 className="text-xl font-semibold text-slate-900">Sign in</h3>
+            <h3 className="text-xl font-semibold text-slate-900">{tr("Sign in", "로그인")}</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Auth mode is enabled. Log in to use saved connections and history.
+              {tr("Auth mode is enabled. Log in to use saved connections and history.", "인증 모드가 활성화되어 있습니다. 저장된 연결과 이력을 사용하려면 로그인하세요.")}
             </p>
             <label className="mt-4 block text-sm">
-              <span className="mb-1 block text-slate-700">Username</span>
+              <span className="mb-1 block text-slate-700">{tr("Username", "사용자명")}</span>
               <input
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                 onChange={(event) =>
@@ -2986,7 +3238,7 @@ export function App() {
               />
             </label>
             <label className="mt-3 block text-sm">
-              <span className="mb-1 block text-slate-700">Password</span>
+              <span className="mb-1 block text-slate-700">{tr("Password", "비밀번호")}</span>
               <input
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
                 onChange={(event) =>
@@ -3003,7 +3255,7 @@ export function App() {
               disabled={loginBusy}
               type="submit"
             >
-              {loginBusy ? "Signing in..." : "Sign in"}
+              {loginBusy ? tr("Signing in...", "로그인 중...") : tr("Sign in", "로그인")}
             </button>
           </form>
         </div>

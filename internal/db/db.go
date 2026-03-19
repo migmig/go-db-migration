@@ -11,11 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	go_ora "github.com/sijms/go-ora/v2"
-
-	// Drivers for targets
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
-	_ "github.com/microsoft/go-mssqldb"
 )
 
 // PGPool interface for testability
@@ -195,4 +190,30 @@ func TableExists(ctx context.Context, pool PGPool, schema, table string) (bool, 
 	`
 	err := pool.QueryRow(ctx, query, schema, table).Scan(&exists)
 	return exists, err
+}
+
+// FetchTargetTables는 PostgreSQL information_schema에서 BASE TABLE 목록을 조회한다.
+func FetchTargetTables(ctx context.Context, pool PGPool, schema string) ([]string, error) {
+	const q = `
+		SELECT table_name
+		FROM information_schema.tables
+		WHERE table_schema = $1
+		  AND table_type = 'BASE TABLE'
+		ORDER BY table_name
+	`
+	rows, err := pool.Query(ctx, q, schema)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, name)
+	}
+	return tables, rows.Err()
 }
