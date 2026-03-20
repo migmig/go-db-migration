@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -26,7 +26,10 @@ function mockFetch(
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  window.localStorage.clear();
+  if (typeof window.localStorage?.clear === 'function') {
+    window.localStorage.clear();
+  }
+  cleanup();
 });
 
 describe("App", () => {

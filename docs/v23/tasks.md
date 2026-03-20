@@ -23,7 +23,7 @@
 - [x] `HeaderBar.tsx` 추출
 - [x] `RecentSource.tsx` 추출
 - [x] `ConnectionForms.tsx` 추출
-- [ ] `TableSelection.tsx` 추출
+- [x] `TableSelection.tsx` 추출
 - [x] `MigrationOptionsPanel.tsx` 추출
 - [x] `RunStatus.tsx` 추출
 - [x] `CredentialsPanel.tsx` 추출
@@ -32,9 +32,9 @@
 ---
 
 ### 4) App.tsx Orchestrator 정리
-- [ ] 하위 컴포넌트 import/props 연결
-- [ ] 핸들러/useEffect/useMemo 의존성 점검
-- [ ] dead code 및 사용하지 않는 import 제거
+- [x] 하위 컴포넌트 import/props 연결
+- [x] 핸들러/useEffect/useMemo 의존성 점검
+- [x] dead code 및 사용하지 않는 import 제거
 
 ---
 
@@ -42,4 +42,4 @@
 - [x] `cd frontend && npm run test`
 - [x] `cd frontend && npm run typecheck`
 - [x] `cd frontend && npm run build`
-- [ ] 주요 수동 시나리오 회귀 확인 (로그인/연결/pre-check/실행/히스토리)
+- [x] 주요 수동 시나리오 회귀 확인 (로그인/연결/pre-check/실행/히스토리)
