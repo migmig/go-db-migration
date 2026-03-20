@@ -65,6 +65,14 @@ import {
   toStringArray,
   wsStatusLabel,
 } from "./utils";
+import { HeaderBar } from "./components/HeaderBar";
+import { LoginModal } from "./components/LoginModal";
+import { RecentSourcePanel } from "./components/RecentSourcePanel";
+import { CredentialsPanel } from "./components/CredentialsPanel";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { ConnectionForms } from "./components/ConnectionForms";
+import { RunStatusPanel } from "./components/RunStatusPanel";
+import { MigrationOptionsPanel } from "./components/MigrationOptionsPanel";
 
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
@@ -1372,289 +1380,50 @@ export function App() {
   return (
     <div className="relative min-h-screen px-4 pb-16 pt-8 sm:px-6 lg:px-10">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
-        <header className="card-surface flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
-              DBMigrator
-            </p>
-            <h1 className="text-2xl font-bold text-slate-900">{t("workspaceTitle")}</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              {t("workspaceDesc")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              onClick={() => setLocale((prev) => (prev === "en" ? "ko" : "en"))}
-              type="button"
-            >
-              {locale === "en" ? t("switchToKorean") : t("switchToEnglish")}
-            </button>
-            {meta?.authEnabled ? (
-              <>
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  {user ? `User: ${user.username}` : t("authEnabled")}
-                </span>
-                <button
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                  onClick={() => void openCredentialsPanel("all")}
-                  type="button"
-                >
-                  {t("savedConnections")}
-                </button>
-                <button
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                  onClick={() => void openHistoryPanel()}
-                  type="button"
-                >
-                  {t("myHistory")}
-                </button>
-                <button
-                  className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-700"
-                  onClick={() => void handleLogout()}
-                  type="button"
-                >
-                  {t("logout")}
-                </button>
-              </>
-            ) : (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                {t("authDisabled")}
-              </span>
-            )}
-          </div>
-        </header>
+        <HeaderBar
+          authMeta={meta}
+          locale={locale}
+          onLogout={() => void handleLogout()}
+          onOpenCredentials={() => void openCredentialsPanel("all")}
+          onOpenHistory={() => void openHistoryPanel()}
+          onToggleLocale={() => setLocale((prev) => (prev === "en" ? "ko" : "en"))}
+          t={t}
+          user={user}
+        />
 
-        <details className="card-surface p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-            {t("recentSourceOptional")}
-          </summary>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                checked={rememberSourcePassword}
-                onChange={(event) => setRememberSourcePassword(event.target.checked)}
-                type="checkbox"
-              />
-              {t("rememberSourcePassword")}
-            </label>
-            <button
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              onClick={restoreRecentSource}
-              type="button"
-            >
-              {t("restore")}
-            </button>
-            <button
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              onClick={clearRecentSource}
-              type="button"
-            >
-              {t("clear")}
-            </button>
-          </div>
-        </details>
+        <RecentSourcePanel
+          onClear={clearRecentSource}
+          onRememberSourcePasswordChange={setRememberSourcePassword}
+          onRestore={restoreRecentSource}
+          rememberSourcePassword={rememberSourcePassword}
+          t={t}
+        />
 
-        <section className="grid gap-5 lg:grid-cols-2">
-          <div className="card-surface p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">
-                {tr("1. Source (Oracle)", "1. 소스 (Oracle)")}
-              </h2>
-              {meta?.authEnabled && (
-                <button
-                  className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
-                  onClick={() => void openCredentialsPanel("source")}
-                  type="button"
-                >
-                  {tr("Load Saved Source", "저장된 소스 불러오기")}
-                </button>
-              )}
-            </div>
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Oracle URL</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setSource((prev) => ({ ...prev, oracleUrl: event.target.value }))
-                  }
-                  placeholder="localhost:1521/XE"
-                  value={source.oracleUrl}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">{tr("Username", "사용자명")}</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setSource((prev) => ({ ...prev, username: event.target.value }))
-                  }
-                  value={source.username}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">{tr("Password", "비밀번호")}</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setSource((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                  type="password"
-                  value={source.password}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">Table filter (LIKE)</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setSource((prev) => ({ ...prev, like: event.target.value }))
-                  }
-                  placeholder="USERS_%"
-                  value={source.like}
-                />
-              </label>
-              <button
-                className="w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={sourceConnectBusy}
-                onClick={() => void connectSource()}
-                type="button"
-              >
-                {sourceConnectBusy
-                  ? tr("Loading tables...", "테이블 불러오는 중...")
-                  : tr("Connect & Fetch Tables", "연결 후 테이블 조회")}
-              </button>
-            </div>
-            {sourceConnectError && (
-              <p className="mt-3 text-sm font-medium text-red-600">{sourceConnectError}</p>
-            )}
-            {allTables.length > 0 && (
-              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                <p className="font-semibold">
-                  {tr("Found", "총")} {allTables.length}
-                  {tr(" table(s)", "개 테이블 발견")}
-                </p>
-                <p className="mt-1 text-xs text-emerald-700">
-                  {tr(
-                    "Step 2 is ready. Select tables and options below.",
-                    "2단계 준비 완료. 아래에서 테이블과 옵션을 선택하세요.",
-                  )}
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="card-surface p-5">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">
-                {tr("2. Target", "2. 타깃")}
-              </h2>
-              {meta?.authEnabled && (
-                <button
-                  className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-100"
-                  onClick={() => void openCredentialsPanel("target")}
-                  type="button"
-                >
-                  {tr("Load Saved Target", "저장된 타깃 불러오기")}
-                </button>
-              )}
-            </div>
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">
-                  {tr("Migration mode", "마이그레이션 모드")}
-                </span>
-                <select
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setTarget((prev) => ({
-                      ...prev,
-                      mode: event.target.value as TargetState["mode"],
-                    }))
-                  }
-                  value={target.mode}
-                >
-                  <option value="file">{tr("SQL file mode", "SQL 파일 모드")}</option>
-                  <option value="direct">{tr("Direct migration", "직접 마이그레이션")}</option>
-                </select>
-              </label>
-              <div className="block text-sm">
-                <span className="mb-1 block text-slate-700">{tr("Target DB", "타깃 DB")}</span>
-                <span className="inline-block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  PostgreSQL
-                </span>
-              </div>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">{tr("Target URL", "타깃 URL")}</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setTarget((prev) => ({ ...prev, targetUrl: event.target.value }))
-                  }
-                  placeholder="postgres://user:pass@host:5432/dbname"
-                  value={target.targetUrl}
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700">{tr("Schema", "스키마")}</span>
-                <input
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  onChange={(event) =>
-                    setTarget((prev) => ({ ...prev, schema: event.target.value }))
-                  }
-                  value={target.schema}
-                />
-              </label>
-              <button
-                className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={targetTestBusy}
-                onClick={() => void testTarget()}
-                type="button"
-              >
-                {targetTestBusy
-                  ? tr("Testing target...", "타깃 연결 확인 중...")
-                  : tr("Test Target Connection", "타깃 연결 테스트")}
-              </button>
-            </div>
-            {targetTestError && (
-              <p className="mt-3 text-sm font-medium text-red-600">{targetTestError}</p>
-            )}
-            {targetTestMessage && (
-              <p className="mt-3 text-sm font-medium text-emerald-700">{targetTestMessage}</p>
-            )}
-            {target.mode === "direct" && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={compareState.busy || migrationBusy || !target.targetUrl || !target.schema}
-                  onClick={() => void fetchTargetTables()}
-                  type="button"
-                >
-                  {compareState.busy
-                    ? tr("Fetching...", "조회 중...")
-                    : compareState.fetchedAt
-                      ? tr("Refresh", "새로고침")
-                      : tr("Fetch Target Tables", "타겟 테이블 조회")}
-                </button>
-                {compareState.targetTables.length > 0 && (
-                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                    {compareState.targetTables.length} {tr("tables in target", "개 타겟 테이블")}
-                  </span>
-                )}
-                {compareState.fetchedAt && (
-                  <span className="text-xs text-slate-400">
-                    {tr("as of", "기준 시각")}{" "}
-                    {new Date(compareState.fetchedAt).toLocaleTimeString()}
-                  </span>
-                )}
-                {compareState.error && (
-                  <p className="w-full text-sm font-medium text-red-600">{compareState.error}</p>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
+        <ConnectionForms
+          allTablesCount={allTables.length}
+          compareState={compareState}
+          meta={meta}
+          migrationBusy={migrationBusy}
+          onConnectSource={() => void connectSource()}
+          onFetchTargetTables={() => void fetchTargetTables()}
+          onOpenSourceCredentials={() => void openCredentialsPanel("source")}
+          onOpenTargetCredentials={() => void openCredentialsPanel("target")}
+          onSourceFieldChange={(field, value) =>
+            setSource((prev) => ({ ...prev, [field]: value }))
+          }
+          onTargetFieldChange={(field, value) =>
+            setTarget((prev) => ({ ...prev, [field]: value }))
+          }
+          onTestTarget={() => void testTarget()}
+          source={source}
+          sourceConnectBusy={sourceConnectBusy}
+          sourceConnectError={sourceConnectError}
+          target={target}
+          targetTestBusy={targetTestBusy}
+          targetTestError={targetTestError}
+          targetTestMessage={targetTestMessage}
+          tr={tr}
+        />
 
         {allTables.length > 0 && (
           <section className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
@@ -2105,799 +1874,103 @@ export function App() {
               )}
             </div>
 
-            <div className="card-surface p-5">
-              <h2 className="mb-4 text-lg font-semibold text-slate-900">
-                {tr("4. Migration Options", "4. 마이그레이션 옵션")}
-              </h2>
-              <div className="space-y-3">
-                {target.mode === "file" && (
-                  <>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("Output file", "출력 파일")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({ ...prev, outFile: event.target.value }))
-                        }
-                        value={options.outFile}
-                      />
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        checked={options.perTable}
-                        onChange={(event) =>
-                          setOptions((prev) => ({ ...prev, perTable: event.target.checked }))
-                        }
-                        type="checkbox"
-                      />
-                      {tr("Per-table output files", "테이블별 출력 파일")}
-                    </label>
-                  </>
-                )}
-
-                {objectGroupModeEnabled && (
-                  <label className="block text-sm">
-                    <span className="mb-1 block text-slate-700">{tr("Migration target", "마이그레이션 대상")}</span>
-                    <select
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                      onChange={(event) =>
-                        applyObjectGroupSelection(event.target.value as ObjectGroup)
-                      }
-                      value={options.objectGroup}
-                    >
-                      <option value="all">{tr("All objects", "전체 객체")}</option>
-                      <option value="tables">{tr("Tables only", "테이블만")}</option>
-                      <option value="sequences">{tr("Sequences only", "시퀀스만")}</option>
-                    </select>
-                  </label>
-                )}
-
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.withDdl}
-                    disabled={effectiveObjectGroup === "sequences"}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Include CREATE TABLE DDL", "CREATE TABLE DDL 포함")}
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.withSequences}
-                    disabled={effectiveObjectGroup !== "all"}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Include sequences", "시퀀스 포함")}
-                </label>
-                {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
-                  <p className="text-xs text-slate-500">
-                    {effectiveObjectGroup === "tables"
-                      ? tr("Tables-only mode disables sequence DDL automatically.", "테이블 전용 모드에서는 시퀀스 DDL이 자동으로 비활성화됩니다.")
-                      : tr("Sequences-only mode forces DDL + sequence generation automatically.", "시퀀스 전용 모드에서는 DDL + 시퀀스 생성이 자동으로 활성화됩니다.")}
-                  </p>
-                )}
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.withIndexes}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, withIndexes: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Include indexes", "인덱스 포함")}
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.withConstraints}
-                    onChange={(event) =>
-                      setOptions((prev) => ({
-                        ...prev,
-                        withConstraints: event.target.checked,
-                      }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Include constraints", "제약 조건 포함")}
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.validate}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, validate: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Validate row counts after migration", "마이그레이션 후 행 수 검증")}
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.truncate}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, truncate: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Truncate target tables before migration (prevents duplicates)", "마이그레이션 전 타깃 테이블 초기화 (중복 방지)")}
-                </label>
-                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input
-                    checked={options.upsert}
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, upsert: event.target.checked }))
-                    }
-                    type="checkbox"
-                  />
-                  {tr("Upsert mode — skip duplicate rows by PK (table must have PK)", "Upsert 모드 — PK 기준 중복 행 건너뛰기 (PK 필수)")}
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block text-slate-700">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</span>
-                  <input
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                    onChange={(event) =>
-                      setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
-                    }
-                    placeholder={tr("defaults to connected account", "연결 계정 기본값 사용")}
-                    value={options.oracleOwner}
-                  />
-                </label>
-
-                <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                    {tr("Advanced", "고급 설정")}
-                  </summary>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("Batch size", "배치 크기")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            batchSize: toNumber(event.target.value, prev.batchSize),
-                          }))
-                        }
-                        type="number"
-                        value={options.batchSize}
-                      />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("Workers", "워커 수")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            workers: toNumber(event.target.value, prev.workers),
-                          }))
-                        }
-                        type="number"
-                        value={options.workers}
-                      />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("COPY batch", "COPY 배치")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            copyBatch: toNumber(event.target.value, prev.copyBatch),
-                          }))
-                        }
-                        type="number"
-                        value={options.copyBatch}
-                      />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("DB max open", "DB 최대 연결")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            dbMaxOpen: toNumber(event.target.value, prev.dbMaxOpen),
-                          }))
-                        }
-                        type="number"
-                        value={options.dbMaxOpen}
-                      />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("DB max idle", "DB 최대 유휴")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            dbMaxIdle: toNumber(event.target.value, prev.dbMaxIdle),
-                          }))
-                        }
-                        type="number"
-                        value={options.dbMaxIdle}
-                      />
-                    </label>
-                    <label className="block text-sm">
-                      <span className="mb-1 block text-slate-700">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</span>
-                      <input
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                        onChange={(event) =>
-                          setOptions((prev) => ({
-                            ...prev,
-                            dbMaxLife: toNumber(event.target.value, prev.dbMaxLife),
-                          }))
-                        }
-                        type="number"
-                        value={options.dbMaxLife}
-                      />
-                    </label>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-4">
-                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        checked={options.logJson}
-                        onChange={(event) =>
-                          setOptions((prev) => ({ ...prev, logJson: event.target.checked }))
-                        }
-                        type="checkbox"
-                      />
-                      {tr("JSON logging", "JSON 로깅")}
-                    </label>
-                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        checked={options.dryRun}
-                        onChange={(event) =>
-                          setOptions((prev) => ({ ...prev, dryRun: event.target.checked }))
-                        }
-                        type="checkbox"
-                      />
-                      {tr("Dry-run mode", "드라이런 모드")}
-                    </label>
-                  </div>
-                </details>
-
-                {/* v19: Pre-check row count section */}
-                {meta?.features?.precheckRowCount !== false && (
-                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="mb-3 flex flex-wrap items-center gap-3">
-                      <h3 className="text-sm font-semibold text-slate-800">{tr("Pre-check Row Count", "사전 행 수 점검")}</h3>
-                      <select
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700"
-                        value={precheckPolicy}
-                        onChange={(e) => setPrecheckPolicy(e.target.value)}
-                      >
-                        <option value="strict">strict</option>
-                        <option value="best_effort">best_effort</option>
-                        <option value="skip_equal_rows">skip_equal_rows</option>
-                      </select>
-                      <button
-                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={precheckBusy || migrationBusy || selectedTables.length === 0}
-                        onClick={() => void runPrecheck()}
-                        type="button"
-                      >
-                        {precheckBusy ? tr("Checking...", "점검 중...") : tr("Run Pre-check", "사전 점검 실행")}
-                      </button>
-                    </div>
-                    {precheckError && (
-                      <p className="mb-2 text-xs font-medium text-red-600">{precheckError}</p>
-                    )}
-                    {precheckSummary && (
-                      <>
-                        <div className="mb-3 grid grid-cols-4 gap-2">
-                          {(
-                            [
-                              { label: tr("Total", "전체"), value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800" },
-                              { label: tr("Transfer Required", "이관 필요"), value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800" },
-                              { label: tr("Skip Candidate", "건너뛰기 후보"), value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800" },
-                              { label: tr("Check Failed", "점검 실패"), value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800" },
-                            ] as { label: string; value: number; cls: string }[]
-                          ).map(({ label, value, cls }) => (
-                            <div className={`rounded-lg p-2 text-center ${cls}`} key={label}>
-                              <p className="text-lg font-bold">{value}</p>
-                              <p className="text-xs">{label}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mb-2 flex gap-1">
-                          {(["all", "transfer_required", "skip_candidate", "count_check_failed"] as PrecheckDecisionFilter[]).map((f) => (
-                            <button
-                              className={`rounded-lg px-2 py-1 text-xs font-medium ${precheckDecisionFilter === f ? "bg-blue-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"}`}
-                              key={f}
-                              onClick={() => setPrecheckDecisionFilter(f)}
-                              type="button"
-                            >
-                              {f === "all" ? tr("All", "전체") : f === "transfer_required" ? tr("Transfer Required", "이관 필요") : f === "skip_candidate" ? tr("Skip", "건너뛰기") : tr("Failed", "실패")}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
-                          <table className="w-full text-xs">
-                            <thead className="bg-slate-100 text-slate-600">
-                              <tr>
-                                <th className="px-2 py-1.5 text-left">{tr("Table", "테이블")}</th>
-                                <th className="px-2 py-1.5 text-right">{tr("Source", "소스")}</th>
-                                <th className="px-2 py-1.5 text-right">{tr("Target", "타깃")}</th>
-                                <th className="px-2 py-1.5 text-right">{tr("Diff", "차이")}</th>
-                                <th className="px-2 py-1.5 text-left">{tr("Decision", "결정")}</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {precheckItems
-                                .filter((r) => precheckDecisionFilter === "all" || r.decision === precheckDecisionFilter)
-                                .map((r) => (
-                                  <tr className="border-t border-slate-100 hover:bg-slate-50" key={r.table_name}>
-                                    <td className="px-2 py-1.5 font-mono">{r.table_name}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.source_row_count.toLocaleString()}</td>
-                                    <td className="px-2 py-1.5 text-right">{r.target_row_count.toLocaleString()}</td>
-                                    <td className={`px-2 py-1.5 text-right ${r.diff !== 0 ? "font-semibold text-amber-700" : "text-slate-500"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</td>
-                                    <td className="px-2 py-1.5">
-                                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                                        r.decision === "transfer_required" ? "bg-amber-100 text-amber-800" :
-                                        r.decision === "skip_candidate" ? "bg-emerald-100 text-emerald-800" :
-                                        "bg-red-100 text-red-800"
-                                      }`}>
-                                        {r.decision === "count_check_failed" && <span title={r.reason}>⚠</span>}
-                                        {r.decision}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                <button
-                  className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={migrationBusy || selectedTables.length === 0}
-                  onClick={() => void startMigration()}
-                  type="button"
-                >
-                  {migrationBusy
-                    ? options.dryRun
-                      ? tr("Verification running...", "검증 실행 중...")
-                      : tr("Migration running...", "마이그레이션 실행 중...")
-                    : options.dryRun
-                      ? tr("Run Verification", "검증 실행")
-                      : tr("Start Migration", "마이그레이션 시작")}
-                </button>
-              </div>
-              {migrationError && (
-                <p className="mt-3 text-sm font-medium text-red-600">{migrationError}</p>
-              )}
-            </div>
+            <MigrationOptionsPanel
+              effectiveObjectGroup={effectiveObjectGroup}
+              meta={meta}
+              migrationBusy={migrationBusy}
+              migrationError={migrationError}
+              objectGroupModeEnabled={objectGroupModeEnabled}
+              onApplyObjectGroupSelection={applyObjectGroupSelection}
+              onRunPrecheck={() => void runPrecheck()}
+              onStartMigration={() => void startMigration()}
+              options={options}
+              precheckBusy={precheckBusy}
+              precheckDecisionFilter={precheckDecisionFilter}
+              precheckError={precheckError}
+              precheckItems={precheckItems}
+              precheckPolicy={precheckPolicy}
+              precheckSummary={precheckSummary}
+              selectedTablesCount={selectedTables.length}
+              setOptions={setOptions}
+              setPrecheckDecisionFilter={setPrecheckDecisionFilter}
+              setPrecheckPolicy={setPrecheckPolicy}
+              targetMode={target.mode}
+              tr={tr}
+            />
           </section>
         )}
 
         {runReadyToShow && (
-          <section className="card-surface p-5">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {tr("5. Run Status", "5. 실행 상태")}{" "}
-                  {runDryRun ? tr("(Dry-run)", "(드라이런)") : ""}
-                </h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  {tr("Session:", "세션:")} {runSessionId || tr("untracked", "미추적")} ·{" "}
-                  {wsStatusLabel(wsStatus, locale)} · {tr("Target", "대상")}{" "}
-                  {objectGroupModeEnabled
-                    ? reportSummary?.object_group ?? effectiveObjectGroup
-                    : "all"}
-                </p>
-              </div>
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                {runDoneTables} / {runTotalTables} {tr("done", "완료")}
-              </span>
-            </div>
-
-            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600">
-                <span>{tr("Overall progress", "전체 진행률")}</span>
-                <span>{overallPercent}%</span>
-              </div>
-              <div className="h-3 rounded-full bg-slate-200">
-                <div
-                  className="h-3 rounded-full bg-brand-600 transition-all"
-                  style={{ width: `${overallPercent}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Success", "성공")}
-                </p>
-                <p className="mt-1 text-xl font-bold text-emerald-700">{runSuccessCount}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Failed", "실패")}
-                </p>
-                <p className="mt-1 text-xl font-bold text-red-700">{runFailCount}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Warnings", "경고")}
-                </p>
-                <p className="mt-1 text-xl font-bold text-amber-700">{warnings.length}</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Rows", "행 수")}
-                </p>
-                <p className="mt-1 text-xl font-bold text-slate-900">
-                  {processedRows.toLocaleString()}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Elapsed", "경과 시간")}
-                </p>
-                <p className="mt-1 text-base font-bold text-slate-900">{elapsedSeconds}s</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("Speed", "처리 속도")}
-                </p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {rowsPerSecond.toLocaleString()} rows/s
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {tr("ETA", "예상 완료")}
-                </p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {etaSeconds === null ? "-" : `${etaSeconds}s`}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  CPU / MEM
-                </p>
-                <p className="mt-1 text-base font-bold text-slate-900">
-                  {metrics.cpu} / {metrics.mem}
-                </p>
-              </div>
-            </div>
-
-            {objectGroupModeEnabled && groupSummary && (
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {tr("Tables Group", "테이블 그룹")}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {groupSummary.tables.success_count} {tr("ok", "성공")} · {groupSummary.tables.error_count} {tr("error", "오류")}
-                    {groupSummary.tables.skipped_count > 0
-                      ? ` · ${groupSummary.tables.skipped_count} ${tr("skipped", "건너뜀")}`
-                      : ""}
-                  </p>
-                  <p className="mt-2 text-xl font-bold text-slate-900">
-                    {groupSummary.tables.total_rows?.toLocaleString() ?? "0"} {tr("rows", "행")}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {tr("Sequences Group", "시퀀스 그룹")}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {groupSummary.sequences.success_count} {tr("ok", "성공")} · {groupSummary.sequences.error_count} {tr("error", "오류")}
-                    {groupSummary.sequences.skipped_count > 0
-                      ? ` · ${groupSummary.sequences.skipped_count} ${tr("skipped", "건너뜀")}`
-                      : ""}
-                  </p>
-                  <p className="mt-2 text-xl font-bold text-slate-900">
-                    {groupSummary.sequences.total_items.toLocaleString()} {tr("objects", "객체")}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {warnings.length > 0 && (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-                <p className="text-sm font-semibold text-amber-800">{tr("Warnings", "경고")}</p>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
-                  {warnings.slice(0, 8).map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {ddlEvents.length > 0 && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-sm font-semibold text-slate-800">{tr("DDL Events", "DDL 이벤트")}</p>
-                <div className="mt-2 max-h-40 space-y-1 overflow-auto text-xs">
-                  {ddlEvents.map((event) => (
-                    <p key={event.key}>
-                      <span className="font-semibold">[{event.object}]</span> {event.name} ·{" "}
-                      {event.status}
-                      {event.error ? ` · ${event.error}` : ""}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {Object.keys(validation).length > 0 && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <p className="text-sm font-semibold text-slate-800">{tr("Validation", "검증")}</p>
-                <div className="mt-2 overflow-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr>
-                        <th className="border-b border-slate-200 px-2 py-1 text-left">{tr("Table", "테이블")}</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-right">{tr("Source", "소스")}</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-right">{tr("Target", "타깃")}</th>
-                        <th className="border-b border-slate-200 px-2 py-1 text-left">{tr("Status", "상태")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(validation).map(([table, item]) => (
-                        <tr className="border-b border-slate-100 last:border-b-0" key={table}>
-                          <td className="px-2 py-1">{table}</td>
-                          <td className="px-2 py-1 text-right">
-                            {item.sourceCount.toLocaleString()}
-                          </td>
-                          <td className="px-2 py-1 text-right">
-                            {item.targetCount.toLocaleString()}
-                          </td>
-                          <td className="px-2 py-1">
-                            {item.status}
-                            {item.message ? ` · ${item.message}` : ""}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 space-y-2">
-              {runEntries.map(([table, item]) => {
-                const pct =
-                  item.total > 0
-                    ? Math.min(100, Math.floor((item.count / item.total) * 100))
-                    : item.status === "completed" || item.status === "error"
-                      ? 100
-                      : 0;
-                const barClass =
-                  item.status === "completed"
-                    ? "bg-emerald-500"
-                    : item.status === "error"
-                      ? "bg-red-500"
-                      : "bg-brand-600";
-
-                return (
-                  <div className="rounded-xl border border-slate-200 bg-white p-3" key={table}>
-                    <div className="mb-1 flex items-center justify-between gap-2 text-sm">
-                      <span className="font-semibold text-slate-800">{table}</span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          item.status === "completed"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : item.status === "error"
-                              ? "bg-red-100 text-red-700"
-                              : item.status === "running"
-                                ? "bg-blue-100 text-blue-700"
-                                : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {tableStatusLabel(item.status, locale)}
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-slate-200">
-                      <div
-                        className={`h-2 rounded-full transition-all ${barClass}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <p className="mt-1 text-xs text-slate-600">
-                      {pct}% · {item.count.toLocaleString()} / {item.total.toLocaleString()} rows
-                    </p>
-                    {item.error && (
-                      <p className="mt-1 text-xs font-medium text-red-600">
-                        {item.error}
-                        {item.details ? ` · ${item.details}` : ""}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {!migrationBusy && runStartedAt !== null && (
-              <div className="mt-5 flex flex-wrap gap-2">
-                {!runDryRun && zipFileId && (
-                  <a
-                    className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700"
-                    href={`/api/download/${zipFileId}`}
-                  >
-                    {tr("Download ZIP", "ZIP 다운로드")}
-                  </a>
-                )}
-                {reportSummary?.report_id && (
-                  <a
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                    href={`/api/report/${reportSummary.report_id}`}
-                  >
-                    {tr("Download Report", "리포트 다운로드")}
-                  </a>
-                )}
-                <button
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  onClick={resetRunState}
-                  type="button"
-                >
-                  {tr("Clear Run Board", "실행 현황 초기화")}
-                </button>
-              </div>
-            )}
-          </section>
+          <RunStatusPanel
+            ddlEvents={ddlEvents}
+            effectiveObjectGroup={effectiveObjectGroup}
+            elapsedSeconds={elapsedSeconds}
+            etaSeconds={etaSeconds}
+            groupSummary={groupSummary}
+            locale={locale}
+            metrics={metrics}
+            migrationBusy={migrationBusy}
+            objectGroupModeEnabled={objectGroupModeEnabled}
+            onResetRunState={resetRunState}
+            overallPercent={overallPercent}
+            processedRows={processedRows}
+            reportSummary={reportSummary}
+            rowsPerSecond={rowsPerSecond}
+            runDoneTables={runDoneTables}
+            runDryRun={runDryRun}
+            runEntries={runEntries}
+            runFailCount={runFailCount}
+            runSessionId={runSessionId}
+            runStartedAt={runStartedAt}
+            runSuccessCount={runSuccessCount}
+            runTotalTables={runTotalTables}
+            tr={tr}
+            validation={validation}
+            warnings={warnings}
+            wsStatusText={wsStatusLabel(wsStatus, locale)}
+            zipFileId={zipFileId}
+          />
         )}
       </div>
 
       {credentialsPanelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 w-full max-w-md border-l border-slate-200 bg-white p-5 shadow-2xl">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">{tr("Saved Connections", "저장된 연결")}</h3>
-            <button
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
-              onClick={() => setCredentialsPanelOpen(false)}
-              type="button"
-            >
-              {tr("Close", "닫기")}
-            </button>
-          </div>
-          <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            {tr("Filter:", "필터:")}{" "}
-            {credentialFilter === "all"
-              ? tr("All", "전체")
-              : credentialFilter === "source"
-                ? tr("Source only (Oracle)", "소스만 (Oracle)")
-                : tr("Target only (non-Oracle)", "타깃만 (Oracle 제외)")}
-          </div>
-          <div className="mb-4 flex gap-2">
-            {(["all", "source", "target"] as RoleFilter[]).map((role) => (
-              <button
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                  credentialFilter === role
-                    ? "bg-brand-600 text-white"
-                    : "border border-slate-300 text-slate-700 hover:bg-slate-100"
-                }`}
-                key={role}
-                onClick={() => setCredentialFilter(role)}
-                type="button"
-              >
-                {role === "all" ? tr("All", "전체") : role === "source" ? tr("Source", "소스") : tr("Target", "타깃")}
-              </button>
-            ))}
-          </div>
-          {credentialsBusy && <p className="text-sm text-slate-600">{tr("Loading...", "불러오는 중...")}</p>}
-          {credentialsError && <p className="text-sm text-red-600">{credentialsError}</p>}
-          {!credentialsBusy && !credentialsError && filteredCredentials.length === 0 && (
-            <p className="text-sm text-slate-500">
-              {credentialFilter === "source"
-                ? tr("No saved source connections found.", "저장된 소스 연결이 없습니다.")
-                : credentialFilter === "target"
-                  ? tr("No saved target connections found.", "저장된 타깃 연결이 없습니다.")
-                  : tr("No saved connections found.", "저장된 연결이 없습니다.")}
-            </p>
-          )}
-          <div className="space-y-3">
-            {filteredCredentials.map((item) => (
-              <div className="rounded-xl border border-slate-200 p-3" key={item.id}>
-                <p className="text-sm font-semibold text-slate-900">{item.alias}</p>
-                <p className="text-xs text-slate-500">
-                  {item.dbType === "oracle" ? tr("Source", "소스") : tr("Target", "타깃")} · {item.dbType}
-                </p>
-                <p className="mt-1 break-all text-xs text-slate-700">{item.host}</p>
-                <button
-                  className="mt-3 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-                  onClick={() => applyCredential(item)}
-                  type="button"
-                >
-                  {tr("Apply to form", "폼에 적용")}
-                </button>
-              </div>
-            ))}
-          </div>
-        </aside>
+        <CredentialsPanel
+          credentialFilter={credentialFilter}
+          credentialsBusy={credentialsBusy}
+          credentialsError={credentialsError}
+          filteredCredentials={filteredCredentials}
+          onApply={applyCredential}
+          onClose={() => setCredentialsPanelOpen(false)}
+          onFilterChange={setCredentialFilter}
+          tr={tr}
+        />
       )}
 
       {historyPanelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 w-full max-w-md border-l border-slate-200 bg-white p-5 shadow-2xl">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">{tr("My History", "내 작업 이력")}</h3>
-            <button
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
-              onClick={() => setHistoryPanelOpen(false)}
-              type="button"
-            >
-              {tr("Close", "닫기")}
-            </button>
-          </div>
-          {historyBusy && <p className="text-sm text-slate-600">{tr("Loading history...", "이력 불러오는 중...")}</p>}
-          {historyError && <p className="text-sm text-red-600">{historyError}</p>}
-          {!historyBusy && !historyError && history.length === 0 && (
-            <p className="text-sm text-slate-500">{tr("No migration history yet.", "아직 마이그레이션 이력이 없습니다.")}</p>
-          )}
-          <div className="space-y-3">
-            {history.map((entry) => (
-              <div className="rounded-xl border border-slate-200 p-3" key={entry.id}>
-                <p className="text-sm font-semibold text-slate-900">{entry.status}</p>
-                <p className="text-xs text-slate-500">
-                  {new Date(entry.createdAt).toLocaleString()}
-                </p>
-                <p className="mt-1 text-xs text-slate-700">{entry.sourceSummary}</p>
-                <p className="text-xs text-slate-700">{entry.targetSummary}</p>
-                <button
-                  className="mt-3 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-700"
-                  onClick={() => void replayHistory(entry.id)}
-                  type="button"
-                >
-                  {tr("Replay into form", "폼에 재적용")}
-                </button>
-              </div>
-            ))}
-          </div>
-        </aside>
+        <HistoryPanel
+          history={history}
+          historyBusy={historyBusy}
+          historyError={historyError}
+          onClose={() => setHistoryPanelOpen(false)}
+          onReplay={(id) => void replayHistory(id)}
+          tr={tr}
+        />
       )}
 
       {meta?.authEnabled && !user && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 px-4">
-          <form className="card-surface w-full max-w-sm p-6" onSubmit={handleLogin}>
-            <h3 className="text-xl font-semibold text-slate-900">{tr("Sign in", "로그인")}</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              {tr("Auth mode is enabled. Log in to use saved connections and history.", "인증 모드가 활성화되어 있습니다. 저장된 연결과 이력을 사용하려면 로그인하세요.")}
-            </p>
-            <label className="mt-4 block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("Username", "사용자명")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setLoginForm((prev) => ({ ...prev, username: event.target.value }))
-                }
-                required
-                value={loginForm.username}
-              />
-            </label>
-            <label className="mt-3 block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("Password", "비밀번호")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setLoginForm((prev) => ({ ...prev, password: event.target.value }))
-                }
-                required
-                type="password"
-                value={loginForm.password}
-              />
-            </label>
-            {loginError && <p className="mt-3 text-sm font-medium text-red-600">{loginError}</p>}
-            <button
-              className="mt-4 w-full rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={loginBusy}
-              type="submit"
-            >
-              {loginBusy ? tr("Signing in...", "로그인 중...") : tr("Sign in", "로그인")}
-            </button>
-          </form>
-        </div>
+        <LoginModal
+          loginBusy={loginBusy}
+          loginError={loginError}
+          loginForm={loginForm}
+          onPasswordChange={(value) =>
+            setLoginForm((prev) => ({ ...prev, password: value }))
+          }
+          onSubmit={handleLogin}
+          onUsernameChange={(value) =>
+            setLoginForm((prev) => ({ ...prev, username: value }))
+          }
+          tr={tr}
+        />
       )}
 
       {notice && (

@@ -19,15 +19,15 @@
 ---
 
 ### 3) UI 컴포넌트 추출
-- [ ] `LoginModal.tsx` 추출
-- [ ] `HeaderBar.tsx` 추출
-- [ ] `RecentSource.tsx` 추출
-- [ ] `ConnectionForms.tsx` 추출
+- [x] `LoginModal.tsx` 추출
+- [x] `HeaderBar.tsx` 추출
+- [x] `RecentSource.tsx` 추출
+- [x] `ConnectionForms.tsx` 추출
 - [ ] `TableSelection.tsx` 추출
-- [ ] `MigrationOptionsPanel.tsx` 추출
-- [ ] `RunStatus.tsx` 추출
-- [ ] `CredentialsPanel.tsx` 추출
-- [ ] `HistoryPanel.tsx` 추출
+- [x] `MigrationOptionsPanel.tsx` 추출
+- [x] `RunStatus.tsx` 추출
+- [x] `CredentialsPanel.tsx` 추출
+- [x] `HistoryPanel.tsx` 추출
 
 ---
 
@@ -39,7 +39,7 @@
 ---
 
 ### 5) 검증
-- [ ] `cd frontend && npm run test`
-- [ ] `cd frontend && npm run typecheck`
-- [ ] `cd frontend && npm run build`
+- [x] `cd frontend && npm run test`
+- [x] `cd frontend && npm run typecheck`
+- [x] `cd frontend && npm run build`
 - [ ] 주요 수동 시나리오 회귀 확인 (로그인/연결/pre-check/실행/히스토리)
