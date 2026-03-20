@@ -26,6 +26,7 @@ function mockFetch(
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  window.localStorage.clear();
 });
 
 describe("App", () => {
@@ -41,16 +42,16 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.click(screen.getByRole("button", { name: "한국어" }));
 
-    await screen.findByRole("heading", { name: "v18 마이그레이션 작업공간" });
+    await screen.findByRole("heading", { name: "v21 마이그레이션 작업공간" });
     expect(screen.getByText("소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "English" }));
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
   });
 
   it("filters saved connections by source/target role", async () => {
@@ -94,7 +95,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("ORA_DEV");
     expect(screen.getByText("PG_PROD")).toBeInTheDocument();
@@ -166,7 +167,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -245,7 +246,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -275,7 +276,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -340,7 +341,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -427,7 +428,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -515,7 +516,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -575,7 +576,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -610,7 +611,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("Session expired. Please log in again.");
   });
@@ -652,7 +653,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -726,7 +727,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -819,7 +820,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -902,7 +903,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     // Step 1: Connect and fetch tables
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
@@ -973,7 +974,7 @@ describe("v22 소스-타겟 비교 UI", () => {
     sourceTables: string[],
   ) {
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "hr");
@@ -1093,7 +1094,7 @@ describe("v22 소스-타겟 비교 UI", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "hr");
@@ -1108,9 +1109,9 @@ describe("v22 소스-타겟 비교 UI", () => {
     await user.type(screen.getByLabelText("Target URL"), "postgres://localhost/db");
     await user.type(screen.getByLabelText("Schema"), "public");
 
-    // USERS 테이블 체크 후 pre-check 실행
+    // USERS 테이블 체크 후 pre-check 실행 (테이블 체크박스는 접근 라벨이 없어 인덱스로 선택)
     const checkboxes = screen.getAllByRole("checkbox");
-    await user.click(checkboxes[0]); // 전체 선택
+    await user.click(checkboxes[2]);
     await user.click(screen.getByRole("button", { name: /Pre-check|pre-check/i }));
     await waitFor(() => {
       expect(screen.queryByText(/1,000|1000/)).toBeInTheDocument();

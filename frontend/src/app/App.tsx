@@ -10,421 +10,61 @@ import {
   PrecheckTableResult,
   RuntimeMeta,
 } from "../shared/api/types";
-
-type RoleFilter = "all" | "source" | "target";
-type NoticeTone = "info" | "error";
-type PrecheckDecisionFilter = "all" | "transfer_required" | "skip_candidate" | "count_check_failed";
-type WsStatus = "idle" | "connecting" | "connected" | "closed" | "error";
-type TableRunStatus = "pending" | "running" | "completed" | "error";
-type TableHistoryStatusFilter = "all" | "not_started" | "success" | "failed";
-type TableSortOption = "table_asc" | "table_desc" | "recent_desc" | "runs_desc" | "history_status";
-type ObjectGroup = "all" | "tables" | "sequences";
-
-type SourceState = {
-  oracleUrl: string;
-  username: string;
-  password: string;
-  like: string;
-};
-
-type TargetState = {
-  mode: "file" | "direct";
-  targetUrl: string;
-  schema: string;
-};
-
-type TargetTableEntry = {
-  name: string;
-  inSource: boolean;
-  inTarget: boolean;
-  category: "source_only" | "both" | "target_only";
-  sourceRowCount: number | null;
-  targetRowCount: number | null;
-};
-
-type CompareState = {
-  targetTables: string[];
-  fetchedAt: string | null;
-  busy: boolean;
-  error: string | null;
-};
-
-type CompareFilter = "all" | "source_only" | "both" | "target_only";
-
-type SourceRecent = {
-  oracleUrl: string;
-  username: string;
-  password: string;
-};
-
-type MigrationOptions = {
-  objectGroup: ObjectGroup;
-  outFile: string;
-  perTable: boolean;
-  withDdl: boolean;
-  withSequences: boolean;
-  withIndexes: boolean;
-  withConstraints: boolean;
-  validate: boolean;
-  truncate: boolean;
-  upsert: boolean;
-  oracleOwner: string;
-  batchSize: number;
-  workers: number;
-  copyBatch: number;
-  dbMaxOpen: number;
-  dbMaxIdle: number;
-  dbMaxLife: number;
-  logJson: boolean;
-  dryRun: boolean;
-};
-
-type TableRunState = {
-  total: number;
-  count: number;
-  status: TableRunStatus;
-  error?: string;
-  details?: string;
-};
-
-type TableHistoryState = {
-  status: "success" | "failed";
-  runCount: number;
-  lastRunAt: string;
-};
-
-type TableHistoryDetail = {
-  tableName: string;
-  entries: HistoryEntry[];
-};
-
-function normalizeTableKey(tableName: string): string {
-  return tableName.trim().toUpperCase();
-}
-
-function formatHistoryTime(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-  return parsed.toLocaleString();
-}
-
-type ValidationState = {
-  sourceCount: number;
-  targetCount: number;
-  status: string;
-  message: string;
-};
-
-type DdlEvent = {
-  key: string;
-  object: string;
-  name: string;
-  status: string;
-  error?: string;
-};
-
-type DiscoverySummary = {
-  objectGroup: ObjectGroup;
-  tables: string[];
-  sequences: string[];
-};
-
-type ReportSummary = {
-  total_rows: number;
-  success_count: number;
-  error_count: number;
-  duration: string;
-  report_id: string;
-  object_group: ObjectGroup;
-  stats: GroupedStats;
-};
-
-type GroupStats = {
-  total_items: number;
-  success_count: number;
-  error_count: number;
-  skipped_count: number;
-  total_rows?: number;
-};
-
-type GroupedStats = {
-  tables: GroupStats;
-  sequences: GroupStats;
-};
-
-type WsProgressMsg = {
-  type: string;
-  table?: string;
-  count?: number;
-  total?: number;
-  error?: string;
-  message?: string;
-  zip_file_id?: string;
-  connection_ok?: boolean;
-  object?: string;
-  object_name?: string;
-  status?: string;
-  object_group?: ObjectGroup;
-  tables?: string[];
-  sequences?: string[];
-  phase?: string;
-  category?: string;
-  suggestion?: string;
-  recoverable?: boolean;
-  batch_num?: number;
-  row_offset?: number;
-  report_summary?: ReportSummary;
-};
-
-type MetricsState = {
-  cpu: string;
-  mem: string;
-};
-
-type Locale = "en" | "ko";
-
-const SOURCE_RECENT_KEY = "dbm:v16:source-recent";
-const SOURCE_REMEMBER_KEY = "dbm:v16:source-remember-pass";
-const TARGET_RECENT_KEY = "dbm:v16:target-recent";
-const UI_LOCALE_KEY = "dbm:v18:ui-locale";
-
-const UI_TEXT: Record<Locale, Record<string, string>> = {
-  en: {
-    loading: "Loading v21 preview...",
-    bootFailed: "v21 boot failed",
-    retry: "Retry",
-    workspaceTitle: "v21 Migration Workspace",
-    workspaceDesc: "Source/target setup, migration options, and real-time run status.",
-    authEnabled: "Auth enabled",
-    authDisabled: "Auth disabled",
-    savedConnections: "Saved Connections",
-    myHistory: "My History",
-    logout: "Logout",
-    recentSourceOptional: "Recent source input (optional)",
-    rememberSourcePassword: "Remember source password",
-    restore: "Restore",
-    clear: "Clear",
-    switchToKorean: "한국어",
-    switchToEnglish: "English",
-  },
-  ko: {
-    loading: "v21 미리보기를 불러오는 중...",
-    bootFailed: "v21 부팅 실패",
-    retry: "다시 시도",
-    workspaceTitle: "v21 마이그레이션 작업공간",
-    workspaceDesc: "소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.",
-    authEnabled: "인증 사용 중",
-    authDisabled: "인증 비활성화",
-    savedConnections: "저장된 연결",
-    myHistory: "내 작업 이력",
-    logout: "로그아웃",
-    recentSourceOptional: "최근 소스 입력값 (선택)",
-    rememberSourcePassword: "소스 비밀번호 기억",
-    restore: "복원",
-    clear: "지우기",
-    switchToKorean: "한국어",
-    switchToEnglish: "English",
-  },
-};
-
-const DEFAULT_OPTIONS: MigrationOptions = {
-  objectGroup: "all",
-  outFile: "migration.sql",
-  perTable: true,
-  withDdl: true,
-  withSequences: false,
-  withIndexes: false,
-  withConstraints: false,
-  validate: false,
-  truncate: false,
-  upsert: false,
-  oracleOwner: "",
-  batchSize: 1000,
-  workers: 4,
-  copyBatch: 10000,
-  dbMaxOpen: 0,
-  dbMaxIdle: 2,
-  dbMaxLife: 0,
-  logJson: false,
-  dryRun: false,
-};
-
-function loadRememberPassword(): boolean {
-  try {
-    return localStorage.getItem(SOURCE_REMEMBER_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function loadSourceRecent(): SourceRecent {
-  try {
-    const raw = localStorage.getItem(SOURCE_RECENT_KEY);
-    if (!raw) {
-      return { oracleUrl: "", username: "", password: "" };
-    }
-    const parsed = JSON.parse(raw) as Partial<SourceRecent>;
-    return {
-      oracleUrl: parsed.oracleUrl ?? "",
-      username: parsed.username ?? "",
-      password: parsed.password ?? "",
-    };
-  } catch {
-    return { oracleUrl: "", username: "", password: "" };
-  }
-}
-
-function loadTargetRecent(): Partial<TargetState> {
-  try {
-    const raw = localStorage.getItem(TARGET_RECENT_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Partial<TargetState>;
-  } catch {
-    return {};
-  }
-}
-
-function loadLocale(): Locale {
-  try {
-    const raw = localStorage.getItem(UI_LOCALE_KEY);
-    if (raw === "ko") {
-      return "ko";
-    }
-  } catch {
-    // no-op
-  }
-  return "en";
-}
-
-function toBool(value: unknown, fallback: boolean): boolean {
-  if (typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === "true") return true;
-    if (normalized === "false") return false;
-  }
-  return fallback;
-}
-
-function toNumber(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return fallback;
-}
-
-function toString(value: unknown, fallback = ""): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  return fallback;
-}
-
-function toObjectGroup(value: unknown, fallback: ObjectGroup): ObjectGroup {
-  const normalized = toString(value, fallback).trim().toLowerCase();
-  if (normalized === "tables" || normalized === "sequences") {
-    return normalized;
-  }
-  return "all";
-}
-
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.filter((item): item is string => typeof item === "string");
-}
-
-function isObjectGroupModeEnabled(meta: RuntimeMeta | null): boolean {
-  return meta?.features?.objectGroupMode ?? true;
-}
-
-function createSessionId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `v16-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function wsStatusLabel(status: WsStatus, locale: Locale): string {
-  const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
-  switch (status) {
-    case "connecting":
-      return tr("WS connecting", "WS 연결 중");
-    case "connected":
-      return tr("WS connected", "WS 연결됨");
-    case "closed":
-      return tr("WS disconnected", "WS 연결 종료");
-    case "error":
-      return tr("WS error", "WS 오류");
-    default:
-      return tr("WS idle", "WS 대기");
-  }
-}
-
-function tableStatusLabel(status: TableRunStatus, locale: Locale): string {
-  const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
-  switch (status) {
-    case "running":
-      return tr("Running", "실행 중");
-    case "completed":
-      return tr("Completed", "완료");
-    case "error":
-      return tr("Error", "오류");
-    default:
-      return tr("Pending", "대기");
-  }
-}
-
-function tableStatusBadgeClass(status: TableRunStatus): string {
-  switch (status) {
-    case "completed":
-      return "border-emerald-300 bg-emerald-100 text-emerald-900";
-    case "error":
-      return "border-red-300 bg-red-100 text-red-900";
-    case "running":
-      return "border-blue-300 bg-blue-100 text-blue-900";
-    default:
-      return "border-slate-300 bg-slate-100 text-slate-800";
-  }
-}
-
-function historyStatusLabel(status: TableHistoryState["status"], locale: Locale): string {
-  return status === "success"
-    ? locale === "ko"
-      ? "이력 성공"
-      : "History success"
-    : locale === "ko"
-      ? "이력 실패"
-      : "History failed";
-}
-
-function historyStatusBadgeClass(status: TableHistoryState["status"]): string {
-  return status === "success"
-    ? "border-emerald-300 bg-emerald-100 text-emerald-900"
-    : "border-red-300 bg-red-100 text-red-900";
-}
-
-function parseReplayedTables(optionsJson: string): string[] {
-  if (!optionsJson) return [];
-  try {
-    const parsed = JSON.parse(optionsJson) as { tables?: unknown };
-    if (!Array.isArray(parsed.tables)) return [];
-    return parsed.tables.filter((item): item is string => typeof item === "string");
-  } catch {
-    return [];
-  }
-}
+import {
+  DEFAULT_OPTIONS,
+  SOURCE_RECENT_KEY,
+  SOURCE_REMEMBER_KEY,
+  TARGET_RECENT_KEY,
+  UI_LOCALE_KEY,
+  UI_TEXT,
+} from "./constants";
+import {
+  CompareFilter,
+  CompareState,
+  DdlEvent,
+  DiscoverySummary,
+  Locale,
+  MetricsState,
+  MigrationOptions,
+  NoticeTone,
+  ObjectGroup,
+  PrecheckDecisionFilter,
+  ReportSummary,
+  RoleFilter,
+  SourceState,
+  TableHistoryDetail,
+  TableHistoryState,
+  TableHistoryStatusFilter,
+  TableRunState,
+  TableRunStatus,
+  TableSortOption,
+  TargetState,
+  TargetTableEntry,
+  ValidationState,
+  WsProgressMsg,
+  WsStatus,
+} from "./types";
+import {
+  createSessionId,
+  formatHistoryTime,
+  historyStatusBadgeClass,
+  historyStatusLabel,
+  isObjectGroupModeEnabled,
+  loadLocale,
+  loadRememberPassword,
+  loadSourceRecent,
+  loadTargetRecent,
+  normalizeTableKey,
+  parseReplayedTables,
+  tableStatusBadgeClass,
+  tableStatusLabel,
+  toBool,
+  toNumber,
+  toObjectGroup,
+  toString,
+  toStringArray,
+  wsStatusLabel,
+} from "./utils";
 
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
@@ -2084,7 +1724,6 @@ export function App() {
                 </div>
               )}
               {compareEntries.length > 0 && (() => {
-                const catOrder: Record<TargetTableEntry["category"], number> = { source_only: 0, both: 1, target_only: 2 };
                 const sourceOnlyCount = compareEntries.filter((e) => e.category === "source_only").length;
                 const bothCount = compareEntries.filter((e) => e.category === "both").length;
                 const targetOnlyCount = compareEntries.filter((e) => e.category === "target_only").length;
