@@ -34,7 +34,7 @@ export function HeaderBar({
           DBMigrator
         </p>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{t("workspaceTitle")}</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{t("workspaceDesc")}</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-600 dark:text-slate-200">{t("workspaceDesc")}</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button

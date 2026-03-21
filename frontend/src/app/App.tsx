@@ -781,7 +781,7 @@ export function App() {
                     ? "bg-brand-600 text-white shadow-md ring-2 ring-brand-600/30 ring-offset-2"
                     : currentStep > s.step
                     ? "bg-brand-100 text-brand-700"
-                    : "bg-slate-100 text-slate-400"
+                    : "bg-slate-100 text-slate-600 dark:text-slate-200"
                 }`}
               >
                 <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
@@ -920,7 +920,10 @@ export function App() {
               metrics={metrics}
               migrationBusy={migrationBusy}
               objectGroupModeEnabled={objectGroupModeEnabled}
-              onResetRunState={resetRunState}
+              onResetRunState={() => {
+                resetRunState();
+                setCurrentStep(1);
+              }}
               overallPercent={overallPercent}
               processedRows={processedRows}
               reportSummary={reportSummary}
@@ -945,15 +948,14 @@ export function App() {
                   type="button"
                   onClick={() => {
                     resetRunState();
-                    setCurrentStep(2);
+                    setCurrentStep(1);
                   }}
                   className="rounded-xl bg-slate-800 px-8 py-3 text-sm font-bold text-white transition-all hover:bg-slate-700 shadow-md"
                 >
                   {tr("Configure New Migration", "새 마이그레이션 설정")}
                 </button>
               </div>
-            )}
-          </div>
+            )}          </div>
         )}
       </div>
 

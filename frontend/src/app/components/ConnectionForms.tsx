@@ -218,7 +218,7 @@ export function ConnectionForms({
               </span>
             )}
             {compareState.fetchedAt && (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-600 dark:text-slate-200">
                 {tr("as of", "기준 시각")}{" "}
                 {new Date(compareState.fetchedAt).toLocaleTimeString()}
               </span>

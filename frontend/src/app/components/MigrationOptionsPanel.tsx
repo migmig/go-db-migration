@@ -136,7 +136,7 @@ export function MigrationOptionsPanel({
           </div>
 
           {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-700 dark:text-slate-300">
               {effectiveObjectGroup === "tables"
                 ? tr("Tables-only mode disables sequence DDL automatically.", "테이블 전용 모드에서는 시퀀스 DDL이 자동으로 비활성화됩니다.")
                 : tr("Sequences-only mode forces DDL + sequence generation automatically.", "시퀀스 전용 모드에서는 DDL + 시퀀스 생성이 자동으로 활성화됩니다.")}
@@ -411,7 +411,7 @@ export function MigrationOptionsPanel({
                 </div>
                 <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
                   <div className="w-full text-xs" role="none">
-                    <div className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 flex font-bold" role="none">
+                    <div className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 flex font-bold" role="none">
                       <div className="px-2 py-1.5 text-left flex-1">{tr("Table", "테이블")}</div>
                       <div className="px-2 py-1.5 text-right w-20">{tr("Source", "소스")}</div>
                       <div className="px-2 py-1.5 text-right w-20">{tr("Target", "타깃")}</div>
@@ -426,7 +426,7 @@ export function MigrationOptionsPanel({
                             <div className="px-2 py-1.5 font-mono dark:text-slate-300 flex-1">{r.table_name}</div>
                             <div className="px-2 py-1.5 text-right dark:text-slate-300 w-20">{r.source_row_count.toLocaleString()}</div>
                             <div className="px-2 py-1.5 text-right dark:text-slate-300 w-20">{r.target_row_count.toLocaleString()}</div>
-                            <div className={`px-2 py-1.5 text-right w-20 ${r.diff !== 0 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</div>
+                            <div className={`px-2 py-1.5 text-right w-20 ${r.diff !== 0 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-700 dark:text-slate-300"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</div>
                             <div className="px-2 py-1.5 w-24">
                               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                                 r.decision === "transfer_required" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" :

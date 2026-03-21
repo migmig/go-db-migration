@@ -219,7 +219,7 @@ export function TableSelection({
                 {previewTables.length}
               </span>
             </summary>
-            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <p className="mt-2 text-xs text-slate-700 dark:text-slate-300">
               {discoverySummary
                 ? tr("Oracle discovery completed for tables group.", "테이블 그룹 Oracle 탐색이 완료되었습니다.")
                 : tr("Selected tables to be migrated.", "마이그레이션할 테이블을 선택하세요.")}
@@ -232,7 +232,7 @@ export function TableSelection({
                 {previewObjectGroup === "tables" ? 0 : previewSequences.length}
               </span>
             </summary>
-            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-2 text-xs text-slate-700 dark:text-slate-300">
               {previewObjectGroup === "tables" ? (
                 <span>{tr("Sequence group is disabled.", "시퀀스 그룹이 비활성화되었습니다.")}</span>
               ) : discoverySummary ? (
@@ -257,15 +257,15 @@ export function TableSelection({
              <div className="mb-4 grid grid-cols-3 gap-3">
                 <div className="rounded-lg bg-white p-3 text-center shadow-sm dark:bg-slate-900/50">
                   <p className="text-xl font-bold text-slate-900 dark:text-slate-100" aria-label="Source only count">{compareStats.source_only}</p>
-                  <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase">{tr("Source only", "소스에만")}</p>
+                  <p className="text-[10px] font-medium text-slate-700 dark:text-slate-300 uppercase">{tr("Source only", "소스에만")}</p>
                 </div>
                 <div className="rounded-lg bg-white p-3 text-center shadow-sm dark:bg-slate-900/50">
                   <p className="text-xl font-bold text-slate-900 dark:text-slate-100" aria-label="Both count">{compareStats.both}</p>
-                  <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase">{tr("Both", "양쪽")}</p>
+                  <p className="text-[10px] font-medium text-slate-700 dark:text-slate-300 uppercase">{tr("Both", "양쪽")}</p>
                 </div>
                 <div className="rounded-lg bg-white p-3 text-center shadow-sm dark:bg-slate-900/50">
                   <p className="text-xl font-bold text-slate-900 dark:text-slate-100" aria-label="Target only count">{compareStats.target_only}</p>
-                  <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase">{tr("Target only", "타겟에만")}</p>
+                  <p className="text-[10px] font-medium text-slate-700 dark:text-slate-300 uppercase">{tr("Target only", "타겟에만")}</p>
                 </div>
              </div>
              <div className="mb-3 flex flex-wrap gap-2">
@@ -288,12 +288,12 @@ export function TableSelection({
                           </span>
                         )}
                         {e.sourceRowCount !== null && (
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400" aria-label="Comparison row count">{e.sourceRowCount.toLocaleString()}</span>
+                          <span className="text-[10px] text-slate-700 dark:text-slate-300" aria-label="Comparison row count">{e.sourceRowCount.toLocaleString()}</span>
                         )}
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
                           e.category === "both" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" :
                           e.category === "source_only" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
-                          "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+                          "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-600 dark:text-slate-200"
                         }`}>{e.category}</span>
                       </div>
                     </li>
@@ -348,7 +348,7 @@ export function TableSelection({
               </select>
             </div>
           </div>
-          <div className="flex items-center justify-between px-2 pb-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center justify-between px-2 pb-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
             <div className="flex items-center gap-3">
               <span>{tr("Available Tables", "선택 가능")} ({filteredAvailable.length})</span>
               <label className="inline-flex items-center gap-1 cursor-pointer">
@@ -365,7 +365,7 @@ export function TableSelection({
           </div>
           <div className="h-64 flex-1 overflow-auto rounded-lg border border-slate-100 bg-slate-50 p-2 dark:border-slate-700/50 dark:bg-slate-800/50">
             {filteredAvailable.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-400">
+              <div className="py-8 text-center text-sm text-slate-600 dark:text-slate-200">
                 {tr("No tables match", "테이블이 없습니다")}
               </div>
             ) : (
@@ -423,7 +423,7 @@ export function TableSelection({
           <button
             onClick={moveAllRight}
             disabled={filteredAvailable.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Add all", "전체 추가")}
           >
             <span className="hidden lg:inline">{">>"}</span>
@@ -432,7 +432,7 @@ export function TableSelection({
           <button
             onClick={moveRight}
             disabled={leftChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Add selected", "선택 추가")}
           >
             <span className="hidden lg:inline">{">"}</span>
@@ -441,7 +441,7 @@ export function TableSelection({
           <button
             onClick={moveLeft}
             disabled={rightChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Remove selected", "선택 제거")}
           >
             <span className="hidden lg:inline">{"<"}</span>
@@ -450,7 +450,7 @@ export function TableSelection({
           <button
             onClick={moveAllLeft}
             disabled={filteredSelected.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Remove all", "전체 제거")}
           >
             <span className="hidden lg:inline">{"<<"}</span>
@@ -476,7 +476,7 @@ export function TableSelection({
           </div>
           <div className="h-64 flex-1 overflow-auto rounded-lg border border-brand-100 bg-white p-2 dark:border-brand-900/30 dark:bg-slate-800/80">
             {filteredSelected.length === 0 ? (
-              <div className="py-8 text-center text-sm text-slate-400">
+              <div className="py-8 text-center text-sm text-slate-600 dark:text-slate-200">
                 {tr("No tables selected", "선택된 테이블이 없습니다")}
               </div>
             ) : (
@@ -604,7 +604,7 @@ export function TableSelection({
               })}
             </ul>
           ) : (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-700 dark:text-slate-300">
               {tr("No history found for this table.", "이 테이블의 이력이 없습니다.")}
             </p>
           )}

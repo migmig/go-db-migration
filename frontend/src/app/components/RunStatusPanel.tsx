@@ -65,7 +65,7 @@ function CircularProgress({ percent, size = 120, strokeWidth = 10 }: { percent: 
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">{percent}%</span>
-        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Done</span>
+        <span className="text-[10px] font-bold uppercase text-slate-700 dark:text-slate-300">Done</span>
       </div>
     </div>
   );
@@ -117,7 +117,7 @@ export function RunStatusPanel({
               </span>
             )}
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
             {tr("ID:", "세션 ID:")} <span className="font-mono text-slate-700 dark:text-slate-300">{runSessionId || "N/A"}</span> ·{" "}
             <span className="inline-flex items-center gap-1.5">
               <span className={`h-2 w-2 rounded-full ${wsStatusText.includes("connected") || wsStatusText.includes("연결됨") ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`}></span>
@@ -127,11 +127,11 @@ export function RunStatusPanel({
         </div>
         <div className="flex gap-2">
            <div className="rounded-lg bg-slate-100 px-3 py-2 text-center dark:bg-slate-700/50">
-              <p className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">CPU</p>
+              <p className="text-[10px] font-bold uppercase text-slate-700 dark:text-slate-300">CPU</p>
               <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{metrics?.cpu ?? 0}%</p>
            </div>
            <div className="rounded-lg bg-slate-100 px-3 py-2 text-center dark:bg-slate-700/50">
-              <p className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">MEM</p>
+              <p className="text-[10px] font-bold uppercase text-slate-700 dark:text-slate-300">MEM</p>
               <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{metrics?.mem ?? 0}MB</p>
            </div>
         </div>
@@ -146,7 +146,7 @@ export function RunStatusPanel({
             <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
               {runDoneTables} / {runTotalTables} {tr("Tables", "테이블 완료")}
             </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-700 dark:text-slate-300">
               {runSuccessCount} ok · {runFailCount} failed
             </p>
           </div>
@@ -155,27 +155,27 @@ export function RunStatusPanel({
         {/* Right: Stat Cards */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{tr("Remaining Time", "예상 남은 시간")}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">{tr("Remaining Time", "예상 남은 시간")}</p>
             <p className="mt-2 text-3xl font-black text-slate-900 dark:text-slate-100">{formatTime(etaSeconds)}</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr("Elapsed:", "경과:")} {elapsedSeconds}s</p>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">{tr("Elapsed:", "경과:")} {elapsedSeconds}s</p>
           </div>
           <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{tr("Processing Speed", "현재 처리 속도")}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">{tr("Processing Speed", "현재 처리 속도")}</p>
             <p className="mt-2 text-3xl font-black text-slate-900 dark:text-slate-100">{rowsPerSecond.toLocaleString()}</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">rows / second</p>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">rows / second</p>
           </div>
           <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{tr("Total Rows", "처리된 행 수")}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">{tr("Total Rows", "처리된 행 수")}</p>
             <p className="mt-2 text-3xl font-black text-slate-900 dark:text-slate-100">{processedRows.toLocaleString()}</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{tr("Processed rows", "현재까지 완료된 데이터 행")}</p>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">{tr("Processed rows", "현재까지 완료된 데이터 행")}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{tr("Status Summary", "실행 요약")}</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">{tr("Status Summary", "실행 요약")}</p>
             <div className="mt-2 flex items-baseline gap-2">
                <span className="text-3xl font-black text-emerald-600 dark:text-emerald-500">{runSuccessCount}</span>
-               <span className="text-sm font-bold text-slate-400">/ {runTotalTables}</span>
+               <span className="text-sm font-bold text-slate-600 dark:text-slate-200">/ {runTotalTables}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{runFailCount} {tr("errors encountered", "건의 오류 발생")}</p>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-300">{runFailCount} {tr("errors encountered", "건의 오류 발생")}</p>
           </div>
         </div>
       </div>
@@ -198,7 +198,7 @@ export function RunStatusPanel({
               <p className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-200">
                 <span>📜</span> {tr("DDL Events", "DDL 이벤트")}
               </p>
-              <div className="mt-2 max-h-32 space-y-1 overflow-auto font-mono text-[10px] text-slate-600 dark:text-slate-400">
+              <div className="mt-2 max-h-32 space-y-1 overflow-auto font-mono text-[10px] text-slate-600 dark:text-slate-600 dark:text-slate-200">
                 {ddlEvents.map((e) => (
                   <div key={e.key}>[{e.object}] {e.name} → {e.status}</div>
                 ))}
@@ -230,7 +230,7 @@ export function RunStatusPanel({
                     isDone ? "bg-emerald-500 text-white" :
                     isError ? "bg-red-500 text-white" :
                     isRunning ? "bg-blue-500 text-white animate-pulse" :
-                    "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400"
+                    "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-600 dark:text-slate-200"
                   }`}>
                     {tableStatusLabel(item.status, locale)}
                   </span>
@@ -243,7 +243,7 @@ export function RunStatusPanel({
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <div className="mt-2 flex items-center justify-between text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                <div className="mt-2 flex items-center justify-between text-[10px] font-medium text-slate-700 dark:text-slate-300">
                   <span>{pct}%</span>
                   <span>{item.count.toLocaleString()} / {item.total.toLocaleString()}</span>
                 </div>

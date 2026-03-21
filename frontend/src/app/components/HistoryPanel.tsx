@@ -32,13 +32,13 @@ export function HistoryPanel({
       {historyBusy && <p className="text-sm text-slate-600">{tr("Loading history...", "이력 불러오는 중...")}</p>}
       {historyError && <p className="text-sm text-red-600">{historyError}</p>}
       {!historyBusy && !historyError && history.length === 0 && (
-        <p className="text-sm text-slate-500">{tr("No migration history yet.", "아직 마이그레이션 이력이 없습니다.")}</p>
+        <p className="text-sm text-slate-700 dark:text-slate-300">{tr("No migration history yet.", "아직 마이그레이션 이력이 없습니다.")}</p>
       )}
       <div className="space-y-3">
         {history.map((entry) => (
           <div className="rounded-xl border border-slate-200 p-3" key={entry.id}>
             <p className="text-sm font-semibold text-slate-900">{entry.status}</p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-700 dark:text-slate-300">
               {new Date(entry.createdAt).toLocaleString()}
             </p>
             <p className="mt-1 text-xs text-slate-700">{entry.sourceSummary}</p>

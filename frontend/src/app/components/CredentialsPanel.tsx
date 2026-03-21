@@ -61,7 +61,7 @@ export function CredentialsPanel({
       {credentialsBusy && <p className="text-sm text-slate-600">{tr("Loading...", "불러오는 중...")}</p>}
       {credentialsError && <p className="text-sm text-red-600">{credentialsError}</p>}
       {!credentialsBusy && !credentialsError && filteredCredentials.length === 0 && (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-700 dark:text-slate-300">
           {credentialFilter === "source"
             ? tr("No saved source connections found.", "저장된 소스 연결이 없습니다.")
             : credentialFilter === "target"
@@ -73,7 +73,7 @@ export function CredentialsPanel({
         {filteredCredentials.map((item) => (
           <div className="rounded-xl border border-slate-200 p-3" key={item.id}>
             <p className="text-sm font-semibold text-slate-900">{item.alias}</p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-700 dark:text-slate-300">
               {item.dbType === "oracle" ? tr("Source", "소스") : tr("Target", "타깃")} · {item.dbType}
             </p>
             <p className="mt-1 break-all text-xs text-slate-700">{item.host}</p>
