@@ -492,10 +492,11 @@ export function TableSelection({
                       <tr
                         key={t}
                         onClick={() => handleToggleRight(t)}
+                        role="row"
                         aria-label={ariaLabel}
-                        className={`flex cursor-pointer items-center justify-between rounded px-2 py-1 transition-colors ${
-                          rightChecked.has(t) 
-                            ? "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100" 
+                        className={`cursor-pointer rounded transition-colors ${
+                          rightChecked.has(t)
+                            ? "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100"
                             : "text-slate-800 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
                         }`}
                       >
@@ -508,16 +509,16 @@ export function TableSelection({
                           />
                         </td>
                         <td className="px-2 py-1 text-sm">
-                          <div className="flex items-center gap-2 overflow-hidden">
-                            <span className="truncate">{t}</span>
+                          <span className="inline-flex items-center gap-2">
+                            <span>{t}</span>
                             {item?.status && item.status !== "pending" && (
                               <span className="h-2 w-2 flex-shrink-0 rounded-full bg-brand-500"></span>
                             )}
-                          </div>
+                          </span>
                         </td>
                         <td className="px-2 py-1 text-xs text-right">
                           <button
-                            className="text-brand-600 hover:underline dark:text-brand-400 flex-shrink-0"
+                            className="text-brand-600 hover:underline dark:text-brand-400"
                             onClick={(e) => { e.stopPropagation(); openTableHistory(t); }}
                           >
                             {tr("View history", "이력 조회")}
