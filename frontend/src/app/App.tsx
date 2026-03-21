@@ -62,6 +62,7 @@ import {
 } from "./utils";
 import { useAuth } from "./hooks/useAuth";
 import { useMigrationRun } from "./hooks/useMigrationRun";
+import { useTheme } from "./hooks/useTheme";
 import { HeaderBar } from "./components/HeaderBar";
 import { LoginModal } from "./components/LoginModal";
 import { RecentSourcePanel } from "./components/RecentSourcePanel";
@@ -73,6 +74,7 @@ import { MigrationOptionsPanel } from "./components/MigrationOptionsPanel";
 import { TableSelection } from "./components/TableSelection";
 
 export function App() {
+  const { theme, toggleTheme } = useTheme();
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const initialRememberPass = loadRememberPassword();
@@ -920,15 +922,17 @@ export function App() {
   }
 
   return (
-    <div className="relative min-h-screen px-4 pb-16 pt-8 sm:px-6 lg:px-10">
+    <div className="relative min-h-screen px-4 pb-16 pt-8 sm:px-6 lg:px-10 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-200">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <HeaderBar
           authMeta={meta}
           locale={locale}
+          theme={theme}
           onLogout={() => void handleLogout()}
           onOpenCredentials={() => void openCredentialsPanel("all")}
           onOpenHistory={() => void openHistoryPanel()}
           onToggleLocale={() => setLocale((prev) => (prev === "en" ? "ko" : "en"))}
+          onToggleTheme={toggleTheme}
           t={t}
           user={user}
         />

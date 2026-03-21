@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction } from "react";
+import { Dispatch, SetStateAction, useState } from "react";
 import { PrecheckSummary, PrecheckTableResult, RuntimeMeta } from "../../shared/api/types";
 import {
   MigrationOptions,
@@ -55,268 +55,297 @@ export function MigrationOptionsPanel({
   onStartMigration,
   migrationError,
 }: MigrationOptionsPanelProps) {
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
   return (
-    <div className="card-surface p-5">
-      <h2 className="mb-4 text-lg font-semibold text-slate-900">
-        {tr("4. Migration Options", "4. 마이그레이션 옵션")}
+    <div className="card-surface p-5 dark:bg-slate-800 dark:border-slate-700">
+      <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
+        {tr("Migration Options", "마이그레이션 옵션")}
       </h2>
-      <div className="space-y-3">
-        {targetMode === "file" && (
-          <>
+      <div className="space-y-4">
+        {/* Basic Options */}
+        <div className="space-y-3">
+          {objectGroupModeEnabled && (
             <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("Output file", "출력 파일")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Migration target", "마이그레이션 대상")}</span>
+              <select
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                 onChange={(event) =>
-                  setOptions((prev) => ({ ...prev, outFile: event.target.value }))
+                  onApplyObjectGroupSelection(event.target.value as ObjectGroup)
                 }
-                value={options.outFile}
-              />
+                value={options.objectGroup}
+              >
+                <option value="all">{tr("All objects", "전체 객체")}</option>
+                <option value="tables">{tr("Tables only", "테이블만")}</option>
+                <option value="sequences">{tr("Sequences only", "시퀀스만")}</option>
+              </select>
             </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
-                checked={options.perTable}
+                checked={options.withDdl}
+                disabled={effectiveObjectGroup === "sequences"}
                 onChange={(event) =>
-                  setOptions((prev) => ({ ...prev, perTable: event.target.checked }))
+                  setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
                 }
                 type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              {tr("Per-table output files", "테이블별 출력 파일")}
+              {tr("Include DDL", "테이블 DDL 포함")}
             </label>
-          </>
-        )}
-
-        {objectGroupModeEnabled && (
-          <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Migration target", "마이그레이션 대상")}</span>
-            <select
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-              onChange={(event) =>
-                onApplyObjectGroupSelection(event.target.value as ObjectGroup)
-              }
-              value={options.objectGroup}
-            >
-              <option value="all">{tr("All objects", "전체 객체")}</option>
-              <option value="tables">{tr("Tables only", "테이블만")}</option>
-              <option value="sequences">{tr("Sequences only", "시퀀스만")}</option>
-            </select>
-          </label>
-        )}
-
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.withDdl}
-            disabled={effectiveObjectGroup === "sequences"}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, withDdl: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Include CREATE TABLE DDL", "CREATE TABLE DDL 포함")}
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.withSequences}
-            disabled={effectiveObjectGroup !== "all"}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Include sequences", "시퀀스 포함")}
-        </label>
-        {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
-          <p className="text-xs text-slate-500">
-            {effectiveObjectGroup === "tables"
-              ? tr("Tables-only mode disables sequence DDL automatically.", "테이블 전용 모드에서는 시퀀스 DDL이 자동으로 비활성화됩니다.")
-              : tr("Sequences-only mode forces DDL + sequence generation automatically.", "시퀀스 전용 모드에서는 DDL + 시퀀스 생성이 자동으로 활성화됩니다.")}
-          </p>
-        )}
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.withIndexes}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, withIndexes: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Include indexes", "인덱스 포함")}
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.withConstraints}
-            onChange={(event) =>
-              setOptions((prev) => ({
-                ...prev,
-                withConstraints: event.target.checked,
-              }))
-            }
-            type="checkbox"
-          />
-          {tr("Include constraints", "제약 조건 포함")}
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.validate}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, validate: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Validate row counts after migration", "마이그레이션 후 행 수 검증")}
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.truncate}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, truncate: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Truncate target tables before migration (prevents duplicates)", "마이그레이션 전 타깃 테이블 초기화 (중복 방지)")}
-        </label>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-          <input
-            checked={options.upsert}
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, upsert: event.target.checked }))
-            }
-            type="checkbox"
-          />
-          {tr("Upsert mode — skip duplicate rows by PK (table must have PK)", "Upsert 모드 — PK 기준 중복 행 건너뛰기 (PK 필수)")}
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-700">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</span>
-          <input
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-            onChange={(event) =>
-              setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
-            }
-            placeholder={tr("defaults to connected account", "연결 계정 기본값 사용")}
-            value={options.oracleOwner}
-          />
-        </label>
-
-        <details className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-            {tr("Advanced", "고급 설정")}
-          </summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("Batch size", "배치 크기")}</span>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+                checked={options.withSequences}
+                disabled={effectiveObjectGroup !== "all"}
+                onChange={(event) =>
+                  setOptions((prev) => ({ ...prev, withSequences: event.target.checked }))
+                }
+                type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              {tr("Include sequences", "시퀀스 포함")}
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                checked={options.withIndexes}
+                onChange={(event) =>
+                  setOptions((prev) => ({ ...prev, withIndexes: event.target.checked }))
+                }
+                type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              {tr("Include indexes", "인덱스 포함")}
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                checked={options.withConstraints}
                 onChange={(event) =>
                   setOptions((prev) => ({
                     ...prev,
-                    batchSize: toNumber(event.target.value, prev.batchSize),
+                    withConstraints: event.target.checked,
                   }))
                 }
-                type="number"
-                value={options.batchSize}
+                type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("Workers", "워커 수")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    workers: toNumber(event.target.value, prev.workers),
-                  }))
-                }
-                type="number"
-                value={options.workers}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("COPY batch", "COPY 배치")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    copyBatch: toNumber(event.target.value, prev.copyBatch),
-                  }))
-                }
-                type="number"
-                value={options.copyBatch}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("DB max open", "DB 최대 연결")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    dbMaxOpen: toNumber(event.target.value, prev.dbMaxOpen),
-                  }))
-                }
-                type="number"
-                value={options.dbMaxOpen}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("DB max idle", "DB 최대 유휴")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    dbMaxIdle: toNumber(event.target.value, prev.dbMaxIdle),
-                  }))
-                }
-                type="number"
-                value={options.dbMaxIdle}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</span>
-              <input
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                onChange={(event) =>
-                  setOptions((prev) => ({
-                    ...prev,
-                    dbMaxLife: toNumber(event.target.value, prev.dbMaxLife),
-                  }))
-                }
-                type="number"
-                value={options.dbMaxLife}
-              />
+              {tr("Include constraints", "제약 조건 포함")}
             </label>
           </div>
-          <div className="mt-3 flex flex-wrap gap-4">
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+
+          {objectGroupModeEnabled && effectiveObjectGroup !== "all" && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {effectiveObjectGroup === "tables"
+                ? tr("Tables-only mode disables sequence DDL automatically.", "테이블 전용 모드에서는 시퀀스 DDL이 자동으로 비활성화됩니다.")
+                : tr("Sequences-only mode forces DDL + sequence generation automatically.", "시퀀스 전용 모드에서는 DDL + 시퀀스 생성이 자동으로 활성화됩니다.")}
+            </p>
+          )}
+
+          <div className="mt-2 space-y-2">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
-                checked={options.logJson}
+                checked={options.validate}
                 onChange={(event) =>
-                  setOptions((prev) => ({ ...prev, logJson: event.target.checked }))
+                  setOptions((prev) => ({ ...prev, validate: event.target.checked }))
                 }
                 type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              {tr("JSON logging", "JSON 로깅")}
+              {tr("Validate row counts after migration", "마이그레이션 후 행 수 검증")}
             </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                checked={options.truncate}
+                onChange={(event) =>
+                  setOptions((prev) => ({ ...prev, truncate: event.target.checked }))
+                }
+                type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              {tr("Truncate target tables before migration", "마이그레이션 전 타깃 테이블 초기화 (중복 방지)")}
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                checked={options.upsert}
+                onChange={(event) =>
+                  setOptions((prev) => ({ ...prev, upsert: event.target.checked }))
+                }
+                type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+              />
+              {tr("Upsert mode — skip duplicate rows by PK", "Upsert 모드 — PK 기준 중복 행 건너뛰기")}
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
                 checked={options.dryRun}
                 onChange={(event) =>
                   setOptions((prev) => ({ ...prev, dryRun: event.target.checked }))
                 }
                 type="checkbox"
+                className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              {tr("Dry-run mode", "드라이런 모드")}
+              <span className="font-semibold">{tr("Dry-run mode", "드라이런 모드 (실제 전송 없음)")}</span>
             </label>
           </div>
-        </details>
+        </div>
+
+        <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+            className="flex w-full items-center justify-between text-sm font-semibold text-slate-700 hover:text-brand-600 focus:outline-none dark:text-slate-300 dark:hover:text-brand-400"
+          >
+            <span>{tr("Advanced Settings", "고급 설정")}</span>
+            <span className={`transition-transform duration-200 ${isAdvancedOpen ? "rotate-180" : ""}`}>
+              ▼
+            </span>
+          </button>
+          
+          <div className={`mt-3 overflow-hidden transition-all duration-300 ${isAdvancedOpen ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"}`}>
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 dark:border-slate-700 dark:bg-slate-800/50">
+              {targetMode === "file" && (
+                <>
+                  <label className="col-span-full block text-sm">
+                    <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Output file", "출력 파일")}</span>
+                    <input
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                      onChange={(event) =>
+                        setOptions((prev) => ({ ...prev, outFile: event.target.value }))
+                      }
+                      value={options.outFile}
+                    />
+                  </label>
+                  <label className="col-span-full inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      checked={options.perTable}
+                      onChange={(event) =>
+                        setOptions((prev) => ({ ...prev, perTable: event.target.checked }))
+                      }
+                      type="checkbox"
+                      className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+                    />
+                    {tr("Per-table output files", "테이블별 출력 파일")}
+                  </label>
+                </>
+              )}
+              <label className="col-span-full block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
+                  }
+                  placeholder={tr("defaults to connected account", "연결 계정 기본값 사용")}
+                  value={options.oracleOwner}
+                />
+              </label>
+
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Batch size", "배치 크기")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      batchSize: toNumber(event.target.value, prev.batchSize),
+                    }))
+                  }
+                  type="number"
+                  value={options.batchSize}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Workers", "워커 수")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      workers: toNumber(event.target.value, prev.workers),
+                    }))
+                  }
+                  type="number"
+                  value={options.workers}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("COPY batch", "COPY 배치")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      copyBatch: toNumber(event.target.value, prev.copyBatch),
+                    }))
+                  }
+                  type="number"
+                  value={options.copyBatch}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max open", "DB 최대 연결")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      dbMaxOpen: toNumber(event.target.value, prev.dbMaxOpen),
+                    }))
+                  }
+                  type="number"
+                  value={options.dbMaxOpen}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max idle", "DB 최대 유휴")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      dbMaxIdle: toNumber(event.target.value, prev.dbMaxIdle),
+                    }))
+                  }
+                  type="number"
+                  value={options.dbMaxIdle}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</span>
+                <input
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  onChange={(event) =>
+                    setOptions((prev) => ({
+                      ...prev,
+                      dbMaxLife: toNumber(event.target.value, prev.dbMaxLife),
+                    }))
+                  }
+                  type="number"
+                  value={options.dbMaxLife}
+                />
+              </label>
+              <label className="col-span-full inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  checked={options.logJson}
+                  onChange={(event) =>
+                    setOptions((prev) => ({ ...prev, logJson: event.target.checked }))
+                  }
+                  type="checkbox"
+                  className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
+                />
+                {tr("JSON logging", "JSON 로깅")}
+              </label>
+            </div>
+          </div>
+        </div>
 
         {meta?.features?.precheckRowCount !== false && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
             <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h3 className="text-sm font-semibold text-slate-800">{tr("Pre-check Row Count", "사전 행 수 점검")}</h3>
+              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tr("Pre-check Row Count", "사전 행 수 점검")}</h3>
               <select
-                className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700"
+                className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-brand-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                 value={precheckPolicy}
                 onChange={(e) => setPrecheckPolicy(e.target.value)}
               >
@@ -334,17 +363,17 @@ export function MigrationOptionsPanel({
               </button>
             </div>
             {precheckError && (
-              <p className="mb-2 text-xs font-medium text-red-600">{precheckError}</p>
+              <p className="mb-2 text-xs font-medium text-red-600 dark:text-red-400">{precheckError}</p>
             )}
             {precheckSummary && (
               <>
                 <div className="mb-3 grid grid-cols-4 gap-2">
                   {(
                     [
-                      { label: tr("Total", "전체"), value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800" },
-                      { label: tr("Transfer Required", "이관 필요"), value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800" },
-                      { label: tr("Skip Candidate", "건너뛰기 후보"), value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800" },
-                      { label: tr("Check Failed", "점검 실패"), value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800" },
+                      { label: tr("Total", "전체"), value: precheckSummary.total_tables, cls: "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-200" },
+                      { label: tr("Transfer Required", "이관 필요"), value: precheckSummary.transfer_required_count, cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" },
+                      { label: tr("Skip Candidate", "건너뛰기 후보"), value: precheckSummary.skip_candidate_count, cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300" },
+                      { label: tr("Check Failed", "점검 실패"), value: precheckSummary.count_check_failed_count, cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300" },
                     ] as { label: string; value: number; cls: string }[]
                   ).map(({ label, value, cls }) => (
                     <div className={`rounded-lg p-2 text-center ${cls}`} key={label}>
@@ -356,7 +385,11 @@ export function MigrationOptionsPanel({
                 <div className="mb-2 flex gap-1">
                   {(["all", "transfer_required", "skip_candidate", "count_check_failed"] as PrecheckDecisionFilter[]).map((f) => (
                     <button
-                      className={`rounded-lg px-2 py-1 text-xs font-medium ${precheckDecisionFilter === f ? "bg-blue-600 text-white" : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"}`}
+                      className={`rounded-lg px-2 py-1 text-xs font-medium ${
+                        precheckDecisionFilter === f 
+                          ? "bg-blue-600 text-white" 
+                          : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                      }`}
                       key={f}
                       onClick={() => setPrecheckDecisionFilter(f)}
                       type="button"
@@ -365,9 +398,9 @@ export function MigrationOptionsPanel({
                     </button>
                   ))}
                 </div>
-                <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
+                <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
                   <table className="w-full text-xs">
-                    <thead className="bg-slate-100 text-slate-600">
+                    <thead className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                       <tr>
                         <th className="px-2 py-1.5 text-left">{tr("Table", "테이블")}</th>
                         <th className="px-2 py-1.5 text-right">{tr("Source", "소스")}</th>
@@ -376,20 +409,20 @@ export function MigrationOptionsPanel({
                         <th className="px-2 py-1.5 text-left">{tr("Decision", "결정")}</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="dark:bg-slate-800/50">
                       {precheckItems
                         .filter((r) => precheckDecisionFilter === "all" || r.decision === precheckDecisionFilter)
                         .map((r) => (
-                          <tr className="border-t border-slate-100 hover:bg-slate-50" key={r.table_name}>
-                            <td className="px-2 py-1.5 font-mono">{r.table_name}</td>
-                            <td className="px-2 py-1.5 text-right">{r.source_row_count.toLocaleString()}</td>
-                            <td className="px-2 py-1.5 text-right">{r.target_row_count.toLocaleString()}</td>
-                            <td className={`px-2 py-1.5 text-right ${r.diff !== 0 ? "font-semibold text-amber-700" : "text-slate-500"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</td>
+                          <tr className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50" key={r.table_name}>
+                            <td className="px-2 py-1.5 font-mono dark:text-slate-300">{r.table_name}</td>
+                            <td className="px-2 py-1.5 text-right dark:text-slate-300">{r.source_row_count.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right dark:text-slate-300">{r.target_row_count.toLocaleString()}</td>
+                            <td className={`px-2 py-1.5 text-right ${r.diff !== 0 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</td>
                             <td className="px-2 py-1.5">
                               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-                                r.decision === "transfer_required" ? "bg-amber-100 text-amber-800" :
-                                r.decision === "skip_candidate" ? "bg-emerald-100 text-emerald-800" :
-                                "bg-red-100 text-red-800"
+                                r.decision === "transfer_required" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" :
+                                r.decision === "skip_candidate" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300" :
+                                "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
                               }`}>
                                 {r.decision === "count_check_failed" && <span title={r.reason}>⚠</span>}
                                 {r.decision}
@@ -406,7 +439,7 @@ export function MigrationOptionsPanel({
         )}
 
         <button
-          className="w-full rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={migrationBusy || selectedTablesCount === 0}
           onClick={onStartMigration}
           type="button"
@@ -421,7 +454,7 @@ export function MigrationOptionsPanel({
         </button>
       </div>
       {migrationError && (
-        <p className="mt-3 text-sm font-medium text-red-600">{migrationError}</p>
+        <p className="mt-3 text-sm font-medium text-red-600 dark:text-red-400">{migrationError}</p>
       )}
     </div>
   );
