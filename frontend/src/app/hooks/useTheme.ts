@@ -4,8 +4,8 @@ export type Theme = "light" | "dark";
 
 export function useTheme() {
   const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== "undefined") {
-      const storedTheme = localStorage.getItem("ui_theme") as Theme | null;
+    if (typeof window !== "undefined" && typeof window.localStorage !== "undefined" && typeof window.localStorage.getItem === "function") {
+      const storedTheme = window.localStorage.getItem("ui_theme") as Theme | null;
       if (storedTheme) {
         return storedTheme;
       }
@@ -17,13 +17,15 @@ export function useTheme() {
   });
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    if (theme === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
+    if (typeof window !== "undefined" && typeof window.localStorage !== "undefined" && typeof window.localStorage.setItem === "function") {
+      const root = window.document.documentElement;
+      if (theme === "dark") {
+        root.classList.add("dark");
+      } else {
+        root.classList.remove("dark");
+      }
+      window.localStorage.setItem("ui_theme", theme);
     }
-    localStorage.setItem("ui_theme", theme);
   }, [theme]);
 
   const toggleTheme = () => {

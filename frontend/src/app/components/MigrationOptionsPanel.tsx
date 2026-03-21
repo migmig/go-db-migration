@@ -66,9 +66,10 @@ export function MigrationOptionsPanel({
         {/* Basic Options */}
         <div className="space-y-3">
           {objectGroupModeEnabled && (
-            <label className="block text-sm">
-              <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Migration target", "마이그레이션 대상")}</span>
+            <div className="block text-sm">
+              <label htmlFor="migration-target-select" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Migration target", "마이그레이션 대상")}</label>
               <select
+                id="migration-target-select"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                 onChange={(event) =>
                   onApplyObjectGroupSelection(event.target.value as ObjectGroup)
@@ -79,7 +80,7 @@ export function MigrationOptionsPanel({
                 <option value="tables">{tr("Tables only", "테이블만")}</option>
                 <option value="sequences">{tr("Sequences only", "시퀀스만")}</option>
               </select>
-            </label>
+            </div>
           )}
 
           <div className="grid gap-2 sm:grid-cols-2">
@@ -93,7 +94,7 @@ export function MigrationOptionsPanel({
                 type="checkbox"
                 className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
               />
-              {tr("Include DDL", "테이블 DDL 포함")}
+              {tr("Include CREATE TABLE DDL", "테이블 DDL 포함")}
             </label>
             <label className="inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
@@ -206,16 +207,17 @@ export function MigrationOptionsPanel({
             <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 dark:border-slate-700 dark:bg-slate-800/50">
               {targetMode === "file" && (
                 <>
-                  <label className="col-span-full block text-sm">
-                    <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Output file", "출력 파일")}</span>
+                  <div className="col-span-full block text-sm">
+                    <label htmlFor="output-file-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Output file", "출력 파일")}</label>
                     <input
+                      id="output-file-input"
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                       onChange={(event) =>
                         setOptions((prev) => ({ ...prev, outFile: event.target.value }))
                       }
                       value={options.outFile}
                     />
-                  </label>
+                  </div>
                   <label className="col-span-full inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       checked={options.perTable}
@@ -229,9 +231,10 @@ export function MigrationOptionsPanel({
                   </label>
                 </>
               )}
-              <label className="col-span-full block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</span>
+              <div className="col-span-full block text-sm">
+                <label htmlFor="oracle-owner-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Oracle owner (optional)", "Oracle 소유자 (선택)")}</label>
                 <input
+                  id="oracle-owner-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({ ...prev, oracleOwner: event.target.value }))
@@ -239,11 +242,12 @@ export function MigrationOptionsPanel({
                   placeholder={tr("defaults to connected account", "연결 계정 기본값 사용")}
                   value={options.oracleOwner}
                 />
-              </label>
+              </div>
 
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Batch size", "배치 크기")}</span>
+              <div className="block text-sm">
+                <label htmlFor="batch-size-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Batch size", "배치 크기")}</label>
                 <input
+                  id="batch-size-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -254,10 +258,11 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.batchSize}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Workers", "워커 수")}</span>
+              </div>
+              <div className="block text-sm">
+                <label htmlFor="workers-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Workers", "워커 수")}</label>
                 <input
+                  id="workers-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -268,10 +273,11 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.workers}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("COPY batch", "COPY 배치")}</span>
+              </div>
+              <div className="block text-sm">
+                <label htmlFor="copy-batch-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("COPY batch", "COPY 배치")}</label>
                 <input
+                  id="copy-batch-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -282,10 +288,11 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.copyBatch}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max open", "DB 최대 연결")}</span>
+              </div>
+              <div className="block text-sm">
+                <label htmlFor="db-max-open-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max open", "DB 최대 연결")}</label>
                 <input
+                  id="db-max-open-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -296,10 +303,11 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.dbMaxOpen}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max idle", "DB 최대 유휴")}</span>
+              </div>
+              <div className="block text-sm">
+                <label htmlFor="db-max-idle-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max idle", "DB 최대 유휴")}</label>
                 <input
+                  id="db-max-idle-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -310,10 +318,11 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.dbMaxIdle}
                 />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</span>
+              </div>
+              <div className="block text-sm">
+                <label htmlFor="db-max-life-input" className="mb-1 block text-slate-700 dark:text-slate-300">{tr("DB max life (sec)", "DB 최대 수명 (초)")}</label>
                 <input
+                  id="db-max-life-input"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                   onChange={(event) =>
                     setOptions((prev) => ({
@@ -324,7 +333,7 @@ export function MigrationOptionsPanel({
                   type="number"
                   value={options.dbMaxLife}
                 />
-              </label>
+              </div>
               <label className="col-span-full inline-flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                 <input
                   checked={options.logJson}
@@ -344,7 +353,9 @@ export function MigrationOptionsPanel({
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">{tr("Pre-check Row Count", "사전 행 수 점검")}</h3>
+              <label htmlFor="precheck-policy-select" className="sr-only">Pre-check Policy</label>
               <select
+                id="precheck-policy-select"
                 className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-700 outline-none focus:border-brand-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                 value={precheckPolicy}
                 onChange={(e) => setPrecheckPolicy(e.target.value)}
@@ -399,26 +410,24 @@ export function MigrationOptionsPanel({
                   ))}
                 </div>
                 <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left">{tr("Table", "테이블")}</th>
-                        <th className="px-2 py-1.5 text-right">{tr("Source", "소스")}</th>
-                        <th className="px-2 py-1.5 text-right">{tr("Target", "타깃")}</th>
-                        <th className="px-2 py-1.5 text-right">{tr("Diff", "차이")}</th>
-                        <th className="px-2 py-1.5 text-left">{tr("Decision", "결정")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="dark:bg-slate-800/50">
-                      {precheckItems
+                  <div className="w-full text-xs" role="none">
+                    <div className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 flex font-bold" role="none">
+                      <div className="px-2 py-1.5 text-left flex-1">{tr("Table", "테이블")}</div>
+                      <div className="px-2 py-1.5 text-right w-20">{tr("Source", "소스")}</div>
+                      <div className="px-2 py-1.5 text-right w-20">{tr("Target", "타깃")}</div>
+                      <div className="px-2 py-1.5 text-right w-20">{tr("Diff", "차이")}</div>
+                      <div className="px-2 py-1.5 text-left w-24">{tr("Decision", "결정")}</div>
+                    </div>
+                    <div className="dark:bg-slate-800/50" role="none">
+                      {(precheckItems || [])
                         .filter((r) => precheckDecisionFilter === "all" || r.decision === precheckDecisionFilter)
                         .map((r) => (
-                          <tr className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50" key={r.table_name}>
-                            <td className="px-2 py-1.5 font-mono dark:text-slate-300">{r.table_name}</td>
-                            <td className="px-2 py-1.5 text-right dark:text-slate-300">{r.source_row_count.toLocaleString()}</td>
-                            <td className="px-2 py-1.5 text-right dark:text-slate-300">{r.target_row_count.toLocaleString()}</td>
-                            <td className={`px-2 py-1.5 text-right ${r.diff !== 0 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</td>
-                            <td className="px-2 py-1.5">
+                          <div className="border-t border-slate-100 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/50 flex" key={r.table_name} role="none">
+                            <div className="px-2 py-1.5 font-mono dark:text-slate-300 flex-1">{r.table_name}</div>
+                            <div className="px-2 py-1.5 text-right dark:text-slate-300 w-20">{r.source_row_count.toLocaleString()}</div>
+                            <div className="px-2 py-1.5 text-right dark:text-slate-300 w-20">{r.target_row_count.toLocaleString()}</div>
+                            <div className={`px-2 py-1.5 text-right w-20 ${r.diff !== 0 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>{r.diff > 0 ? "+" : ""}{r.diff.toLocaleString()}</div>
+                            <div className="px-2 py-1.5 w-24">
                               <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                                 r.decision === "transfer_required" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" :
                                 r.decision === "skip_candidate" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300" :
@@ -427,11 +436,11 @@ export function MigrationOptionsPanel({
                                 {r.decision === "count_check_failed" && <span title={r.reason}>⚠</span>}
                                 {r.decision}
                               </span>
-                            </td>
-                          </tr>
+                            </div>
+                          </div>
                         ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

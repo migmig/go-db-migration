@@ -13,7 +13,6 @@ import {
   SOURCE_RECENT_KEY,
   SOURCE_REMEMBER_KEY,
   TARGET_RECENT_KEY,
-  UI_LOCALE_KEY,
   UI_TEXT,
 } from "./constants";
 import {
@@ -62,11 +61,9 @@ export function App() {
   const { theme, toggleTheme } = useTheme();
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-  const resetRunStateRef = useRef<() => void>(() => {});
   const initialRememberPass = loadRememberPassword();
   const initialRecent = loadSourceRecent();
   const initialTarget = loadTargetRecent();
-
 
   const [source, setSource] = useState<SourceState>({
     oracleUrl: initialRecent.oracleUrl,
@@ -86,7 +83,6 @@ export function App() {
   const [sourceConnectBusy, setSourceConnectBusy] = useState(false);
   const [sourceConnectError, setSourceConnectError] = useState("");
   const [allTables, setAllTables] = useState<string[]>([]);
-  const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
   const [options, setOptions] = useState<MigrationOptions>(DEFAULT_OPTIONS);
 
@@ -94,6 +90,12 @@ export function App() {
   const [targetTestError, setTargetTestError] = useState("");
   const [targetTestMessage, setTargetTestMessage] = useState("");
 
+  const [precheckBusy, setPrecheckBusy] = useState(false);
+  const [precheckError, setPrecheckError] = useState("");
+  const [precheckSummary, setPrecheckSummary] = useState<PrecheckSummary | null>(null);
+  const [precheckItems, setPrecheckItems] = useState<PrecheckTableResult[]>([]);
+  const [precheckDecisionFilter, setPrecheckDecisionFilter] = useState<PrecheckDecisionFilter>("all");
+  const [precheckPolicy, setPrecheckPolicy] = useState("strict");
 
   const [credentialsPanelOpen, setCredentialsPanelOpen] = useState(false);
   const [credentialFilter, setCredentialFilter] = useState<RoleFilter>("all");
@@ -109,7 +111,6 @@ export function App() {
   const [tableHistoryBusy, setTableHistoryBusy] = useState(false);
   const [tableHistoryError, setTableHistoryError] = useState("");
 
-  // v19: precheck state
   const [compareState, setCompareState] = useState<CompareState>({
     targetTables: [],
     fetchedAt: null,
@@ -117,20 +118,13 @@ export function App() {
     error: null,
   });
 
-  const [precheckBusy, setPrecheckBusy] = useState(false);
-  const [precheckError, setPrecheckError] = useState("");
-  const [precheckSummary, setPrecheckSummary] = useState<PrecheckSummary | null>(null);
-  const [precheckItems, setPrecheckItems] = useState<PrecheckTableResult[]>([]);
-  const [precheckDecisionFilter, setPrecheckDecisionFilter] = useState<PrecheckDecisionFilter>("all");
-  const [precheckPolicy, setPrecheckPolicy] = useState("strict");
-
-
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(
     null,
   );
 
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
-
+  const resetRunStateRef = useRef<() => void>(() => {});
 
   const {
     meta,
@@ -180,8 +174,6 @@ export function App() {
   });
   resetRunStateRef.current = resetRunState;
 
-
-
   const filteredCredentials = credentials.filter((item) => {
     if (credentialFilter === "all") return true;
     if (credentialFilter === "source") return item.dbType === "oracle";
@@ -212,9 +204,9 @@ export function App() {
       }
     }
     return next;
-    }, [history]);
+  }, [history]);
 
-    const compareEntries = useMemo((): TargetTableEntry[] => {
+  const compareEntries = useMemo((): TargetTableEntry[] => {
     if (allTables.length === 0 || compareState.targetTables.length === 0) return [];
     const sourceSet = new Set(allTables.map((t) => t.toLowerCase()));
     const targetSet = new Set(compareState.targetTables.map((t) => t.toLowerCase()));
@@ -249,13 +241,6 @@ export function App() {
   }, [allTables, compareState.targetTables, precheckItems]);
 
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
-
-
-  useEffect(() => {
-    if (migrationBusy || runStartedAt !== null) {
-      setCurrentStep(3);
-    }
-  }, [migrationBusy, runStartedAt]);
 
   const runEntries = Object.entries(tableProgress).sort((a, b) => {
     const rank: Record<TableRunStatus, number> = {
@@ -309,24 +294,10 @@ export function App() {
   const tr = (en: string, ko: string): string => (locale === "ko" ? ko : en);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(UI_LOCALE_KEY, locale);
-    } catch {
-      // no-op
+    if (migrationBusy || runStartedAt !== null) {
+      setCurrentStep(3);
     }
-  }, [locale]);
-
-
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (notice) {
-        setNotice(null);
-      }
-    }, 2400);
-    return () => clearTimeout(timeout);
-  }, [notice]);
-
+  }, [migrationBusy, runStartedAt]);
 
   useEffect(() => {
     try {
@@ -358,22 +329,6 @@ export function App() {
       // Ignore storage errors in restricted browser environments.
     }
   }, [target.mode, target.targetUrl, target.schema]);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
   async function loadCredentials() {
     if (!meta?.authEnabled || !user) {
@@ -704,8 +659,6 @@ export function App() {
     setNotice({ text: "Recent source values restored.", tone: "info" });
   }
 
-
-
   function applyObjectGroupSelection(nextGroup: ObjectGroup) {
     setOptions((prev) => {
       if (nextGroup === "tables") {
@@ -729,10 +682,6 @@ export function App() {
       };
     });
   }
-
-
-
-
 
   async function runPrecheck() {
     setPrecheckError("");
@@ -775,8 +724,6 @@ export function App() {
       setPrecheckBusy(false);
     }
   }
-
-
 
   if (booting) {
     return (
@@ -853,42 +800,42 @@ export function App() {
         {currentStep === 1 && (
           <div className="flex animate-fade-in flex-col gap-6">
             <RecentSourcePanel
-          onClear={clearRecentSource}
-          onRememberSourcePasswordChange={setRememberSourcePassword}
-          onRestore={restoreRecentSource}
-          rememberSourcePassword={rememberSourcePassword}
-          t={t}
-        />
+              onClear={clearRecentSource}
+              onRememberSourcePasswordChange={setRememberSourcePassword}
+              onRestore={restoreRecentSource}
+              rememberSourcePassword={rememberSourcePassword}
+              t={t}
+            />
             <ConnectionForms
-          allTablesCount={allTables.length}
-          compareState={compareState}
-          meta={meta}
-          migrationBusy={migrationBusy}
-          onConnectSource={() => void connectSource()}
-          onFetchTargetTables={() => void fetchTargetTables()}
-          onOpenSourceCredentials={() => void openCredentialsPanel("source")}
-          onOpenTargetCredentials={() => void openCredentialsPanel("target")}
-          onSourceFieldChange={(field, value) =>
-            setSource((prev) => ({ ...prev, [field]: value }))
-          }
-          onTargetFieldChange={(field, value) =>
-            setTarget((prev) => ({ ...prev, [field]: value }))
-          }
-          onTestTarget={() => void testTarget()}
-          source={source}
-          sourceConnectBusy={sourceConnectBusy}
-          sourceConnectError={sourceConnectError}
-          target={target}
-          targetTestBusy={targetTestBusy}
-          targetTestError={targetTestError}
-          targetTestMessage={targetTestMessage}
-          tr={tr}
-        />
+              allTablesCount={allTables.length}
+              compareState={compareState}
+              meta={meta}
+              migrationBusy={migrationBusy}
+              onConnectSource={() => void connectSource()}
+              onFetchTargetTables={() => void fetchTargetTables()}
+              onOpenSourceCredentials={() => void openCredentialsPanel("source")}
+              onOpenTargetCredentials={() => void openCredentialsPanel("target")}
+              onSourceFieldChange={(field, value) =>
+                setSource((prev) => ({ ...prev, [field]: value }))
+              }
+              onTargetFieldChange={(field, value) =>
+                setTarget((prev) => ({ ...prev, [field]: value }))
+              }
+              onTestTarget={() => void testTarget()}
+              source={source}
+              sourceConnectBusy={sourceConnectBusy}
+              sourceConnectError={sourceConnectError}
+              target={target}
+              targetTestBusy={targetTestBusy}
+              targetTestError={targetTestError}
+              targetTestMessage={targetTestMessage}
+              tr={tr}
+            />
             <div className="mt-2 flex justify-end">
               <button
                 type="button"
                 onClick={() => setCurrentStep(2)}
-                disabled={allTables.length === 0}
+                disabled={migrationBusy}
                 className="rounded-xl bg-brand-600 px-8 py-3 text-sm font-bold text-white shadow-sm transition-all hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {tr("Next: Select Tables", "다음: 테이블 선택")} →
@@ -925,28 +872,28 @@ export function App() {
                 replayHistory={replayHistory}
               />
               <MigrationOptionsPanel
-              effectiveObjectGroup={effectiveObjectGroup}
-              meta={meta}
-              migrationBusy={migrationBusy}
-              migrationError={migrationError}
-              objectGroupModeEnabled={objectGroupModeEnabled}
-              onApplyObjectGroupSelection={applyObjectGroupSelection}
-              onRunPrecheck={() => void runPrecheck()}
-              onStartMigration={() => void startMigration()}
-              options={options}
-              precheckBusy={precheckBusy}
-              precheckDecisionFilter={precheckDecisionFilter}
-              precheckError={precheckError}
-              precheckItems={precheckItems}
-              precheckPolicy={precheckPolicy}
-              precheckSummary={precheckSummary}
-              selectedTablesCount={selectedTables.length}
-              setOptions={setOptions}
-              setPrecheckDecisionFilter={setPrecheckDecisionFilter}
-              setPrecheckPolicy={setPrecheckPolicy}
-              targetMode={target.mode}
-              tr={tr}
-            />
+                effectiveObjectGroup={effectiveObjectGroup}
+                meta={meta}
+                migrationBusy={migrationBusy}
+                migrationError={migrationError}
+                objectGroupModeEnabled={objectGroupModeEnabled}
+                onApplyObjectGroupSelection={applyObjectGroupSelection}
+                onRunPrecheck={() => void runPrecheck()}
+                onStartMigration={() => void startMigration()}
+                options={options}
+                precheckBusy={precheckBusy}
+                precheckDecisionFilter={precheckDecisionFilter}
+                precheckError={precheckError}
+                precheckItems={precheckItems}
+                precheckPolicy={precheckPolicy}
+                precheckSummary={precheckSummary}
+                selectedTablesCount={selectedTables.length}
+                setOptions={setOptions}
+                setPrecheckDecisionFilter={setPrecheckDecisionFilter}
+                setPrecheckPolicy={setPrecheckPolicy}
+                targetMode={target.mode}
+                tr={tr}
+              />
             </section>
             <div className="mt-2 flex justify-between">
               <button
@@ -964,34 +911,34 @@ export function App() {
         {currentStep === 3 && runReadyToShow && (
           <div className="flex animate-fade-in flex-col gap-6">
             <RunStatusPanel
-            ddlEvents={ddlEvents}
-            effectiveObjectGroup={effectiveObjectGroup}
-            elapsedSeconds={elapsedSeconds}
-            etaSeconds={etaSeconds}
-            groupSummary={groupSummary}
-            locale={locale}
-            metrics={metrics}
-            migrationBusy={migrationBusy}
-            objectGroupModeEnabled={objectGroupModeEnabled}
-            onResetRunState={resetRunState}
-            overallPercent={overallPercent}
-            processedRows={processedRows}
-            reportSummary={reportSummary}
-            rowsPerSecond={rowsPerSecond}
-            runDoneTables={runDoneTables}
-            runDryRun={runDryRun}
-            runEntries={runEntries}
-            runFailCount={runFailCount}
-            runSessionId={runSessionId}
-            runStartedAt={runStartedAt}
-            runSuccessCount={runSuccessCount}
-            runTotalTables={runTotalTables}
-            tr={tr}
-            validation={validation}
-            warnings={warnings}
-            wsStatusText={wsStatusLabel(wsStatus, locale)}
-            zipFileId={zipFileId}
-          />
+              ddlEvents={ddlEvents}
+              effectiveObjectGroup={effectiveObjectGroup}
+              elapsedSeconds={elapsedSeconds}
+              etaSeconds={etaSeconds}
+              groupSummary={groupSummary}
+              locale={locale}
+              metrics={metrics}
+              migrationBusy={migrationBusy}
+              objectGroupModeEnabled={objectGroupModeEnabled}
+              onResetRunState={resetRunState}
+              overallPercent={overallPercent}
+              processedRows={processedRows}
+              reportSummary={reportSummary}
+              rowsPerSecond={rowsPerSecond}
+              runDoneTables={runDoneTables}
+              runDryRun={runDryRun}
+              runEntries={runEntries}
+              runFailCount={runFailCount}
+              runSessionId={runSessionId}
+              runStartedAt={runStartedAt}
+              runSuccessCount={runSuccessCount}
+              runTotalTables={runTotalTables}
+              tr={tr}
+              validation={validation}
+              warnings={warnings}
+              wsStatusText={wsStatusLabel(wsStatus, locale)}
+              zipFileId={zipFileId}
+            />
             {!migrationBusy && runEndedAt !== null && (
               <div className="mt-4 flex justify-center">
                 <button
