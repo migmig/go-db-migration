@@ -276,25 +276,25 @@ func TestPrecheckResultsHandler_SummaryReflected(t *testing.T) {
 	}
 }
 
-// --- v19PrecheckEnabled 테스트 ---
+// --- precheckEnabled 테스트 ---
 
-func TestV19PrecheckEnabled_DefaultTrue(t *testing.T) {
-	t.Setenv("DBM_V19_PRECHECK", "")
-	if !v19PrecheckEnabled() {
+func TestPrecheckEnabled_DefaultTrue(t *testing.T) {
+	t.Setenv("DBM_PRECHECK_ENABLED", "")
+	if !precheckEnabled() {
 		t.Error("expected precheck enabled by default")
 	}
 }
 
-func TestV19PrecheckEnabled_DisabledByEnv(t *testing.T) {
-	t.Setenv("DBM_V19_PRECHECK", "false")
-	if v19PrecheckEnabled() {
-		t.Error("expected precheck disabled when DBM_V19_PRECHECK=false")
+func TestPrecheckEnabled_DisabledByEnv(t *testing.T) {
+	t.Setenv("DBM_PRECHECK_ENABLED", "false")
+	if precheckEnabled() {
+		t.Error("expected precheck disabled when DBM_PRECHECK_ENABLED=false")
 	}
 }
 
-func TestV19PrecheckEnabled_InvalidEnv(t *testing.T) {
-	t.Setenv("DBM_V19_PRECHECK", "not_a_bool")
-	if !v19PrecheckEnabled() {
+func TestPrecheckEnabled_InvalidEnv(t *testing.T) {
+	t.Setenv("DBM_PRECHECK_ENABLED", "not_a_bool")
+	if !precheckEnabled() {
 		t.Error("expected default true on invalid env value")
 	}
 }
