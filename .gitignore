@@ -10,3 +10,4 @@ frontend/*.tsbuildinfo
 
 .gemini/
 gha-creds-*.json
+frontend/coverage/
