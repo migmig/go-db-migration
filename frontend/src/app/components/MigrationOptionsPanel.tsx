@@ -411,7 +411,7 @@ export function MigrationOptionsPanel({
                 </div>
                 <div className="max-h-48 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
                   <div className="w-full text-xs" role="none">
-                    <div className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 flex font-bold" role="none">
+                    <div className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 flex font-bold" role="none">
                       <div className="px-2 py-1.5 text-left flex-1">{tr("Table", "테이블")}</div>
                       <div className="px-2 py-1.5 text-right w-20">{tr("Source", "소스")}</div>
                       <div className="px-2 py-1.5 text-right w-20">{tr("Target", "타깃")}</div>

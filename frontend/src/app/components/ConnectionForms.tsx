@@ -46,9 +46,9 @@ export function ConnectionForms({
 }: ConnectionFormsProps) {
   return (
     <section className="grid gap-5 lg:grid-cols-2">
-      <div className="card-surface p-5">
+      <div className="card-surface p-5 dark:bg-slate-800 dark:border-slate-700">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             {tr("1. Source (Oracle)", "1. 소스 (Oracle)")}
           </h2>
           {meta?.authEnabled && (
@@ -63,35 +63,35 @@ export function ConnectionForms({
         </div>
         <div className="space-y-3">
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">Oracle URL</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">Oracle URL</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onSourceFieldChange("oracleUrl", event.target.value)}
               placeholder="localhost:1521/XE"
               value={source.oracleUrl}
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Username", "사용자명")}</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Username", "사용자명")}</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onSourceFieldChange("username", event.target.value)}
               value={source.username}
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Password", "비밀번호")}</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Password", "비밀번호")}</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onSourceFieldChange("password", event.target.value)}
               type="password"
               value={source.password}
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">Table filter (LIKE)</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">Table filter (LIKE)</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onSourceFieldChange("like", event.target.value)}
               placeholder="USERS_%"
               value={source.like}
@@ -127,9 +127,9 @@ export function ConnectionForms({
         )}
       </div>
 
-      <div className="card-surface p-5">
+      <div className="card-surface p-5 dark:bg-slate-800 dark:border-slate-700">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-slate-900">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             {tr("2. Target", "2. 타깃")}
           </h2>
           {meta?.authEnabled && (
@@ -144,11 +144,11 @@ export function ConnectionForms({
         </div>
         <div className="space-y-3">
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">
               {tr("Migration mode", "마이그레이션 모드")}
             </span>
             <select
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) =>
                 onTargetFieldChange("mode", event.target.value as TargetState["mode"])
               }
@@ -159,24 +159,24 @@ export function ConnectionForms({
             </select>
           </label>
           <div className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Target DB", "타깃 DB")}</span>
-            <span className="inline-block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Target DB", "타깃 DB")}</span>
+            <span className="inline-block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">
               PostgreSQL
             </span>
           </div>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Target URL", "타깃 URL")}</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Target URL", "타깃 URL")}</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onTargetFieldChange("targetUrl", event.target.value)}
               placeholder="postgres://user:pass@host:5432/dbname"
               value={target.targetUrl}
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-slate-700">{tr("Schema", "스키마")}</span>
+            <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Schema", "스키마")}</span>
             <input
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               onChange={(event) => onTargetFieldChange("schema", event.target.value)}
               value={target.schema}
             />
@@ -218,7 +218,7 @@ export function ConnectionForms({
               </span>
             )}
             {compareState.fetchedAt && (
-              <span className="text-xs text-slate-600 dark:text-slate-200">
+              <span className="text-xs text-slate-600 dark:text-slate-400">
                 {tr("as of", "기준 시각")}{" "}
                 {new Date(compareState.fetchedAt).toLocaleTimeString()}
               </span>

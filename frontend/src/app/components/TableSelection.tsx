@@ -293,7 +293,7 @@ export function TableSelection({
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
                           e.category === "both" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" :
                           e.category === "source_only" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" :
-                          "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-600 dark:text-slate-200"
+                          "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
                         }`}>{e.category}</span>
                       </div>
                     </li>
@@ -423,7 +423,7 @@ export function TableSelection({
           <button
             onClick={moveAllRight}
             disabled={filteredAvailable.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Add all", "전체 추가")}
           >
             <span className="hidden lg:inline">{">>"}</span>
@@ -432,7 +432,7 @@ export function TableSelection({
           <button
             onClick={moveRight}
             disabled={leftChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Add selected", "선택 추가")}
           >
             <span className="hidden lg:inline">{">"}</span>
@@ -441,7 +441,7 @@ export function TableSelection({
           <button
             onClick={moveLeft}
             disabled={rightChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Remove selected", "선택 제거")}
           >
             <span className="hidden lg:inline">{"<"}</span>
@@ -450,7 +450,7 @@ export function TableSelection({
           <button
             onClick={moveAllLeft}
             disabled={filteredSelected.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-600 dark:text-slate-200 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
             title={tr("Remove all", "전체 제거")}
           >
             <span className="hidden lg:inline">{"<<"}</span>

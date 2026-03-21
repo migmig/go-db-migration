@@ -198,7 +198,7 @@ export function RunStatusPanel({
               <p className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-200">
                 <span>📜</span> {tr("DDL Events", "DDL 이벤트")}
               </p>
-              <div className="mt-2 max-h-32 space-y-1 overflow-auto font-mono text-[10px] text-slate-600 dark:text-slate-600 dark:text-slate-200">
+              <div className="mt-2 max-h-32 space-y-1 overflow-auto font-mono text-[10px] text-slate-600 dark:text-slate-400">
                 {ddlEvents.map((e) => (
                   <div key={e.key}>[{e.object}] {e.name} → {e.status}</div>
                 ))}
