@@ -1,14 +1,12 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../shared/api/client";
 import {
-  AuthUser,
   Credential,
   HistoryEntry,
   HistoryListResponse,
   PrecheckResponse,
   PrecheckSummary,
   PrecheckTableResult,
-  RuntimeMeta,
 } from "../shared/api/types";
 import {
   DEFAULT_OPTIONS,
@@ -19,33 +17,20 @@ import {
   UI_TEXT,
 } from "./constants";
 import {
-  CompareFilter,
   CompareState,
-  DdlEvent,
-  DiscoverySummary,
   Locale,
-  MetricsState,
   MigrationOptions,
   NoticeTone,
   ObjectGroup,
   PrecheckDecisionFilter,
-  ReportSummary,
   RoleFilter,
   SourceState,
-  TableHistoryDetail,
   TableHistoryState,
-  TableHistoryStatusFilter,
-  TableRunState,
   TableRunStatus,
-  TableSortOption,
   TargetState,
   TargetTableEntry,
-  ValidationState,
-  WsProgressMsg,
-  WsStatus,
 } from "./types";
 import {
-  createSessionId,
   isObjectGroupModeEnabled,
   loadLocale,
   loadRememberPassword,
@@ -77,6 +62,7 @@ export function App() {
   const { theme, toggleTheme } = useTheme();
   const [locale, setLocale] = useState<Locale>(() => loadLocale());
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const resetRunStateRef = useRef<() => void>(() => {});
   const initialRememberPass = loadRememberPassword();
   const initialRecent = loadSourceRecent();
   const initialTarget = loadTargetRecent();
@@ -100,10 +86,6 @@ export function App() {
   const [sourceConnectBusy, setSourceConnectBusy] = useState(false);
   const [sourceConnectError, setSourceConnectError] = useState("");
   const [allTables, setAllTables] = useState<string[]>([]);
-  const [tableSearch, setTableSearch] = useState("");
-  const [tableStatusFilter, setTableStatusFilter] = useState<TableHistoryStatusFilter>("all");
-  const [tableSort, setTableSort] = useState<TableSortOption>("table_asc");
-  const [excludeMigratedSuccess, setExcludeMigratedSuccess] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
 
   const [options, setOptions] = useState<MigrationOptions>(DEFAULT_OPTIONS);
@@ -134,8 +116,6 @@ export function App() {
     busy: false,
     error: null,
   });
-  const [compareFilter, setCompareFilter] = useState<CompareFilter>("all");
-  const [compareSearch, setCompareSearch] = useState("");
 
   const [precheckBusy, setPrecheckBusy] = useState(false);
   const [precheckError, setPrecheckError] = useState("");
@@ -148,6 +128,28 @@ export function App() {
   const [notice, setNotice] = useState<{ text: string; tone: NoticeTone } | null>(
     null,
   );
+
+
+
+
+  const {
+    meta,
+    user,
+    booting,
+    bootError,
+    loginForm,
+    loginBusy,
+    loginError,
+    setLoginForm,
+    boot,
+    handleLogin,
+    handleLogout,
+  } = useAuth({
+    resetRunState: () => resetRunStateRef.current(),
+    setCredentialsPanelOpen,
+    setHistoryPanelOpen,
+    setNotice,
+  });
 
   const {
     tableProgress,
@@ -176,24 +178,8 @@ export function App() {
     effectiveObjectGroup: isObjectGroupModeEnabled(meta) ? options.objectGroup : "all",
     setNotice,
   });
+  resetRunStateRef.current = resetRunState;
 
-  const {
-    meta,
-    user,
-    booting,
-    bootError,
-    loginForm,
-    loginBusy,
-    loginError,
-    setLoginForm,
-    handleLogin,
-    handleLogout,
-  } = useAuth({
-    resetRunState,
-    setCredentialsPanelOpen,
-    setHistoryPanelOpen,
-    setNotice,
-  });
 
 
   const filteredCredentials = credentials.filter((item) => {
@@ -226,87 +212,9 @@ export function App() {
       }
     }
     return next;
-  }, [history]);
+    }, [history]);
 
-  const tableHistoryDetails = useMemo<Record<string, TableHistoryDetail>>(() => {
-    const next: Record<string, TableHistoryDetail> = {};
-    for (const entry of history) {
-      const tables = parseReplayedTables(entry.optionsJson);
-      for (const tableName of tables) {
-        const normalized = normalizeTableKey(tableName);
-        if (!next[normalized]) {
-          next[normalized] = { tableName: normalized, entries: [] };
-        }
-        next[normalized].entries.push(entry);
-      }
-    }
-
-    Object.values(next).forEach((detail) => {
-      detail.entries.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    });
-
-    return next;
-  }, [history]);
-
-  const filteredTables = useMemo(() => {
-    const filtered = allTables.filter((table) => {
-      const searchTerms = tableSearch.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
-      if (searchTerms.length > 0 && !searchTerms.some(term => table.toLowerCase().includes(term))) {
-        return false;
-      }
-      const historyState = historyByTable[normalizeTableKey(table)];
-      if (excludeMigratedSuccess && historyState?.status === "success") {
-        return false;
-      }
-      if (tableStatusFilter === "not_started") {
-        return !historyState;
-      }
-      if (tableStatusFilter === "success") {
-        return historyState?.status === "success";
-      }
-      if (tableStatusFilter === "failed") {
-        return historyState?.status === "failed";
-      }
-      return true;
-    });
-
-    const historyRank = (tableName: string): number => {
-      const state = historyByTable[normalizeTableKey(tableName)];
-      if (!state) return 0;
-      if (state.status === "failed") return 1;
-      return 2;
-    };
-
-    filtered.sort((a, b) => {
-      if (tableSort === "table_desc") {
-        return b.localeCompare(a);
-      }
-      if (tableSort === "recent_desc") {
-        const aTime = historyByTable[normalizeTableKey(a)]?.lastRunAt ?? "";
-        const bTime = historyByTable[normalizeTableKey(b)]?.lastRunAt ?? "";
-        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
-        if (diff !== 0) return diff;
-        return a.localeCompare(b);
-      }
-      if (tableSort === "runs_desc") {
-        const aCount = historyByTable[normalizeTableKey(a)]?.runCount ?? 0;
-        const bCount = historyByTable[normalizeTableKey(b)]?.runCount ?? 0;
-        if (bCount !== aCount) return bCount - aCount;
-        return a.localeCompare(b);
-      }
-      if (tableSort === "history_status") {
-        const rankDiff = historyRank(a) - historyRank(b);
-        if (rankDiff !== 0) return rankDiff;
-        return a.localeCompare(b);
-      }
-      return a.localeCompare(b);
-    });
-
-    return filtered;
-  }, [allTables, excludeMigratedSuccess, historyByTable, tableSearch, tableSort, tableStatusFilter]);
-  const compareEntries = useMemo((): TargetTableEntry[] => {
+    const compareEntries = useMemo((): TargetTableEntry[] => {
     if (allTables.length === 0 || compareState.targetTables.length === 0) return [];
     const sourceSet = new Set(allTables.map((t) => t.toLowerCase()));
     const targetSet = new Set(compareState.targetTables.map((t) => t.toLowerCase()));
@@ -341,13 +249,7 @@ export function App() {
   }, [allTables, compareState.targetTables, precheckItems]);
 
   const objectGroupModeEnabled = isObjectGroupModeEnabled(meta);
-  const selectedTableSet = new Set(selectedTables);
-  const activeHistoryDetail = activeTableHistory
-    ? tableHistoryDetails[normalizeTableKey(activeTableHistory)]
-    : undefined;
-  const allVisibleSelected =
-    filteredTables.length > 0 &&
-    filteredTables.every((table) => selectedTableSet.has(table));
+
 
   useEffect(() => {
     if (migrationBusy || runStartedAt !== null) {
@@ -663,7 +565,6 @@ export function App() {
     setSourceConnectError("");
     setAllTables([]);
     setSelectedTables([]);
-    setDiscoverySummary(null);
     if (!source.oracleUrl || !source.username || !source.password) {
       setSourceConnectError("Oracle URL, username and password are required.");
       return;
@@ -689,7 +590,6 @@ export function App() {
       }
       const tables = data.tables ?? [];
       setAllTables(tables);
-      setTableSearch("");
       if (meta?.authEnabled && user) {
         await loadHistory();
       }
@@ -804,15 +704,7 @@ export function App() {
     setNotice({ text: "Recent source values restored.", tone: "info" });
   }
 
-  function toggleTable(table: string, checked: boolean) {
-    setSelectedTables((prev) => {
-      if (checked) {
-        if (prev.includes(table)) return prev;
-        return [...prev, table];
-      }
-      return prev.filter((item) => item !== table);
-    });
-  }
+
 
   function applyObjectGroupSelection(nextGroup: ObjectGroup) {
     setOptions((prev) => {
@@ -838,18 +730,9 @@ export function App() {
     });
   }
 
-  function selectAllVisibleTables() {
-    setSelectedTables((prev) => {
-      const merged = new Set(prev);
-      filteredTables.forEach((table) => merged.add(table));
-      return Array.from(merged);
-    });
-  }
 
-  function deselectAllVisibleTables() {
-    const hiddenSet = new Set(filteredTables);
-    setSelectedTables((prev) => prev.filter((table) => !hiddenSet.has(table)));
-  }
+
+
 
   async function runPrecheck() {
     setPrecheckError("");
@@ -1019,46 +902,28 @@ export function App() {
           <div className="flex animate-fade-in flex-col gap-6">
             <section className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
               <TableSelection
-              activeHistoryDetail={activeHistoryDetail}
-              activeTableHistory={activeTableHistory}
-              allTables={allTables}
-              allVisibleSelected={allVisibleSelected}
-              compareEntries={compareEntries}
-              compareFilter={compareFilter}
-              compareSearch={compareSearch}
-              deselectAllVisibleTables={deselectAllVisibleTables}
-              discoverySummary={discoverySummary}
-              excludeMigratedSuccess={excludeMigratedSuccess}
-              filteredTables={filteredTables}
-              historyByTable={historyByTable}
-              locale={locale}
-              migrationBusy={migrationBusy}
-              objectGroupModeEnabled={objectGroupModeEnabled}
-              openTableHistory={openTableHistory}
-              previewObjectGroup={previewObjectGroup}
-              previewSequences={previewSequences}
-              previewTables={previewTables}
-              replayHistory={replayHistory}
-              selectAllVisibleTables={selectAllVisibleTables}
-              selectByCategory={selectByCategory}
-              selectedTableSet={selectedTableSet}
-              selectedTables={selectedTables}
-              setActiveTableHistory={setActiveTableHistory}
-              setCompareFilter={setCompareFilter}
-              setCompareSearch={setCompareSearch}
-              setExcludeMigratedSuccess={setExcludeMigratedSuccess}
-              setTableSearch={setTableSearch}
-              setTableSort={setTableSort}
-              setTableStatusFilter={setTableStatusFilter}
-              tableHistoryBusy={tableHistoryBusy}
-              tableHistoryError={tableHistoryError}
-              tableProgress={tableProgress}
-              tableSearch={tableSearch}
-              tableSort={tableSort}
-              tableStatusFilter={tableStatusFilter}
-              toggleTable={toggleTable}
-              tr={tr}
-            />
+                tr={tr}
+                allTables={allTables}
+                selectedTables={selectedTables}
+                setSelectedTables={setSelectedTables}
+                objectGroupModeEnabled={objectGroupModeEnabled}
+                previewTables={previewTables}
+                discoverySummary={discoverySummary}
+                previewObjectGroup={previewObjectGroup}
+                previewSequences={previewSequences}
+                compareEntries={compareEntries}
+                migrationBusy={migrationBusy}
+                selectByCategory={selectByCategory}
+                tableProgress={tableProgress}
+                historyByTable={historyByTable}
+                history={history}
+                openTableHistory={openTableHistory}
+                activeTableHistory={activeTableHistory}
+                setActiveTableHistory={setActiveTableHistory}
+                tableHistoryBusy={tableHistoryBusy}
+                tableHistoryError={tableHistoryError}
+                replayHistory={replayHistory}
+              />
               <MigrationOptionsPanel
               effectiveObjectGroup={effectiveObjectGroup}
               meta={meta}
