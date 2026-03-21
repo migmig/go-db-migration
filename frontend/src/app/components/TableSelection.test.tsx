@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { TableSelection } from "./TableSelection";
 
 const defaultProps = {
-  tr: (en: string, ko: string) => en,
+  tr: (en: string, _ko: string) => en,
   allTables: ["USERS", "ORDERS", "PRODUCTS", "DEPT"],
   selectedTables: ["USERS"],
   setSelectedTables: vi.fn(),

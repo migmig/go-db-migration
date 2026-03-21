@@ -26,7 +26,7 @@ const mockOptions: MigrationOptions = {
 };
 
 const defaultProps = {
-  tr: (en: string, ko: string) => en,
+  tr: (en: string, _ko: string) => en,
   meta: { authEnabled: false, uiVersion: "v1" },
   targetMode: "direct" as const,
   objectGroupModeEnabled: true,
@@ -100,7 +100,6 @@ describe("MigrationOptionsPanel", () => {
     render(<MigrationOptionsPanel {...props} />);
     expect(screen.getByText("Total")).toBeInTheDocument();
     expect(screen.getByText("10")).toBeInTheDocument();
-    // Use getAllByText because it's both in summary card and filter button
     expect(screen.getAllByText("Transfer Required").length).toBeGreaterThan(0);
     expect(screen.getByText("7")).toBeInTheDocument();
   });

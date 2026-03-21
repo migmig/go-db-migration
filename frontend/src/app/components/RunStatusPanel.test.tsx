@@ -9,7 +9,7 @@ const defaultProps = {
   etaSeconds: 120,
   groupSummary: null,
   locale: "en" as const,
-  metrics: { cpu: 15, memory: 256 },
+  metrics: { cpu: "15", mem: "256" },
   migrationBusy: true,
   objectGroupModeEnabled: true,
   onResetRunState: vi.fn(),
@@ -28,11 +28,11 @@ const defaultProps = {
   runStartedAt: Date.now() - 60000,
   runSuccessCount: 1,
   runTotalTables: 3,
-  tr: (en: string, ko: string) => en,
-  validation: null,
+  tr: (en: string, _ko: string) => en,
+  validation: {},
   warnings: [],
   wsStatusText: "Connected",
-  zipFileId: null,
+  zipFileId: "",
 };
 
 describe("RunStatusPanel", () => {
@@ -71,7 +71,6 @@ describe("RunStatusPanel", () => {
   });
 
   it("calls onResetRunState when Close button is clicked", () => {
-    // The "Close Monitoring" button triggers onResetRunState when NOT busy
     render(<RunStatusPanel {...defaultProps} migrationBusy={false} />);
     const closeBtn = screen.getByRole("button", { name: "Close Monitoring" });
     fireEvent.click(closeBtn);
