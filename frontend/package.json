@@ -12,8 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run test && npm run typecheck && npm run build",
-    "verify:fast": "npm run test && npm run typecheck:fast && npm run build"
+    "verify": "bun run test && bun run typecheck && bun run build",
+    "verify:fast": "bun run test && bun run typecheck:fast && bun run build"
   },
   "dependencies": {
     "react": "^19.1.0",
