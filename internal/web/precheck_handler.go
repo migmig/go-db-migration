@@ -14,9 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// v19PrecheckEnabled는 DBM_V19_PRECHECK 환경변수로 pre-check 기능을 켜거나 끈다. 기본값은 활성화.
-func v19PrecheckEnabled() bool {
-	raw, ok := os.LookupEnv("DBM_V19_PRECHECK")
+// precheckEnabled는 DBM_PRECHECK_ENABLED 환경변수로 pre-check 기능을 켜거나 끈다. 기본값은 활성화.
+func precheckEnabled() bool {
+	raw, ok := os.LookupEnv("DBM_PRECHECK_ENABLED")
 	if !ok || strings.TrimSpace(raw) == "" {
 		return true
 	}

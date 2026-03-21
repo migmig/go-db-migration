@@ -249,11 +249,11 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 	r.StaticFS("/static", http.FS(templateFS))
 
-	tableHistoryEnabled := v18TableHistoryEnabled()
+	isTableHistoryEnabled := tableHistoryEnabled()
 
-	uiVersion := "v19"
-	if !tableHistoryEnabled {
-		uiVersion = "v19-preview"
+	uiVersion := "current"
+	if !isTableHistoryEnabled {
+		uiVersion = "preview"
 	}
 
 	api := r.Group("/api")
@@ -264,8 +264,8 @@ func RunServerWithAuth(port string, authEnabled bool) {
 				"uiVersion":   uiVersion,
 				"features": gin.H{
 					"objectGroupMode":  objectGroupModeEnabled(),
-					"tableHistory":     tableHistoryEnabled,
-					"precheckRowCount": v19PrecheckEnabled(),
+					"tableHistory":     isTableHistoryEnabled,
+					"precheckRowCount": precheckEnabled(),
 				},
 			})
 		})
@@ -298,7 +298,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected.POST("/tables", getTables)
 		protected.POST("/migrate", startMigrationHandler(userStore, metrics))
 		protected.POST("/migrate/retry", retryMigrationHandler(userStore, metrics))
-		if v19PrecheckEnabled() {
+		if precheckEnabled() {
 			protected.POST("/migrations/precheck", precheckHandler(metrics))
 			protected.GET("/migrations/precheck/results", precheckResultsHandler())
 		}
@@ -307,7 +307,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
 		protected.GET("/report/:id", downloadReport)
-		if tableHistoryEnabled {
+		if isTableHistoryEnabled {
 			protected.GET("/migrations/tables", listTableSummariesHandler(globalTableHistory, metrics))
 			protected.GET("/migrations/tables/:tableName/history", getTableHistoryHandler(globalTableHistory))
 		}
@@ -341,8 +341,8 @@ func loadAuthSessionEnv() (int, time.Duration) {
 	return maxSessions, cleanupInterval
 }
 
-func v18TableHistoryEnabled() bool {
-	raw, ok := os.LookupEnv("DBM_V18_TABLE_HISTORY")
+func tableHistoryEnabled() bool {
+	raw, ok := os.LookupEnv("DBM_TABLE_HISTORY_ENABLED")
 	if !ok || strings.TrimSpace(raw) == "" {
 		return true // 기본값: 활성화
 	}
@@ -1064,7 +1064,7 @@ func handleMigration(c *gin.Context, isRetry bool, store *db.UserStore, metrics 
 
 		// v19: use_precheck 연계 - precheck 결과 기반 전송 대상 테이블 필터링
 		tables := req.Tables
-		if req.UsePrecheckResults && v19PrecheckEnabled() {
+		if req.UsePrecheckResults && precheckEnabled() {
 			precheckResults, _ := globalPrecheckStore.getAll()
 			if len(precheckResults) > 0 {
 				policy := migration.PrecheckPolicy(req.PrecheckPolicy)
