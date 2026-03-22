@@ -8,7 +8,6 @@ type LoginModalProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
-  onGoogleLogin: (credential: string) => void;
 };
 
 export function LoginModal({
@@ -19,7 +18,6 @@ export function LoginModal({
   onSubmit,
   onUsernameChange,
   onPasswordChange,
-  onGoogleLogin,
 }: LoginModalProps) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 px-4">

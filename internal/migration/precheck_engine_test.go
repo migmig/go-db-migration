@@ -236,22 +236,21 @@ func TestPrecheckExecutionPlan_Integration(t *testing.T) {
 	sourceCounts := map[string]int{
 		"A": 100, // equal → skip
 		"B": 200, // different → transfer
-		"C": 50,  // count fail
+	}
+	sourceErrs := map[string]error{
+		"C": errors.New("permission denied"), // count fail
 	}
 	targetCounts := map[string]int{
 		"A": 100,
 		"B": 150,
-	}
-	targetErrs := map[string]error{
-		"C": errors.New("permission denied"),
 	}
 
 	tables := []string{"A", "B", "C"}
 
 	t.Run("strict policy blocks on count_check_failed", func(t *testing.T) {
 		results, _ := RunPrecheckRowCount(context.Background(), tables,
-			mockCountFn(sourceCounts, nil),
-			mockCountFn(targetCounts, targetErrs),
+			mockCountFn(sourceCounts, sourceErrs),
+			mockCountFn(targetCounts, nil),
 			PrecheckEngineConfig{Policy: PolicyStrict},
 		)
 		plan, err := ApplyPrecheckPolicy(results, PolicyStrict)
@@ -265,8 +264,8 @@ func TestPrecheckExecutionPlan_Integration(t *testing.T) {
 
 	t.Run("best_effort includes failed in transfer", func(t *testing.T) {
 		results, _ := RunPrecheckRowCount(context.Background(), tables,
-			mockCountFn(sourceCounts, nil),
-			mockCountFn(targetCounts, targetErrs),
+			mockCountFn(sourceCounts, sourceErrs),
+			mockCountFn(targetCounts, nil),
 			PrecheckEngineConfig{Policy: PolicyBestEffort},
 		)
 		plan, err := ApplyPrecheckPolicy(results, PolicyBestEffort)
@@ -286,8 +285,8 @@ func TestPrecheckExecutionPlan_Integration(t *testing.T) {
 
 	t.Run("skip_equal_rows excludes skip candidates", func(t *testing.T) {
 		results, _ := RunPrecheckRowCount(context.Background(), tables,
-			mockCountFn(sourceCounts, nil),
-			mockCountFn(targetCounts, targetErrs),
+			mockCountFn(sourceCounts, sourceErrs),
+			mockCountFn(targetCounts, nil),
 			PrecheckEngineConfig{Policy: PolicySkipEqualRows},
 		)
 		plan, err := ApplyPrecheckPolicy(results, PolicySkipEqualRows)
