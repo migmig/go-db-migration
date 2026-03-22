@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"dbmigrator/internal/security"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const DefaultAuthDBPath = ".migration_state/auth.db"

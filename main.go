@@ -36,7 +36,11 @@ func main() {
 	}
 
 	if cfg.WebMode {
-		web.RunServerWithAuth("8080", cfg.AuthEnabled)
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		web.RunServerWithAuth(port, cfg.AuthEnabled)
 		return
 	}
 
