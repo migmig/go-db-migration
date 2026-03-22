@@ -20,7 +20,7 @@ This spec details the technical changes required to support 4K/Ultrawide monitor
 - Change: Added `max-h-[60vh] overflow-auto` container around the table progress grid.
 - Change: Responsive grid adjustment:
     ```tsx
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-6">
     ```
 - Feature: Added a search input above the progress grid to filter tables by name.
 
