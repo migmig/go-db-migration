@@ -1023,7 +1023,6 @@ export function App() {
           onUsernameChange={(value) =>
             setLoginForm((prev) => ({ ...prev, username: value }))
           }
-          onGoogleLogin={handleGoogleLogin}
           tr={tr}
         />
       )}
