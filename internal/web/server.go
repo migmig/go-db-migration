@@ -36,6 +36,7 @@ import (
 	"dbmigrator/internal/web/ziputil"
 
 	"github.com/gin-gonic/gin"
+	"google.golang.org/api/idtoken"
 )
 
 //go:embed templates/* assets/frontend
@@ -272,6 +273,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 		if authEnabled {
 			api.POST("/auth/login", loginHandler(userStore, authSessions))
+			api.POST("/auth/google", googleLoginHandler(userStore, authSessions))
 			api.POST("/auth/logout", logoutHandler(authSessions))
 			api.GET("/auth/me", meHandler(authSessions))
 		}
@@ -295,15 +297,15 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 			protected.GET("/monitoring/metrics", monitoringMetricsHandler(metrics))
 		}
-		protected.POST("/tables", getTables)
+		protected.POST("/tables", getTables(userStore))
 		protected.POST("/migrate", startMigrationHandler(userStore, metrics))
 		protected.POST("/migrate/retry", retryMigrationHandler(userStore, metrics))
 		if precheckEnabled() {
 			protected.POST("/migrations/precheck", precheckHandler(metrics))
 			protected.GET("/migrations/precheck/results", precheckResultsHandler())
 		}
-		protected.POST("/test-target", testTargetConnection)
-		protected.POST("/target-tables", targetTablesHandler)
+		protected.POST("/test-target", testTargetConnection(userStore))
+		protected.POST("/target-tables", targetTablesHandler(userStore))
 		protected.GET("/ws", sessionManager.HandleConnection)
 		protected.GET("/download/:id", downloadZip)
 		protected.GET("/report/:id", downloadReport)
@@ -498,6 +500,65 @@ func loginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.Han
 			sessions.metrics.recordLoginFailure()
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 			return
+		}
+
+		token, _, err := sessions.createSession(user.ID, user.Username)
+		if err != nil {
+			sessions.metrics.recordLoginFailure()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+			return
+		}
+
+		setAuthCookie(c, token, sessions.cookieMaxAge())
+		c.JSON(http.StatusOK, gin.H{"username": user.Username, "userId": user.ID})
+	}
+}
+
+func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sessions.metrics.recordLoginAttempt()
+
+		var req struct {
+			Credential string `json:"credential"` // Google ID Token
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			sessions.metrics.recordLoginFailure()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+			return
+		}
+
+		// In a real app, ClientID should be in config.
+		// For this implementation, we'll try to get it from environment or use a placeholder
+		clientID := os.Getenv("GOOGLE_CLIENT_ID")
+		payload, err := idtoken.Validate(context.Background(), req.Credential, clientID)
+		if err != nil {
+			// If clientID is not set, idtoken.Validate might fail.
+			// In some development environments, we might want to skip validation if clientID is empty,
+			// but for security we should expect it.
+			sessions.metrics.recordLoginFailure()
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Google token: " + err.Error()})
+			return
+		}
+
+		googleID := payload.Subject
+		email := payload.Claims["email"].(string)
+
+		user, err := userStore.GetUserByGoogleID(googleID)
+		if err != nil {
+			if errors.Is(err, db.ErrUserNotFound) {
+				// Auto-register google user
+				userID, err := userStore.CreateGoogleUser(email, googleID)
+				if err != nil {
+					sessions.metrics.recordLoginFailure()
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+					return
+				}
+				user = &db.User{ID: userID, Username: email}
+			} else {
+				sessions.metrics.recordLoginFailure()
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+				return
+			}
 		}
 
 		token, _, err := sessions.createSession(user.ID, user.Username)
@@ -794,33 +855,54 @@ func replayHistoryHandler(store *db.UserStore) gin.HandlerFunc {
 }
 
 type getTablesRequest struct {
-	OracleURL string `json:"oracleUrl" binding:"required"`
-	Username  string `json:"username" binding:"required"`
-	Password  string `json:"password" binding:"required"`
-	Like      string `json:"like"`
+	OracleURL      string `json:"oracleUrl" binding:"required"`
+	Username       string `json:"username" binding:"required"`
+	Password       string `json:"password" binding:"required"`
+	Like           string `json:"like"`
+	SaveCredential bool   `json:"saveCredential"`
+	Alias          string `json:"alias"`
 }
 
-func getTables(c *gin.Context) {
-	var req getTablesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
-		return
-	}
+func getTables(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req getTablesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+			return
+		}
 
-	oracleDB, err := db.ConnectOracle(req.OracleURL, req.Username, req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Oracle DB: " + err.Error()})
-		return
-	}
-	defer oracleDB.Close()
+		oracleDB, err := db.ConnectOracle(req.OracleURL, req.Username, req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Oracle DB: " + err.Error()})
+			return
+		}
+		defer oracleDB.Close()
 
-	tables, err := db.FetchTables(oracleDB, req.Like)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tables: " + err.Error()})
-		return
-	}
+		if req.SaveCredential && store != nil {
+			uid := currentUserID(c)
+			if uid > 0 {
+				alias := req.Alias
+				if alias == "" {
+					alias = "Source: " + req.Username + "@" + req.OracleURL
+				}
+				_, _ = store.CreateCredential(uid, db.Credential{
+					Alias:    alias,
+					DBType:   "oracle",
+					Host:     req.OracleURL,
+					Username: req.Username,
+					Password: req.Password,
+				})
+			}
+		}
 
-	c.JSON(http.StatusOK, gin.H{"tables": tables})
+		tables, err := db.FetchTables(oracleDB, req.Like)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tables: " + err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"tables": tables})
+	}
 }
 
 type startMigrationRequest struct {
@@ -1486,8 +1568,10 @@ func isPermissionError(err error) bool {
 }
 
 type targetTablesRequest struct {
-	TargetURL string `json:"targetUrl" binding:"required"`
-	Schema    string `json:"schema"    binding:"required"`
+	TargetURL      string `json:"targetUrl" binding:"required"`
+	Schema         string `json:"schema"    binding:"required"`
+	SaveCredential bool   `json:"saveCredential"`
+	Alias          string `json:"alias"`
 }
 
 type targetTablesResponse struct {
@@ -1495,69 +1579,107 @@ type targetTablesResponse struct {
 	FetchedAt string   `json:"fetchedAt"`
 }
 
-func targetTablesHandler(c *gin.Context) {
-	var req targetTablesRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
-	defer cancel()
-
-	pool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 30)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "타겟 DB 연결 실패: " + err.Error()})
-		return
-	}
-	defer pool.Close()
-
-	tables, err := db.FetchTargetTables(ctx, pool, req.Schema)
-	if err != nil {
-		if isPermissionError(err) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "테이블 목록 조회 권한이 없습니다: " + err.Error()})
+func targetTablesHandler(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req targetTablesRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "테이블 목록 조회 실패: " + err.Error()})
-		return
-	}
 
-	if tables == nil {
-		tables = []string{}
-	}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+		defer cancel()
 
-	c.JSON(http.StatusOK, targetTablesResponse{
-		Tables:    tables,
-		FetchedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+		pool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 30)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "타겟 DB 연결 실패: " + err.Error()})
+			return
+		}
+		defer pool.Close()
+
+		if req.SaveCredential && store != nil {
+			uid := currentUserID(c)
+			if uid > 0 {
+				alias := req.Alias
+				if alias == "" {
+					alias = "Target: " + req.TargetURL
+				}
+				_, _ = store.CreateCredential(uid, db.Credential{
+					Alias:  alias,
+					DBType: "postgres",
+					Host:   req.TargetURL,
+					// Password/Username are usually in TargetURL but we can store the full URL as Host
+					// or try to parse it. For now, Host = URL is safe as it's encrypted.
+				})
+			}
+		}
+
+		tables, err := db.FetchTargetTables(ctx, pool, req.Schema)
+		if err != nil {
+			if isPermissionError(err) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "테이블 목록 조회 권한이 없습니다: " + err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "테이블 목록 조회 실패: " + err.Error()})
+			return
+		}
+
+		if tables == nil {
+			tables = []string{}
+		}
+
+		c.JSON(http.StatusOK, targetTablesResponse{
+			Tables:    tables,
+			FetchedAt: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 }
 
 type testTargetRequest struct {
-	TargetDB  string `json:"targetDb"`
-	TargetURL string `json:"targetUrl" binding:"required"`
+	TargetDB       string `json:"targetDb"`
+	TargetURL      string `json:"targetUrl" binding:"required"`
+	SaveCredential bool   `json:"saveCredential"`
+	Alias          string `json:"alias"`
 }
 
-func testTargetConnection(c *gin.Context) {
-	var req testTargetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
-		return
-	}
+func testTargetConnection(store *db.UserStore) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req testTargetRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+			return
+		}
 
-	if !requirePostgres(c, req.TargetDB) {
-		return
-	}
+		if !requirePostgres(c, req.TargetDB) {
+			return
+		}
 
-	pgPool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 10)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
-		return
-	}
-	defer pgPool.Close()
-	if err := pgPool.Ping(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
-		return
-	}
+		pgPool, err := db.ConnectPostgres(req.TargetURL, 1, 1, 10)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to Target DB: " + err.Error()})
+			return
+		}
+		defer pgPool.Close()
+		if err := pgPool.Ping(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to ping Target DB: " + err.Error()})
+			return
+		}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
+		if req.SaveCredential && store != nil {
+			uid := currentUserID(c)
+			if uid > 0 {
+				alias := req.Alias
+				if alias == "" {
+					alias = "Target: " + req.TargetURL
+				}
+				_, _ = store.CreateCredential(uid, db.Credential{
+					Alias:  alias,
+					DBType: "postgres",
+					Host:   req.TargetURL,
+				})
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
+	}
 }

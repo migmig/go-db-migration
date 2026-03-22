@@ -23,6 +23,7 @@ type User struct {
 	ID           int64
 	Username     string
 	PasswordHash string
+	GoogleID     string
 	IsAdmin      bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -119,6 +120,7 @@ func (s *UserStore) ensureSchema() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
+		google_id TEXT NULL UNIQUE,
 		is_admin INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL
@@ -259,36 +261,70 @@ func (s *UserStore) columnExists(table, column string) (bool, error) {
 func (s *UserStore) CreateUser(username, passwordHash string, isAdmin bool) error {
 	now := time.Now().UTC()
 	_, err := s.db.Exec(`
-		INSERT INTO users (username, password_hash, is_admin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
-	`, username, passwordHash, boolToInt(isAdmin), now, now)
+		INSERT INTO users (username, password_hash, google_id, is_admin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, username, passwordHash, nil, boolToInt(isAdmin), now, now)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
 	return nil
 }
 
+func (s *UserStore) CreateGoogleUser(username, googleID string) (int64, error) {
+	now := time.Now().UTC()
+	result, err := s.db.Exec(`
+		INSERT INTO users (username, password_hash, google_id, is_admin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, username, "", googleID, 0, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("create google user: %w", err)
+	}
+	return result.LastInsertId()
+}
+
 func (s *UserStore) GetUserByUsername(username string) (*User, error) {
 	row := s.db.QueryRow(`
-		SELECT id, username, password_hash, is_admin, created_at, updated_at
+		SELECT id, username, password_hash, google_id, is_admin, created_at, updated_at
 		FROM users WHERE username = ?
 	`, username)
 
 	var user User
 	var isAdmin int
-	if err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &isAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+	var googleID sql.NullString
+	if err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &googleID, &isAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("get user by username: %w", err)
 	}
 	user.IsAdmin = isAdmin == 1
+	user.GoogleID = googleID.String
+	return &user, nil
+}
+
+func (s *UserStore) GetUserByGoogleID(googleID string) (*User, error) {
+	row := s.db.QueryRow(`
+		SELECT id, username, password_hash, google_id, is_admin, created_at, updated_at
+		FROM users WHERE google_id = ?
+	`, googleID)
+
+	var user User
+	var isAdmin int
+	var gID sql.NullString
+	if err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &gID, &isAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user by google id: %w", err)
+	}
+	user.IsAdmin = isAdmin == 1
+	user.GoogleID = gID.String
 	return &user, nil
 }
 
 func (s *UserStore) ListUsers() ([]User, error) {
 	rows, err := s.db.Query(`
-		SELECT id, username, password_hash, is_admin, created_at, updated_at
+		SELECT id, username, password_hash, google_id, is_admin, created_at, updated_at
 		FROM users ORDER BY id ASC
 	`)
 	if err != nil {
@@ -300,10 +336,12 @@ func (s *UserStore) ListUsers() ([]User, error) {
 	for rows.Next() {
 		var user User
 		var isAdmin int
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &isAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		var googleID sql.NullString
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &googleID, &isAdmin, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 		user.IsAdmin = isAdmin == 1
+		user.GoogleID = googleID.String
 		users = append(users, user)
 	}
 	if err := rows.Err(); err != nil {

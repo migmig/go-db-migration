@@ -16,8 +16,8 @@ type ConnectionFormsProps = {
   tr: (en: string, ko: string) => string;
   onOpenSourceCredentials: () => void;
   onOpenTargetCredentials: () => void;
-  onSourceFieldChange: (field: keyof SourceState, value: string) => void;
-  onTargetFieldChange: (field: keyof TargetState, value: string) => void;
+  onSourceFieldChange: (field: keyof SourceState, value: string | boolean) => void;
+  onTargetFieldChange: (field: keyof TargetState, value: string | boolean) => void;
   onConnectSource: () => void;
   onTestTarget: () => void;
   onFetchTargetTables: () => void;
@@ -88,6 +88,29 @@ export function ConnectionForms({
               value={source.password}
             />
           </label>
+
+          {meta?.authEnabled && (
+            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-brand-600 dark:border-slate-600 dark:bg-slate-700"
+                  checked={!!source.saveCredential}
+                  onChange={(e) => onSourceFieldChange("saveCredential", e.target.checked)}
+                />
+                {tr("Save connection to history", "접속 정보를 이력에 저장")}
+              </label>
+              {source.saveCredential && (
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                  placeholder={tr("Alias (e.g. Production)", "별칭 (예: 운영서버)")}
+                  value={source.alias || ""}
+                  onChange={(e) => onSourceFieldChange("alias", e.target.value)}
+                />
+              )}
+            </div>
+          )}
+
           <label className="block text-sm">
             <span className="mb-1 block text-slate-700 dark:text-slate-300">Table filter (LIKE)</span>
             <input
@@ -173,6 +196,29 @@ export function ConnectionForms({
               value={target.targetUrl}
             />
           </label>
+
+          {meta?.authEnabled && (
+            <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-50/50 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  className="rounded border-slate-300 text-brand-600 dark:border-slate-600 dark:bg-slate-700"
+                  checked={!!target.saveCredential}
+                  onChange={(e) => onTargetFieldChange("saveCredential", e.target.checked)}
+                />
+                {tr("Save connection to history", "접속 정보를 이력에 저장")}
+              </label>
+              {target.saveCredential && (
+                <input
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                  placeholder={tr("Alias (e.g. Target DB)", "별칭 (예: 타겟 DB)")}
+                  value={target.alias || ""}
+                  onChange={(e) => onTargetFieldChange("alias", e.target.value)}
+                />
+              )}
+            </div>
+          )}
+
           <label className="block text-sm">
             <span className="mb-1 block text-slate-700 dark:text-slate-300">{tr("Schema", "스키마")}</span>
             <input

@@ -138,12 +138,31 @@ export function App() {
     boot,
     handleLogin,
     handleLogout,
+    handleGoogleLogin,
   } = useAuth({
     resetRunState: () => resetRunStateRef.current(),
     setCredentialsPanelOpen,
     setHistoryPanelOpen,
     setNotice,
   });
+
+  useEffect(() => {
+    if (meta?.authEnabled && !user) {
+      const google = (window as any).google;
+      if (google) {
+        google.accounts.id.initialize({
+          client_id: "PLACEHOLDER_GOOGLE_CLIENT_ID", // Should be replaced by real ID in production
+          callback: (response: any) => {
+            handleGoogleLogin(response.credential);
+          },
+        });
+        google.accounts.id.renderButton(
+          document.getElementById("google-login-btn"),
+          { theme: "outline", size: "large", width: "100%" }
+        );
+      }
+    }
+  }, [meta, user, handleGoogleLogin]);
 
   const {
     tableProgress,
@@ -537,6 +556,8 @@ export function App() {
             username: source.username,
             password: source.password,
             like: source.like,
+            saveCredential: source.saveCredential,
+            alias: source.alias,
           }),
         },
       );
@@ -569,7 +590,12 @@ export function App() {
       }>("/api/target-tables", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUrl: target.targetUrl, schema: target.schema }),
+        body: JSON.stringify({
+          targetUrl: target.targetUrl,
+          schema: target.schema,
+          saveCredential: target.saveCredential,
+          alias: target.alias,
+        }),
       });
       if (!response.ok) throw new Error(data.error ?? tr("Fetch failed", "조회 실패"));
       setCompareState({
@@ -623,6 +649,8 @@ export function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetUrl: target.targetUrl,
+            saveCredential: target.saveCredential,
+            alias: target.alias,
           }),
         },
       );
@@ -995,6 +1023,7 @@ export function App() {
           onUsernameChange={(value) =>
             setLoginForm((prev) => ({ ...prev, username: value }))
           }
+          onGoogleLogin={handleGoogleLogin}
           tr={tr}
         />
       )}

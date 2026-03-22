@@ -8,6 +8,7 @@ type LoginModalProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onUsernameChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
+  onGoogleLogin: (credential: string) => void;
 };
 
 export function LoginModal({
@@ -18,6 +19,7 @@ export function LoginModal({
   onSubmit,
   onUsernameChange,
   onPasswordChange,
+  onGoogleLogin,
 }: LoginModalProps) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 px-4">
@@ -56,6 +58,14 @@ export function LoginModal({
         >
           {loginBusy ? tr("Signing in...", "로그인 중...") : tr("Sign in", "로그인")}
         </button>
+
+        <div className="my-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-slate-200"></div>
+          <span className="text-xs font-medium text-slate-400 uppercase">{tr("OR", "또는")}</span>
+          <div className="h-px flex-1 bg-slate-200"></div>
+        </div>
+
+        <div id="google-login-btn" className="flex justify-center"></div>
       </form>
     </div>
   );

@@ -14,12 +14,16 @@ export type SourceState = {
   username: string;
   password: string;
   like: string;
+  saveCredential?: boolean;
+  alias?: string;
 };
 
 export type TargetState = {
   mode: "file" | "direct";
   targetUrl: string;
   schema: string;
+  saveCredential?: boolean;
+  alias?: string;
 };
 
 export type TargetTableEntry = {

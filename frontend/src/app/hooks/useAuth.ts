@@ -99,6 +99,32 @@ export function useAuth({
     setNotice({ text: "Logged out.", tone: "info" });
   }
 
+  async function handleGoogleLogin(credential: string) {
+    setLoginError("");
+    setLoginBusy(true);
+    try {
+      const { response, data } = await apiRequest<AuthUser | { error: string }>(
+        "/api/auth/google",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential }),
+        },
+        { allowUnauthorized: true },
+      );
+      if (!response.ok) {
+        const message = (data as { error?: string }).error ?? "Google login failed";
+        throw new Error(message);
+      }
+      setUser(data as AuthUser);
+      setNotice({ text: "Logged in with Google successfully.", tone: "info" });
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Google login failed");
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
   return {
     meta,
     user,
@@ -111,5 +137,6 @@ export function useAuth({
     boot,
     handleLogin,
     handleLogout,
+    handleGoogleLogin,
   };
 }
