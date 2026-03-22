@@ -89,8 +89,13 @@ export function TableSelection({
     
     // Search
     if (leftSearch) {
-      const lower = leftSearch.toLowerCase();
-      filtered = filtered.filter(t => t.toLowerCase().includes(lower));
+      const terms = leftSearch.split(",").map(s => s.trim().toLowerCase()).filter(s => s !== "");
+      if (terms.length > 0) {
+        filtered = filtered.filter(t => {
+          const lowerTable = t.toLowerCase();
+          return terms.some(term => lowerTable.includes(term));
+        });
+      }
     }
     
     // Status Filter
@@ -141,8 +146,12 @@ export function TableSelection({
 
   const filteredSelected = useMemo(() => {
     if (!rightSearch) return selectedTables;
-    const lower = rightSearch.toLowerCase();
-    return selectedTables.filter(t => t.toLowerCase().includes(lower));
+    const terms = rightSearch.split(",").map(s => s.trim().toLowerCase()).filter(s => s !== "");
+    if (terms.length === 0) return selectedTables;
+    return selectedTables.filter(t => {
+      const lowerTable = t.toLowerCase();
+      return terms.some(term => lowerTable.includes(term));
+    });
   }, [selectedTables, rightSearch]);
 
   const activeHistoryDetail = useMemo<TableHistoryDetail | null>(() => {
@@ -363,13 +372,33 @@ export function TableSelection({
             </div>
             {leftChecked.size > 0 && <span>{leftChecked.size} {tr("selected", "선택됨")}</span>}
           </div>
-          <div className="h-64 flex-1 overflow-auto rounded-lg border border-slate-100 bg-slate-50 p-2 dark:border-slate-700/50 dark:bg-slate-800/50">
+
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <button
+              onClick={moveAllRight}
+              disabled={filteredAvailable.length === 0 || migrationBusy}
+              className="flex-1 rounded-lg bg-slate-100 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+              title={tr("Add all", "전체 추가")}
+            >
+              {tr("Add All", "전체 추가")} {">>"}
+            </button>
+            <button
+              onClick={moveRight}
+              disabled={leftChecked.size === 0 || migrationBusy}
+              className="flex-1 rounded-lg bg-brand-600 py-1.5 text-xs font-bold text-white transition-colors hover:bg-brand-700 disabled:opacity-50"
+              title={tr("Add selected", "선택 추가")}
+            >
+              {tr("Add Selected", "선택 추가")} {">"}
+            </button>
+          </div>
+
+          <div className="h-[500px] flex-1 overflow-auto rounded-lg border border-slate-100 bg-slate-50 p-2 dark:border-slate-700/50 dark:bg-slate-800/50">
             {filteredAvailable.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-600 dark:text-slate-200">
                 {tr("No tables match", "테이블이 없습니다")}
               </div>
             ) : (
-              <table className="w-full" role="table">
+              <table className="w-full table-fixed" role="table">
                 <tbody role="rowgroup">
                   {filteredAvailable.map(t => {
                     const historyState = historyByTable[normalizeTableKey(t)];
@@ -397,10 +426,12 @@ export function TableSelection({
                             className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
                           />
                         </td>
-                        <td className="px-2 py-1 text-sm">
-                          {t}
+                        <td className="px-2 py-1">
+                           <div className="text-sm truncate" title={t}>
+                             {t}
+                           </div>
                         </td>
-                        <td className="px-2 py-1 text-xs text-right">
+                        <td className="px-2 py-1 text-xs text-right w-24">
                           <span className="sr-only" aria-label={historyLabel}>{historyLabel}</span>
                           <button
                             className="text-brand-600 hover:underline dark:text-brand-400 ml-2"
@@ -416,46 +447,6 @@ export function TableSelection({
               </table>
             )}
           </div>
-        </div>
-
-        {/* Center Controls */}
-        <div className="flex items-center justify-center gap-2 lg:flex-col lg:gap-3">
-          <button
-            onClick={moveAllRight}
-            disabled={filteredAvailable.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
-            title={tr("Add all", "전체 추가")}
-          >
-            <span className="hidden lg:inline">{">>"}</span>
-            <span className="inline lg:hidden">{"\u2193\u2193"}</span>
-          </button>
-          <button
-            onClick={moveRight}
-            disabled={leftChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-brand-100 hover:text-brand-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
-            title={tr("Add selected", "선택 추가")}
-          >
-            <span className="hidden lg:inline">{">"}</span>
-            <span className="inline lg:hidden">{"\u2193"}</span>
-          </button>
-          <button
-            onClick={moveLeft}
-            disabled={rightChecked.size === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
-            title={tr("Remove selected", "선택 제거")}
-          >
-            <span className="hidden lg:inline">{"<"}</span>
-            <span className="inline lg:hidden">{"\u2191"}</span>
-          </button>
-          <button
-            onClick={moveAllLeft}
-            disabled={filteredSelected.length === 0 || migrationBusy}
-            className="rounded-lg bg-slate-100 p-2 text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
-            title={tr("Remove all", "전체 제거")}
-          >
-            <span className="hidden lg:inline">{"<<"}</span>
-            <span className="inline lg:hidden">{"\u2191\u2191"}</span>
-          </button>
         </div>
 
         {/* Right Panel: Selected */}
@@ -474,13 +465,33 @@ export function TableSelection({
             <span>{tr("Selected Tables", "선택된 테이블")} ({filteredSelected.length})</span>
             {rightChecked.size > 0 && <span>{rightChecked.size} {tr("selected", "선택됨")}</span>}
           </div>
-          <div className="h-64 flex-1 overflow-auto rounded-lg border border-brand-100 bg-white p-2 dark:border-brand-900/30 dark:bg-slate-800/80">
+
+          <div className="mb-2 flex items-center gap-2 px-1">
+            <button
+              onClick={moveLeft}
+              disabled={rightChecked.size === 0 || migrationBusy}
+              className="flex-1 rounded-lg bg-red-600 py-1.5 text-xs font-bold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+              title={tr("Remove selected", "선택 제거")}
+            >
+              {"<"} {tr("Remove Selected", "선택 제거")}
+            </button>
+            <button
+              onClick={moveAllLeft}
+              disabled={filteredSelected.length === 0 || migrationBusy}
+              className="flex-1 rounded-lg bg-slate-100 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-red-100 hover:text-red-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-brand-900/50 dark:hover:text-brand-300"
+              title={tr("Remove all", "전체 제거")}
+            >
+              {"<<"} {tr("Remove All", "전체 제거")}
+            </button>
+          </div>
+
+          <div className="h-[500px] flex-1 overflow-auto rounded-lg border border-brand-100 bg-white p-2 dark:border-brand-900/30 dark:bg-slate-800/80">
             {filteredSelected.length === 0 ? (
               <div className="py-8 text-center text-sm text-slate-600 dark:text-slate-200">
                 {tr("No tables selected", "선택된 테이블이 없습니다")}
               </div>
             ) : (
-              <table className="w-full">
+              <table className="w-full table-fixed">
                 <tbody>
                   {filteredSelected.map(t => {
                     const item = tableProgress[t];
@@ -508,15 +519,15 @@ export function TableSelection({
                             className="rounded border-slate-300 dark:border-slate-600 dark:bg-slate-700"
                           />
                         </td>
-                        <td className="px-2 py-1 text-sm">
-                          <span className="inline-flex items-center gap-2">
-                            <span>{t}</span>
+                        <td className="px-2 py-1">
+                          <div className="inline-flex items-center gap-2 max-w-full">
+                            <span className="text-sm truncate" title={t}>{t}</span>
                             {item?.status && item.status !== "pending" && (
                               <span className="h-2 w-2 flex-shrink-0 rounded-full bg-brand-500"></span>
                             )}
-                          </span>
+                          </div>
                         </td>
-                        <td className="px-2 py-1 text-xs text-right">
+                        <td className="px-2 py-1 text-xs text-right w-24">
                           <button
                             className="text-brand-600 hover:underline dark:text-brand-400"
                             onClick={(e) => { e.stopPropagation(); openTableHistory(t); }}

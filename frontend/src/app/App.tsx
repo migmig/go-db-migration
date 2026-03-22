@@ -753,7 +753,7 @@ export function App() {
 
   return (
     <div className="relative min-h-screen px-4 pb-16 pt-8 sm:px-6 lg:px-10 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-200">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-6">
         <HeaderBar
           authMeta={meta}
           locale={locale}

@@ -1,3 +1,4 @@
+import { useState, useMemo } from "react";
 import { MetricsState, TableRunState, ValidationState } from "../types";
 import { DdlEvent, ReportSummary } from "../types";
 import { tableStatusLabel } from "../utils";
@@ -95,6 +96,14 @@ export function RunStatusPanel({
   zipFileId,
   onResetRunState,
 }: RunStatusPanelProps) {
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredEntries = useMemo(() => {
+    if (!searchTerm) return runEntries;
+    const lower = searchTerm.toLowerCase();
+    return runEntries.filter(([table]) => table.toLowerCase().includes(lower));
+  }, [runEntries, searchTerm]);
+
   const formatTime = (s: number | null) => {
     if (s === null) return "--:--";
     const mins = Math.floor(s / 60);
@@ -210,9 +219,21 @@ export function RunStatusPanel({
 
       {/* Detail Table List */}
       <div className="mt-8">
-        <h3 className="mb-4 text-sm font-bold text-slate-900 dark:text-slate-100">{tr("Detailed Table Progress", "상세 테이블 진행 상태")}</h3>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {runEntries.map(([table, item]) => {
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{tr("Detailed Table Progress", "상세 테이블 진행 상태")}</h3>
+          <div className="w-full sm:w-64">
+            <input
+              type="text"
+              className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs outline-none focus:border-brand-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              placeholder={tr("Filter tables...", "테이블 검색...")}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="max-h-[60vh] overflow-auto rounded-xl border border-slate-100 bg-slate-50/30 p-4 dark:border-slate-700/30 dark:bg-slate-900/10">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-6">
+            {filteredEntries.map(([table, item]) => {
             const pct = item.total > 0 ? Math.min(100, Math.floor((item.count / item.total) * 100)) : (item.status === "completed" ? 100 : 0);
             const isError = item.status === "error";
             const isDone = item.status === "completed";
@@ -253,6 +274,7 @@ export function RunStatusPanel({
               </div>
             );
           })}
+          </div>
         </div>
       </div>
 
