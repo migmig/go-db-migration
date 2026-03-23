@@ -36,7 +36,11 @@ func main() {
 	}
 
 	if cfg.WebMode {
-		web.RunServerWithAuth("8080", cfg.AuthEnabled)
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		web.RunServerWithAuth(port, cfg.AuthEnabled)
 		return
 	}
 
@@ -44,7 +48,12 @@ func main() {
 
 	slog.Info("starting migration", "tables", cfg.Tables, "batch_size", cfg.BatchSize, "target_db", cfg.TargetDB)
 
-	dia, err := dialect.GetDialect(cfg.TargetDB)
+	if cfg.TargetDB != "" && cfg.TargetDB != "postgres" {
+		slog.Error("v22 이후 타겟 DB는 PostgreSQL만 지원합니다", "targetDb", cfg.TargetDB)
+		os.Exit(1)
+	}
+
+	dia, err := dialect.GetDialect("postgres")
 	if err != nil {
 		slog.Error("failed to get dialect", "error", err)
 		os.Exit(1)
@@ -61,28 +70,15 @@ func main() {
 	var targetDB *sql.DB
 
 	if cfg.TargetURL != "" {
-		if cfg.TargetDB == "postgres" {
-			pgPool, err := db.ConnectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
-			if err != nil {
-				slog.Error("failed to connect to postgres", "error", err)
-				os.Exit(1)
-			}
-			if pgPool != nil {
-				pool = pgPool
-				defer pgPool.Close()
-				slog.Info("connected to postgres successfully")
-			}
-		} else {
-			dbConn, err := db.ConnectTargetDB(dia.DriverName(), dia.NormalizeURL(cfg.TargetURL))
-			if err != nil {
-				slog.Error("failed to connect to target db", "error", err)
-				os.Exit(1)
-			}
-			if dbConn != nil {
-				targetDB = dbConn
-				defer targetDB.Close()
-				slog.Info("connected to target db successfully", "driver", dia.DriverName())
-			}
+		pgPool, err := db.ConnectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
+		if err != nil {
+			slog.Error("failed to connect to postgres", "error", err)
+			os.Exit(1)
+		}
+		if pgPool != nil {
+			pool = pgPool
+			defer pgPool.Close()
+			slog.Info("connected to postgres successfully")
 		}
 	}
 
@@ -96,8 +92,6 @@ func main() {
 		var targetCountFn migration.RowCountFn
 		if pool != nil {
 			targetCountFn = db.PGPoolCountFn(pool, dia.QuoteIdentifier)
-		} else if targetDB != nil {
-			targetCountFn = db.SQLDBCountFn(targetDB, dia.QuoteIdentifier)
 		}
 		precheckResults, precheckSummary := migration.RunPrecheckRowCount(nil, cfg.Tables, sourceCountFn, targetCountFn, precheckCfg)
 		slog.Info("precheck complete",

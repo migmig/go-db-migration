@@ -15,6 +15,7 @@ import (
 	"dbmigrator/internal/security"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func newCLIUserStore(t *testing.T) *db.UserStore {

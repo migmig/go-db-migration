@@ -14,9 +14,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// v19PrecheckEnabled는 DBM_V19_PRECHECK 환경변수로 pre-check 기능을 켜거나 끈다. 기본값은 활성화.
-func v19PrecheckEnabled() bool {
-	raw, ok := os.LookupEnv("DBM_V19_PRECHECK")
+// precheckEnabled는 DBM_PRECHECK_ENABLED 환경변수로 pre-check 기능을 켜거나 끈다. 기본값은 활성화.
+func precheckEnabled() bool {
+	raw, ok := os.LookupEnv("DBM_PRECHECK_ENABLED")
 	if !ok || strings.TrimSpace(raw) == "" {
 		return true
 	}
@@ -91,39 +91,23 @@ func precheckHandler(metrics *monitoringMetrics) gin.HandlerFunc {
 		sourceCountFn := db.SQLDBCountFn(oracleDB, nil)
 		var targetCountFn migration.RowCountFn
 
-		if req.TargetURL != "" {
-			targetDBName := req.TargetDB
-			if targetDBName == "" {
-				targetDBName = "postgres"
-			}
+		if !requirePostgres(c, req.TargetDB) {
+			return
+		}
 
-			if targetDBName == "postgres" {
-				pgPool, pgErr := db.ConnectPostgres(req.TargetURL, 4, 2, 30)
-				if pgErr != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to target DB: " + pgErr.Error()})
-					return
-				}
-				defer pgPool.Close()
-				targetDialect, dErr := dialect.GetDialect("postgres")
-				if dErr != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize target dialect: " + dErr.Error()})
-					return
-				}
-				targetCountFn = db.PGPoolCountFn(pgPool, targetDialect.QuoteIdentifier)
-			} else {
-				targetDialect, dErr := dialect.GetDialect(targetDBName)
-				if dErr != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported target DB: " + dErr.Error()})
-					return
-				}
-				targetConn, tErr := db.ConnectTargetDB(targetDBName, req.TargetURL)
-				if tErr != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to target DB: " + tErr.Error()})
-					return
-				}
-				defer targetConn.Close()
-				targetCountFn = db.SQLDBCountFn(targetConn, targetDialect.QuoteIdentifier)
+		if req.TargetURL != "" {
+			pgPool, pgErr := db.ConnectPostgres(req.TargetURL, 4, 2, 30)
+			if pgErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to connect to target DB: " + pgErr.Error()})
+				return
 			}
+			defer pgPool.Close()
+			targetDialect, dErr := dialect.GetDialect("postgres")
+			if dErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to initialize target dialect: " + dErr.Error()})
+				return
+			}
+			targetCountFn = db.PGPoolCountFn(pgPool, targetDialect.QuoteIdentifier)
 		}
 
 		cfg := migration.PrecheckEngineConfig{

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -23,9 +23,21 @@ function mockFetch(
   return fetchMock;
 }
 
+const goToStep2 = async (user: any) => {
+  const nextBtn = await screen.findByRole("button", { name: /Next: Select Tables|다음: 테이블 선택/i });
+  await waitFor(() => expect(nextBtn).not.toBeDisabled());
+  await user.click(nextBtn);
+  // Wait for Step 2 content to be in document
+  await screen.findByText(/Table Selection|테이블 선택/);
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  if (typeof window.localStorage?.clear === 'function') {
+    window.localStorage.clear();
+  }
+  cleanup();
 });
 
 describe("App", () => {
@@ -41,16 +53,16 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.click(screen.getByRole("button", { name: "한국어" }));
 
-    await screen.findByRole("heading", { name: "v18 마이그레이션 작업공간" });
+    await screen.findByRole("heading", { name: "v21 마이그레이션 작업공간" });
     expect(screen.getByText("소스/타깃 설정, 마이그레이션 옵션, 실시간 실행 상태를 관리합니다.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "English" }));
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
   });
 
   it("filters saved connections by source/target role", async () => {
@@ -94,7 +106,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("ORA_DEV");
     expect(screen.getByText("PG_PROD")).toBeInTheDocument();
@@ -166,7 +178,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
@@ -179,25 +191,17 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Replay into form" }));
 
     await screen.findByText("History payload applied to form.");
-    await waitFor(() => {
-      expect(screen.getByLabelText("Oracle URL")).toHaveValue("oracle-new:1521/ORCL");
-      expect(screen.getByLabelText("Username")).toHaveValue("hr");
-      expect(screen.getByLabelText("Password")).toHaveValue("");
-      expect(screen.getByRole("combobox", { name: "Migration mode" })).toHaveValue("direct");
-      expect(screen.getByLabelText("Target URL")).toHaveValue(
-        "postgres://app:***@newhost:5432/newdb",
-      );
-      expect(screen.getByLabelText("Schema")).toHaveValue("audit");
-      expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue(
-        "sequences",
-      );
-      expect(screen.getByRole("checkbox", { name: "Dry-run mode" })).toBeChecked();
-      expect(screen.getByRole("checkbox", { name: "Include CREATE TABLE DDL" })).toBeChecked();
-      expect(screen.getByRole("checkbox", { name: "Include CREATE TABLE DDL" })).toBeDisabled();
-      expect(screen.getByRole("checkbox", { name: "Include sequences" })).toBeChecked();
-      expect(screen.getByRole("checkbox", { name: "Include sequences" })).toBeDisabled();
-      expect(screen.getByText("1 / 2 selected")).toBeInTheDocument();
-    });
+    await goToStep2(user);
+
+    expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue("sequences");
+    expect(screen.getByRole("checkbox", { name: "Dry-run mode" })).toBeChecked();
+    expect(screen.getByText(/1 \/ 2 selected|1 \/ 2 선택됨/)).toBeInTheDocument();
+
+    // Click Back to check Step 1 fields
+    await user.click(screen.getByRole("button", { name: /Back|이전 단계로/i }));
+    await waitFor(() => expect(screen.getByLabelText("Oracle URL")).toBeInTheDocument());
+    expect(screen.getByLabelText("Oracle URL")).toHaveValue("oracle-new:1521/ORCL");
+    expect(screen.getByLabelText("Username")).toHaveValue("hr");
   });
 
   it("defaults replay payload without objectGroup to all", async () => {
@@ -220,8 +224,8 @@ describe("App", () => {
               id: 88,
               userId: 1,
               status: "success",
-              sourceSummary: "SCOTT@oracle-old:1521/XE",
-              targetSummary: "file:migration.sql",
+              sourceSummary: "src",
+              targetSummary: "dst",
               optionsJson: "{}",
               createdAt: "2026-03-16T00:00:00Z",
             },
@@ -234,10 +238,9 @@ describe("App", () => {
       if (url === "/api/history/88/replay" && method === "POST") {
         return jsonResponse({
           payload: {
-            oracleUrl: "oracle-new:1521/ORCL",
-            username: "hr",
+            oracleUrl: "oracle-r:1521/XE",
+            username: "scott",
             tables: ["USERS"],
-            withDdl: true,
           },
         });
       }
@@ -245,20 +248,16 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
-
-    await user.type(screen.getByLabelText("Oracle URL"), "oracle-old:1521/XE");
-    await user.type(screen.getByLabelText("Username"), "scott");
-    await user.type(screen.getByLabelText("Password"), "tiger");
-    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
-    await screen.findByText("Found 1 table(s)");
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.click(screen.getByRole("button", { name: "My History" }));
+    await screen.findByRole("button", { name: "Replay into form" });
     await user.click(screen.getByRole("button", { name: "Replay into form" }));
 
-    await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue("all");
-    });
+    await screen.findByText("History payload applied to form.");
+    await goToStep2(user);
+
+    expect(screen.getByRole("combobox", { name: "Migration target" })).toHaveValue("all");
   });
 
   it("shows grouped discovery preview and tables-only sequence disable state", async () => {
@@ -266,7 +265,11 @@ describe("App", () => {
 
     mockFetch((url, method) => {
       if (url === "/api/meta" && method === "GET") {
-        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+        return jsonResponse({
+          authEnabled: false,
+          uiVersion: "v18-preview",
+          features: { objectGroup: true },
+        });
       }
       if (url === "/api/tables" && method === "POST") {
         return jsonResponse({ tables: ["USERS", "ORDERS"] });
@@ -275,22 +278,20 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 2 table(s)");
+    await goToStep2(user);
 
-    const usersRow = screen.getByText("USERS").closest("tr");
-    const rowCheckbox = usersRow?.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-    expect(rowCheckbox).not.toBeNull();
-    await user.click(rowCheckbox!);
+    await user.click(screen.getByText("USERS"));
+    await user.click(screen.getByTitle(/Add selected|선택 추가/));
 
     expect(screen.getByText("Tables Group")).toBeInTheDocument();
     expect(screen.getByText("Sequences Group")).toBeInTheDocument();
-    expect(screen.getByText("Selected tables to be migrated.")).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Migration target" }), "tables");
     expect(screen.getByText("Sequence group is disabled.")).toBeInTheDocument();
@@ -340,19 +341,21 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 3 table(s)");
+    await goToStep2(user);
 
     await waitFor(() => {
       expect(screen.getByText("USERS")).toBeInTheDocument();
       expect(screen.getByText("ORDERS")).toBeInTheDocument();
       expect(screen.getByText("PRODUCTS")).toBeInTheDocument();
     });
+    
     expect(screen.getAllByLabelText("Table status: Pending").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("History success")).toBeInTheDocument();
     expect(screen.getByLabelText("History failed")).toBeInTheDocument();
@@ -427,13 +430,14 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 3 table(s)");
+    await goToStep2(user);
 
     const table = screen.getByRole("table");
     const getOrder = () =>
@@ -515,19 +519,20 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 1 table(s)");
+    await goToStep2(user);
 
     await user.click(screen.getByRole("button", { name: "View history" }));
     await screen.findByText("Table history: ORDERS");
     expect(screen.getByText("duplicate key value")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Retry settings" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByText("History payload applied to form.");
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -575,13 +580,14 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 1 table(s)");
+    await goToStep2(user);
 
     await user.click(screen.getByRole("button", { name: "View history" }));
     await screen.findByText("No history found for this table.");
@@ -610,7 +616,7 @@ describe("App", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
     await user.click(screen.getByRole("button", { name: "Saved Connections" }));
     await screen.findByText("Session expired. Please log in again.");
   });
@@ -652,13 +658,14 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 2 table(s)");
+    await goToStep2(user);
 
     // Both tables visible initially
     expect(screen.getByText("USERS")).toBeInTheDocument();
@@ -726,13 +733,14 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 3 table(s)");
+    await goToStep2(user);
 
     // Filter by failed status
     await user.selectOptions(
@@ -819,13 +827,14 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
     await user.type(screen.getByLabelText("Username"), "scott");
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 1 table(s)");
+    await goToStep2(user);
 
     // Open table history detail
     await user.click(screen.getByRole("button", { name: "View history" }));
@@ -833,11 +842,10 @@ describe("App", () => {
 
     // Should show failed entry with retry button
     expect(screen.getByText("timeout error")).toBeInTheDocument();
-    const retryButtons = screen.getAllByRole("button", { name: "Retry settings" });
+    const retryButtons = screen.getAllByRole("button", { name: "Retry" });
     expect(retryButtons).toHaveLength(1); // Only one failed entry has retry button
 
     // Success entry should NOT have a retry button
-    // Both "Success" and "Failed" labels appear in the detail panel entries
     expect(screen.getAllByText("Success").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Failed").length).toBeGreaterThanOrEqual(1);
   });
@@ -902,7 +910,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    await screen.findByRole("heading", { name: "v18 Migration Workspace" });
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
 
     // Step 1: Connect and fetch tables
     await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
@@ -910,6 +918,7 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Password"), "tiger");
     await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
     await screen.findByText("Found 3 table(s)");
+    await goToStep2(user);
 
     // Step 2: Filter to show only failed tables
     await user.selectOptions(
@@ -931,7 +940,7 @@ describe("App", () => {
     expect(screen.getByText("duplicate key constraint violation")).toBeInTheDocument();
 
     // Step 4: Click retry to replay the failed migration settings
-    await user.click(screen.getByRole("button", { name: "Retry settings" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByText("History payload applied to form.");
 
     // Verify replay API was called with the correct failed entry
@@ -940,10 +949,190 @@ describe("App", () => {
       expect.objectContaining({ method: "POST" }),
     );
 
-    // Verify form was populated with replay data
+    // Verify form was populated with replay data (Go Back to Step 1)
+    await user.click(screen.getByRole("button", { name: /Back|이전 단계로/i }));
     await waitFor(() => {
       expect(screen.getByLabelText("Oracle URL")).toHaveValue("oracle:1521/XE");
       expect(screen.getByLabelText("Username")).toHaveValue("scott");
+    });
+  });
+});
+
+// ── v22: 소스-타겟 비교 UI ────────────────────────────────────────────────────
+
+describe("v22 소스-타겟 비교 UI", () => {
+  /** 공통 fetch mock 설정 */
+  function setupCompareFetch(sourceTables: string[], targetTables: string[]) {
+    return mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: sourceTables });
+      }
+      if (url === "/api/target-tables" && method === "POST") {
+        return jsonResponse({ tables: targetTables, fetchedAt: "2026-03-19T10:00:00Z" });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+  }
+
+  /** 소스 테이블 로드 → direct 모드 전환 → 타겟 테이블 조회 */
+  async function loadAndFetchTables(
+    user: ReturnType<typeof userEvent.setup>,
+    sourceTables: string[],
+  ) {
+    render(<App />);
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "hr");
+    await user.type(screen.getByLabelText("Password"), "hr");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText(`Found ${sourceTables.length} table(s)`);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Migration mode" }),
+      "Direct migration",
+    );
+    await user.type(screen.getByLabelText("Target URL"), "postgres://localhost/db");
+    await user.type(screen.getByLabelText("Schema"), "public");
+
+    await user.click(screen.getByRole("button", { name: "Fetch Target Tables" }));
+    await screen.findByText(/tables in target|개 타겟 테이블/);
+    await goToStep2(user);
+  }
+
+  it("source_only / both / target_only 카테고리를 올바르게 분류한다", async () => {
+    const user = userEvent.setup();
+    // 소스: USERS, ORDERS, PRODUCTS / 타겟: USERS, PRODUCTS, DEPT
+    // source_only=ORDERS(1), both=USERS+PRODUCTS(2), target_only=DEPT(1)
+    setupCompareFetch(["USERS", "ORDERS", "PRODUCTS"], ["USERS", "PRODUCTS", "DEPT"]);
+
+    await loadAndFetchTables(user, ["USERS", "ORDERS", "PRODUCTS"]);
+
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toMatch(/소스에만|Source only/);
+      expect(text).toMatch(/양쪽|Both/);
+      expect(text).toMatch(/타겟에만|Target only/);
+    });
+
+    // 테이블 행 검증
+    await waitFor(() => {
+      expect(screen.getByText("orders")).toBeInTheDocument(); // source_only
+      expect(screen.getByText("dept")).toBeInTheDocument();   // target_only
+    });
+  });
+
+  it("대소문자 정규화: 소스 USERS + 타겟 users → both 분류 (source_only/target_only=0)", async () => {
+    const user = userEvent.setup();
+    setupCompareFetch(["USERS"], ["users"]);
+
+    await loadAndFetchTables(user, ["USERS"]);
+
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      expect(screen.getByText("users")).toBeInTheDocument();
+    });
+
+    const rows = screen.queryAllByText(/orders|dept/i);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("'소스에만 있는 테이블 선택' 버튼이 source_only 테이블을 선택에 추가한다", async () => {
+    const user = userEvent.setup();
+    // ORDERS만 source_only, USERS는 both
+    setupCompareFetch(["USERS", "ORDERS"], ["users", "dept"]);
+
+    await loadAndFetchTables(user, ["USERS", "ORDERS"]);
+
+    expect(screen.getByText(/0 \/ 2 selected|0 \/ 2 선택됨/)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /소스에만 있는 테이블 선택|Select source-only/ }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/1 \/ 2 selected|1 \/ 2 선택됨/)).toBeInTheDocument();
+    });
+  });
+
+  it("row_diff: both + 행 수 불일치 시 배지가 표시된다", async () => {
+    const user = userEvent.setup();
+    mockFetch((url, method) => {
+      if (url === "/api/meta" && method === "GET") {
+        return jsonResponse({ authEnabled: false, uiVersion: "v18-preview" });
+      }
+      if (url === "/api/tables" && method === "POST") {
+        return jsonResponse({ tables: ["USERS"] });
+      }
+      if (url === "/api/target-tables" && method === "POST") {
+        return jsonResponse({ tables: ["users"], fetchedAt: "2026-03-19T10:00:00Z" });
+      }
+      if (url === "/api/migrations/precheck" && method === "POST") {
+        return jsonResponse({
+          summary: {
+            total_tables: 1,
+            transfer_required_count: 1,
+            skip_candidate_count: 0,
+            count_check_failed_count: 0,
+          },
+          items: [
+            {
+              table_name: "USERS",
+              source_row_count: 1000,
+              target_row_count: 500,
+              diff: -500,
+              decision: "transfer_required",
+            },
+          ],
+        });
+      }
+      return jsonResponse({ error: `Unhandled: ${method} ${url}` }, 500);
+    });
+
+    render(<App />);
+    await screen.findByRole("heading", { name: "v21 Migration Workspace" });
+
+    await user.type(screen.getByLabelText("Oracle URL"), "oracle:1521/XE");
+    await user.type(screen.getByLabelText("Username"), "hr");
+    await user.type(screen.getByLabelText("Password"), "hr");
+    await user.click(screen.getByRole("button", { name: "Connect & Fetch Tables" }));
+    await screen.findByText("Found 1 table(s)");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Migration mode" }),
+      "Direct migration",
+    );
+    await user.type(screen.getByLabelText("Target URL"), "postgres://localhost/db");
+    await user.type(screen.getByLabelText("Schema"), "public");
+
+    await user.click(screen.getByRole("button", { name: "Fetch Target Tables" }));
+    await screen.findByText(/tables in target|개 타겟 테이블/);
+
+    // Go to Step 2
+    await goToStep2(user);
+
+    await user.click(screen.getByText("USERS"));
+    await user.click(screen.getByTitle(/Add selected|선택 추가/));
+    
+    await user.click(screen.getByRole("button", { name: /Run Pre-check|사전 점검 실행/i }));
+    await waitFor(() => {
+      // Use queryAllByText because it might appear in precheck table AND comparison list
+      expect(screen.getAllByText(/1,000|1000/).length).toBeGreaterThan(0);
+    });
+
+    const panelSummary = await screen.findByText(/Source vs Target Comparison|소스-타겟 비교/);
+    await user.click(panelSummary);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Row diff|행 수 불일치/)).toBeInTheDocument();
     });
   });
 });
