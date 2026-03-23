@@ -35,6 +35,7 @@ const (
 	MsgValidationResult MsgType = "validation_result"
 	MsgDiscoverySummary MsgType = "discovery_summary"
 	MsgMetrics          MsgType = "metrics"
+	MsgPartialSuccess   MsgType = "partial_success"
 )
 
 // DetailedError는 migration 패키지의 순환 의존 없이 구조화 에러 필드를 읽기 위한 인터페이스이다.
@@ -98,6 +99,9 @@ type ProgressMsg struct {
 	WaitSeconds int    `json:"wait_seconds,omitempty"`
 	// v9: 리포트 요약
 	ReportSummary *ReportSummary `json:"report_summary,omitempty"`
+	// v20: 부분 성공 기록
+	SkippedBatches       int `json:"skipped_batches,omitempty"`
+	EstimatedSkippedRows int `json:"estimated_skipped_rows,omitempty"`
 }
 
 type tableState struct {
@@ -145,6 +149,9 @@ func (t *WebSocketTracker) setupSubscriptions() {
 	t.eventBus.Subscribe(bus.EventValidationStart, func(e bus.Event) { t.ValidationStart(e.Table) })
 	t.eventBus.Subscribe(bus.EventValidationResult, func(e bus.Event) { t.ValidationResult(e.Table, e.Total, e.Count, e.Status, e.Message) })
 	t.eventBus.Subscribe(bus.EventDiscoverySummary, func(e bus.Event) { t.DiscoverySummary(e.ObjectGroup, e.Tables, e.Sequences) })
+	t.eventBus.Subscribe(bus.EventPartialSuccess, func(e bus.Event) {
+		t.PartialSuccess(e.Table, e.SkippedBatches, e.EstimatedSkippedRows)
+	})
 	t.eventBus.Subscribe(bus.EventRetry, func(e bus.Event) {
 		t.broadcast(ProgressMsg{
 			Type:        MsgRetry,
@@ -334,6 +341,19 @@ func (t *WebSocketTracker) Done(table string) {
 	t.broadcast(ProgressMsg{
 		Type:  MsgDone,
 		Table: table,
+	})
+}
+
+func (t *WebSocketTracker) PartialSuccess(table string, skippedBatches, estimatedSkippedRows int) {
+	t.mu.Lock()
+	delete(t.states, table)
+	t.mu.Unlock()
+
+	t.broadcast(ProgressMsg{
+		Type:                 MsgPartialSuccess,
+		Table:                table,
+		SkippedBatches:       skippedBatches,
+		EstimatedSkippedRows: estimatedSkippedRows,
 	})
 }
 

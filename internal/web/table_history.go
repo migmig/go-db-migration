@@ -9,25 +9,29 @@ import (
 
 // TableMigrationSummary는 테이블별 최신 마이그레이션 상태 요약이다.
 type TableMigrationSummary struct {
-	TableName      string    `json:"table_name"`
-	Status         string    `json:"status"` // not_started|running|success|failed
-	LastStartedAt  time.Time `json:"last_started_at,omitempty"`
-	LastFinishedAt time.Time `json:"last_finished_at,omitempty"`
-	DurationMs     int64     `json:"duration_ms,omitempty"`
-	RunCount       int64     `json:"run_count"`
-	LastError      string    `json:"last_error,omitempty"`
+	TableName            string    `json:"table_name"`
+	Status               string    `json:"status"` // not_started|running|success|partial_success|failed
+	LastStartedAt        time.Time `json:"last_started_at,omitempty"`
+	LastFinishedAt       time.Time `json:"last_finished_at,omitempty"`
+	DurationMs           int64     `json:"duration_ms,omitempty"`
+	RunCount             int64     `json:"run_count"`
+	LastError            string    `json:"last_error,omitempty"`
+	SkippedBatches       int       `json:"skipped_batches,omitempty"`
+	EstimatedSkippedRows int       `json:"estimated_skipped_rows,omitempty"`
 }
 
 // TableMigrationHistory는 테이블 단위 단일 실행 이력이다.
 type TableMigrationHistory struct {
-	RunID         string    `json:"run_id"`
-	TableName     string    `json:"table_name"`
-	Status        string    `json:"status"` // success|failed
-	StartedAt     time.Time `json:"started_at"`
-	FinishedAt    time.Time `json:"finished_at,omitempty"`
-	DurationMs    int64     `json:"duration_ms,omitempty"`
-	RowsProcessed int64     `json:"rows_processed,omitempty"`
-	ErrorMessage  string    `json:"error_message,omitempty"`
+	RunID                string    `json:"run_id"`
+	TableName            string    `json:"table_name"`
+	Status               string    `json:"status"` // success|partial_success|failed
+	StartedAt            time.Time `json:"started_at"`
+	FinishedAt           time.Time `json:"finished_at,omitempty"`
+	DurationMs           int64     `json:"duration_ms,omitempty"`
+	RowsProcessed        int64     `json:"rows_processed,omitempty"`
+	ErrorMessage         string    `json:"error_message,omitempty"`
+	SkippedBatches       int       `json:"skipped_batches,omitempty"`
+	EstimatedSkippedRows int       `json:"estimated_skipped_rows,omitempty"`
 }
 
 // TableSummaryFilter는 테이블 목록 조회 필터 옵션이다.
@@ -42,18 +46,19 @@ type TableSummaryFilter struct {
 }
 
 var validStatuses = map[string]bool{
-	"not_started": true,
-	"running":     true,
-	"success":     true,
-	"failed":      true,
-	"":            true,
+	"not_started":     true,
+	"running":         true,
+	"success":         true,
+	"partial_success": true,
+	"failed":          true,
+	"":                true,
 }
 
 var validSortFields = map[string]bool{
-	"table_name":      true,
-	"status":          true,
+	"table_name":       true,
+	"status":           true,
 	"last_finished_at": true,
-	"":                true,
+	"":                 true,
 }
 
 // ValidateTableSummaryFilter는 필터 파라미터의 유효성을 검증한다.
@@ -196,13 +201,15 @@ func buildSummary(tableName string, history []TableMigrationHistory) TableMigrat
 
 	latest := history[0]
 	summary := TableMigrationSummary{
-		TableName:      tableName,
-		Status:         latest.Status,
-		LastStartedAt:  latest.StartedAt,
-		LastFinishedAt: latest.FinishedAt,
-		DurationMs:     latest.DurationMs,
-		RunCount:       int64(len(history)),
-		LastError:      latest.ErrorMessage,
+		TableName:            tableName,
+		Status:               latest.Status,
+		LastStartedAt:        latest.StartedAt,
+		LastFinishedAt:       latest.FinishedAt,
+		DurationMs:           latest.DurationMs,
+		RunCount:             int64(len(history)),
+		LastError:            latest.ErrorMessage,
+		SkippedBatches:       latest.SkippedBatches,
+		EstimatedSkippedRows: latest.EstimatedSkippedRows,
 	}
 	return summary
 }

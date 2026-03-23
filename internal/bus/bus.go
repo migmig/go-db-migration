@@ -21,28 +21,31 @@ const (
 	EventValidationResult EventType = "validation_result"
 	EventDiscoverySummary EventType = "discovery_summary"
 	EventMetrics          EventType = "metrics" // v11 Phase 1
+	EventPartialSuccess   EventType = "partial_success"
 )
 
 // Event payload
 type Event struct {
-	Type          EventType
-	Table         string
-	Count         int
-	Total         int
-	Error         error
-	Message       string
-	ZipFileID     string
-	ConnectionOk  bool
-	Object        string
-	ObjectName    string
-	Status        string
-	ObjectGroup   string
-	Tables        []string
-	Sequences     []string
-	ReportSummary interface{} // using interface{} to decouple
-	Attempt       int
-	MaxAttempts   int
-	WaitSeconds   int
+	Type                 EventType
+	Table                string
+	Count                int
+	Total                int
+	Error                error
+	Message              string
+	ZipFileID            string
+	ConnectionOk         bool
+	Object               string
+	ObjectName           string
+	Status               string
+	ObjectGroup          string
+	Tables               []string
+	Sequences            []string
+	ReportSummary        interface{} // using interface{} to decouple
+	Attempt              int
+	MaxAttempts          int
+	WaitSeconds          int
+	SkippedBatches       int
+	EstimatedSkippedRows int
 }
 
 // Handler is the callback function when an event is published

@@ -163,11 +163,17 @@ func (m *authSessionManager) purgeExpired() {
 	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	cleaned := 0
 	for token, s := range m.sessions {
 		if now.After(s.ExpiresAt) || now.Sub(s.LastSeenAt) > m.idleTTL {
 			delete(m.sessions, token)
 			m.metrics.recordSessionExpired()
+			m.metrics.recordSessionCleanup()
+			cleaned++
 		}
+	}
+	if cleaned > 0 {
+		slog.Info("session cleanup", "cleaned_count", cleaned)
 	}
 }
 
@@ -185,7 +191,13 @@ func (m *authSessionManager) evictOldest() {
 		}
 	}
 	if found {
+		prefix := oldestToken
+		if len(prefix) > 8 {
+			prefix = prefix[:8]
+		}
 		delete(m.sessions, oldestToken)
+		m.metrics.recordSessionEvicted()
+		slog.Warn("session evicted due to capacity", "evicted_token_prefix", prefix)
 	}
 }
 
@@ -1323,7 +1335,12 @@ func recordTableHistory(histStore *TableHistoryStore, jobID string, report *migr
 	for _, tr := range report.Tables {
 		status := "success"
 		var errMsg string
-		if tr.Status != "ok" {
+		if tr.Status == "partial_success" || tr.Status == migration.StatusPartialSuccess {
+			status = "partial_success"
+			if len(tr.Errors) > 0 {
+				errMsg = tr.Errors[0]
+			}
+		} else if tr.Status != "ok" {
 			status = "failed"
 			if len(tr.Errors) > 0 {
 				errMsg = tr.Errors[0]
@@ -1332,14 +1349,16 @@ func recordTableHistory(histStore *TableHistoryStore, jobID string, report *migr
 		durationMs := tr.DurationNs / int64(time.Millisecond)
 		finishedAt := report.StartedAt.Add(time.Duration(tr.DurationNs))
 		h := TableMigrationHistory{
-			RunID:         jobID + "_" + tr.Name,
-			TableName:     tr.Name,
-			Status:        status,
-			StartedAt:     report.StartedAt,
-			FinishedAt:    finishedAt,
-			DurationMs:    durationMs,
-			RowsProcessed: int64(tr.RowCount),
-			ErrorMessage:  errMsg,
+			RunID:                jobID + "_" + tr.Name,
+			TableName:            tr.Name,
+			Status:               status,
+			StartedAt:            report.StartedAt,
+			FinishedAt:           finishedAt,
+			DurationMs:           durationMs,
+			RowsProcessed:        int64(tr.RowCount),
+			ErrorMessage:         errMsg,
+			SkippedBatches:       tr.SkippedBatches,
+			EstimatedSkippedRows: tr.EstimatedSkippedRows,
 		}
 		histStore.RecordTableRun(h)
 	}

@@ -3,6 +3,7 @@ package migration
 import (
 	"dbmigrator/internal/config"
 	"dbmigrator/internal/dialect"
+	"fmt"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -185,6 +186,124 @@ func TestMigrateTableDirect_WithDDLAndIndexes_BatchedCopy(t *testing.T) {
 	_, err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
 	if err != nil {
 		t.Errorf("MigrateTableDirect returned error: %v", err)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Oracle expectations unfulfilled: %s", err)
+	}
+	if err := pgMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Postgres expectations unfulfilled: %s", err)
+	}
+}
+
+func TestMigrateTableDirect_SkipBatch_ReturnsPartialSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("Failed to open mock sql connection: %v", err)
+	}
+	defer db.Close()
+
+	tableName := "MOCK_TABLE"
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\"").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
+
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\" OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(1))
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\" OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(2))
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\" OFFSET 2 ROWS FETCH NEXT 1 ROWS ONLY").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
+
+	pgMock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("Failed to open mock pg connection: %v", err)
+	}
+	defer pgMock.Close()
+
+	pgMock.ExpectQuery("SELECT EXISTS").
+		WithArgs("public", "MOCK_TABLE").
+		WillReturnRows(pgxmock.NewRows([]string{"exists"}).AddRow(true))
+
+	pgMock.ExpectBegin()
+	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
+	pgMock.ExpectRollback()
+
+	pgMock.ExpectBegin()
+	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnResult(1)
+	pgMock.ExpectCommit()
+
+	pgMock.ExpectBegin()
+	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnResult(0)
+	pgMock.ExpectCommit()
+
+	cfg := &config.Config{
+		Schema:     "public",
+		CopyBatch:  1,
+		OnError:    "skip_batch",
+		MaxRetries: 0,
+	}
+	dia := &dialect.PostgresDialect{}
+
+	_, err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
+	if err == nil {
+		t.Errorf("expected PartialBatchError, got nil")
+	} else if pbe, ok := err.(*PartialBatchError); !ok {
+		t.Errorf("expected PartialBatchError, got %T: %v", err, err)
+	} else {
+		if pbe.SkippedBatches != 1 {
+			t.Errorf("expected skipped batches 1, got %d", pbe.SkippedBatches)
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Oracle expectations unfulfilled: %s", err)
+	}
+	if err := pgMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("Postgres expectations unfulfilled: %s", err)
+	}
+}
+
+func TestMigrateTableDirect_FailFast_ReturnsError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("Failed to open mock sql connection: %v", err)
+	}
+	defer db.Close()
+
+	tableName := "MOCK_TABLE"
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\"").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}))
+
+	mock.ExpectQuery("SELECT \\* FROM \"" + tableName + "\" OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY").
+		WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(1))
+
+	pgMock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("Failed to open mock pg connection: %v", err)
+	}
+	defer pgMock.Close()
+
+	pgMock.ExpectQuery("SELECT EXISTS").
+		WithArgs("public", "MOCK_TABLE").
+		WillReturnRows(pgxmock.NewRows([]string{"exists"}).AddRow(true))
+
+	pgMock.ExpectBegin()
+	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
+	pgMock.ExpectRollback()
+
+	cfg := &config.Config{
+		Schema:     "public",
+		CopyBatch:  1,
+		OnError:    "fail_fast",
+		MaxRetries: 0,
+	}
+	dia := &dialect.PostgresDialect{}
+
+	_, err = MigrateTableDirect(db, nil, pgMock, dia, tableName, cfg, nil, NewMigrationState("test"))
+	if err == nil {
+		t.Errorf("expected error, got nil")
+	} else if _, ok := err.(*PartialBatchError); ok {
+		t.Errorf("expected normal error, got PartialBatchError")
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
