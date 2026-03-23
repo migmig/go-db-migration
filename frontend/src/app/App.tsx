@@ -151,7 +151,7 @@ export function App() {
       const google = (window as any).google;
       if (google) {
         google.accounts.id.initialize({
-          client_id: "PLACEHOLDER_GOOGLE_CLIENT_ID", // Should be replaced by real ID in production
+          client_id: meta.googleClientId ?? "",
           callback: (response: any) => {
             handleGoogleLogin(response.credential);
           },

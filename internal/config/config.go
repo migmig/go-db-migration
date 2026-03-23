@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"dbmigrator/internal/security"
 )
 
 var osExit = os.Exit
@@ -491,6 +493,19 @@ func normalizeDDLOptions(cfg *Config) {
 		fmt.Println("Warning: -with-sequences/-with-indexes/-with-constraints requires -with-ddl. Enabling -with-ddl automatically.")
 		cfg.WithDDL = true
 	}
+}
+
+// DecryptEnvValue decrypts a value that starts with "enc:" using the master key.
+// If the value does not start with "enc:", it is returned as-is.
+func DecryptEnvValue(value, masterKey string) (string, error) {
+	if !strings.HasPrefix(value, "enc:") {
+		return value, nil
+	}
+	cipher, err := security.NewCredentialCipher(masterKey)
+	if err != nil {
+		return "", fmt.Errorf("init cipher: %w", err)
+	}
+	return cipher.Decrypt(strings.TrimPrefix(value, "enc:"))
 }
 
 func applyV20EnvOverrides(cfg *Config) {

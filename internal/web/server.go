@@ -210,6 +210,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	var userStore *db.UserStore
 	var authSessions *authSessionManager
 	var metrics *monitoringMetrics
+	var googleClientID string
 
 	if authEnabled {
 		masterKey := strings.TrimSpace(os.Getenv("DBM_MASTER_KEY"))
@@ -227,6 +228,11 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		maxSessions, cleanupInterval := loadAuthSessionEnv()
 		authSessions = newAuthSessionManager(30*time.Minute, 24*time.Hour, maxSessions, cleanupInterval, metrics)
 		defer authSessions.close()
+
+		googleClientID, err = config.DecryptEnvValue(os.Getenv("GOOGLE_CLIENT_ID"), masterKey)
+		if err != nil {
+			log.Fatalf("Failed to decrypt GOOGLE_CLIENT_ID: %v", err)
+		}
 	}
 
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
@@ -273,8 +279,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	{
 		api.GET("/meta", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
-				"authEnabled": authEnabled,
-				"uiVersion":   uiVersion,
+				"authEnabled":    authEnabled,
+				"uiVersion":      uiVersion,
+				"googleClientId": googleClientID,
 				"features": gin.H{
 					"objectGroupMode":  objectGroupModeEnabled(),
 					"tableHistory":     isTableHistoryEnabled,
@@ -285,7 +292,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 		if authEnabled {
 			api.POST("/auth/login", loginHandler(userStore, authSessions))
-			api.POST("/auth/google", googleLoginHandler(userStore, authSessions))
+			api.POST("/auth/google", googleLoginHandler(userStore, authSessions, googleClientID))
 			api.POST("/auth/logout", logoutHandler(authSessions))
 			api.GET("/auth/me", meHandler(authSessions))
 		}
@@ -526,7 +533,7 @@ func loginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.Han
 	}
 }
 
-func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.HandlerFunc {
+func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager, clientID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessions.metrics.recordLoginAttempt()
 
@@ -539,9 +546,6 @@ func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager) g
 			return
 		}
 
-		// In a real app, ClientID should be in config.
-		// For this implementation, we'll try to get it from environment or use a placeholder
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
 		payload, err := idtoken.Validate(context.Background(), req.Credential, clientID)
 		if err != nil {
 			// If clientID is not set, idtoken.Validate might fail.
