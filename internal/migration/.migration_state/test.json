@@ -1,9 +1,9 @@
 {
   "job_id": "test",
   "tables": {
-    "SAMPLE_DATA2": {
+    "T2": {
       "offset": 1,
-      "completed": false
+      "completed": true
     }
   }
 }

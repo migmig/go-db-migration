@@ -225,15 +225,15 @@ func TestMigrateTableDirect_SkipBatch_ReturnsPartialSuccess(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"exists"}).AddRow(true))
 
 	pgMock.ExpectBegin()
-	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
+	pgMock.ExpectCopyFrom(pgx.Identifier{"public", "mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
 	pgMock.ExpectRollback()
 
 	pgMock.ExpectBegin()
-	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnResult(1)
+	pgMock.ExpectCopyFrom(pgx.Identifier{"public", "mock_table"}, []string{"id"}).WillReturnResult(1)
 	pgMock.ExpectCommit()
 
 	pgMock.ExpectBegin()
-	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnResult(0)
+	pgMock.ExpectCopyFrom(pgx.Identifier{"public", "mock_table"}, []string{"id"}).WillReturnResult(0)
 	pgMock.ExpectCommit()
 
 	cfg := &config.Config{
@@ -288,7 +288,7 @@ func TestMigrateTableDirect_FailFast_ReturnsError(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{"exists"}).AddRow(true))
 
 	pgMock.ExpectBegin()
-	pgMock.ExpectCopyFrom(pgx.Identifier{"mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
+	pgMock.ExpectCopyFrom(pgx.Identifier{"public", "mock_table"}, []string{"id"}).WillReturnError(fmt.Errorf("copy error"))
 	pgMock.ExpectRollback()
 
 	cfg := &config.Config{

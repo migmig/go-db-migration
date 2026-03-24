@@ -1586,8 +1586,15 @@ func requirePostgres(c *gin.Context, targetDB string) bool {
 
 // isPermissionError는 PostgreSQL permission denied 오류 여부를 판별한다.
 func isPermissionError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "permission denied") || strings.Contains(msg, "42501")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "42501") ||
+		strings.Contains(msg, "insufficient privileges") ||
+		strings.Contains(msg, "ora-01031") ||
+		strings.Contains(msg, "access denied")
 }
 
 type targetTablesRequest struct {

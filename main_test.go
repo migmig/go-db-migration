@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,10 @@ func newCLIUserStore(t *testing.T) *db.UserStore {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
+}
+
+func resetFlags() {
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 }
 
 func TestMigrateTable(t *testing.T) {
@@ -158,5 +163,114 @@ func TestExecuteUserCommand_ErrorCases(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "usage:") {
 		t.Fatalf("expected usage output, got: %s", stderr)
+	}
+
+	// Extra cases
+	if exitCode, _, _ = runUserCommandForTest(store, []string{}); exitCode == 0 {
+		t.Error("expected failure for empty args")
+	}
+	if exitCode, _, _ = runUserCommandForTest(store, []string{"add", "u"}); exitCode == 0 {
+		t.Error("expected failure for add with 1 arg")
+	}
+	if exitCode, _, _ = runUserCommandForTest(store, []string{"reset-password", "u"}); exitCode == 0 {
+		t.Error("expected failure for reset-password with 1 arg")
+	}
+	if exitCode, _, _ = runUserCommandForTest(store, []string{"delete"}); exitCode == 0 {
+		t.Error("expected failure for delete with 0 args")
+	}
+	if exitCode, _, stderr = runUserCommandForTest(store, []string{"delete", "unknown"}); exitCode == 0 {
+		t.Error("expected failure for delete unknown user")
+	}
+	if !strings.Contains(stderr, "not found") {
+		t.Errorf("expected not found error, got %s", stderr)
+	}
+}
+
+func TestHandleUserCommand_NotUsers(t *testing.T) {
+	if handleUserCommand([]string{}) {
+		t.Error("expected false for empty args")
+	}
+	if handleUserCommand([]string{"other"}) {
+		t.Error("expected false for non-users args")
+	}
+}
+
+func TestRunMain_Completion(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	
+	os.Args = []string{"cmd", "-completion", "bash"}
+	
+	exitCode := runMain()
+	if exitCode != 0 {
+		t.Errorf("expected 0, got %d", exitCode)
+	}
+}
+
+func TestHandleUserCommand_StoreError(t *testing.T) {
+	// Provide a path that is a directory to cause error on OpenUserStore (SQLite)
+	t.Setenv("DBM_AUTH_DB_PATH", t.TempDir())
+	
+	oldExit := userCommandExit
+	defer func() { userCommandExit = oldExit }()
+	
+	var exitCode int
+	userCommandExit = func(code int) {
+		exitCode = code
+	}
+
+	handled := handleUserCommand([]string{"users", "list"})
+	if !handled {
+		t.Error("expected true for users args")
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestHandleUserCommand_Users(t *testing.T) {
+	t.Setenv("DBM_AUTH_DB_PATH", filepath.Join(t.TempDir(), "auth.db"))
+	
+	oldExit := userCommandExit
+	defer func() { userCommandExit = oldExit }()
+	
+	var exitCode int
+	userCommandExit = func(code int) {
+		exitCode = code
+	}
+
+	handled := handleUserCommand([]string{"users", "unknown"})
+	if !handled {
+		t.Error("expected true for users args")
+	}
+	if exitCode == 0 {
+		t.Error("expected non-zero exit code for unknown subcommand")
+	}
+}
+
+func TestRunMain_OracleError(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	
+	os.Args = []string{"cmd", "-url", "invalid", "-user", "u", "-password", "p", "-tables", "T1"}
+	
+	exitCode := runMain()
+	if exitCode != 1 {
+		t.Errorf("expected 1, got %d", exitCode)
+	}
+}
+
+func TestRunMain_TargetDBError(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	
+	os.Args = []string{"cmd", "-target-db", "mysql"}
+	
+	exitCode := runMain()
+	if exitCode != 1 {
+		t.Errorf("expected 1, got %d", exitCode)
 	}
 }
