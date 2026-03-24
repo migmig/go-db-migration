@@ -52,12 +52,18 @@ func TestUserStore_EnsureLegacyUser(t *testing.T) {
 
 func TestUserStore_CredentialErrors(t *testing.T) {
 	store := newTestStore(t)
-	
+
 	// Create user
-	uid, _ := store.CreateUser("u", "h", false)
-	
+	if err := store.CreateUser("u", "h", false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	user, err := store.GetUserByUsername("u")
+	if err != nil {
+		t.Fatalf("get user: %v", err)
+	}
+
 	// Get non-existent
-	_, err := store.GetCredentialByID(uid, 999)
+	_, err = store.getCredentialByID(user.ID, 999)
 	if err == nil {
 		t.Error("expected error for non-existent cred")
 	}

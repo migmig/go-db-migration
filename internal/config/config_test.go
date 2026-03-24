@@ -134,8 +134,8 @@ func TestParseFlags_Defaults(t *testing.T) {
 	if cfg.AuthEnabled {
 		t.Error("AuthEnabled should default to false")
 	}
-	if cfg.MasterKey != "12345678901234567890123456789012" {
-		t.Errorf("MasterKey default = %q, want \"12345678901234567890123456789012\"", cfg.MasterKey)
+	if cfg.MasterKey != "" {
+		t.Errorf("MasterKey default = %q, want empty string", cfg.MasterKey)
 	}
 	if cfg.OnError != "fail_fast" {
 		t.Errorf("OnError default = %q, want fail_fast", cfg.OnError)
