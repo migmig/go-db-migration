@@ -14,3 +14,4 @@ gha-creds-*.json
 frontend/coverage/
 .env
 /bin/
+web-ui-*.png
