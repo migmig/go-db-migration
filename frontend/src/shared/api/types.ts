@@ -1,6 +1,7 @@
 export type RuntimeMeta = {
   authEnabled: boolean;
   uiVersion: string;
+  googleClientId?: string;
   features?: {
     objectGroupMode?: boolean;
     tableHistory?: boolean;

@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 GO ?= go
-NPM ?= npm
+NPM ?= bun
 OUTPUT ?= dbmigrator
 
 .PHONY: offline build frontend verify test clean run run-web build-frontend
@@ -19,7 +19,7 @@ verify:
 	@$(GO) test ./... -count=1
 
 test:
-	@cd frontend && $(NPM) test
+	@cd frontend && $(NPM) run test
 	@$(GO) test ./... -count=1
 
 run:

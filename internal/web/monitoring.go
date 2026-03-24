@@ -24,8 +24,10 @@ type monitoringMetrics struct {
 	loginAttempts uint64
 	loginFailures uint64
 
-	sessionChecks  uint64
-	sessionExpired uint64
+	sessionChecks   uint64
+	sessionExpired  uint64
+	sessionCleanups uint64
+	sessionEvicted  uint64
 
 	credentialsRequests uint64
 	credentialsErrors   uint64
@@ -56,6 +58,12 @@ type monitoringMetrics struct {
 	tableStatusFailed              uint64
 	tableStatusRunning             uint64
 	tableStatusNotStarted          uint64
+	tableStatusPartialSuccess      uint64
+
+	// v20 metrics
+	migrationPartialSuccessTotal uint64
+	migrationSkippedBatchesTotal uint64
+	migrationRetryTotal          uint64
 
 	// v19: pre-check 메트릭
 	precheckRunTotal              uint64
@@ -75,6 +83,8 @@ type sessionMetricsSnapshot struct {
 	Checks            uint64  `json:"checks"`
 	Expired           uint64  `json:"expired"`
 	ExpirationRatePct float64 `json:"expirationRatePct"`
+	Cleanups          uint64  `json:"cleanups"`
+	Evicted           uint64  `json:"evicted"`
 }
 
 type apiErrorMetricsSnapshot struct {
@@ -92,14 +102,14 @@ type precheckMetricsSnapshot struct {
 }
 
 type monitoringSnapshot struct {
-	UptimeSeconds int64                        `json:"uptimeSeconds"`
-	Login         loginMetricsSnapshot         `json:"login"`
-	Session       sessionMetricsSnapshot       `json:"session"`
-	Credentials   apiErrorMetricsSnapshot      `json:"credentialsApi"`
-	History       apiErrorMetricsSnapshot      `json:"historyApi"`
-	Migrations    migrationMetricsSnapshot     `json:"migrations"`
-	TableHistory  tableHistoryMetricsSnapshot  `json:"tableHistory"`
-	Precheck      precheckMetricsSnapshot      `json:"precheck"`
+	UptimeSeconds int64                       `json:"uptimeSeconds"`
+	Login         loginMetricsSnapshot        `json:"login"`
+	Session       sessionMetricsSnapshot      `json:"session"`
+	Credentials   apiErrorMetricsSnapshot     `json:"credentialsApi"`
+	History       apiErrorMetricsSnapshot     `json:"historyApi"`
+	Migrations    migrationMetricsSnapshot    `json:"migrations"`
+	TableHistory  tableHistoryMetricsSnapshot `json:"tableHistory"`
+	Precheck      precheckMetricsSnapshot     `json:"precheck"`
 }
 
 type tableHistoryMetricsSnapshot struct {
@@ -111,10 +121,11 @@ type tableHistoryMetricsSnapshot struct {
 	} `json:"filterUsage"`
 	RetryTotal  uint64 `json:"retryTotal"`
 	StatusTotal struct {
-		Success    uint64 `json:"success"`
-		Failed     uint64 `json:"failed"`
-		Running    uint64 `json:"running"`
-		NotStarted uint64 `json:"notStarted"`
+		Success        uint64 `json:"success"`
+		Failed         uint64 `json:"failed"`
+		Running        uint64 `json:"running"`
+		NotStarted     uint64 `json:"notStarted"`
+		PartialSuccess uint64 `json:"partialSuccess"`
 	} `json:"statusTotal"`
 }
 
@@ -128,9 +139,12 @@ type migrationGroupMetricsSnapshot struct {
 }
 
 type migrationMetricsSnapshot struct {
-	All       migrationGroupMetricsSnapshot `json:"all"`
-	Tables    migrationGroupMetricsSnapshot `json:"tables"`
-	Sequences migrationGroupMetricsSnapshot `json:"sequences"`
+	All                 migrationGroupMetricsSnapshot `json:"all"`
+	Tables              migrationGroupMetricsSnapshot `json:"tables"`
+	Sequences           migrationGroupMetricsSnapshot `json:"sequences"`
+	PartialSuccessTotal uint64                        `json:"partialSuccessTotal"`
+	SkippedBatchesTotal uint64                        `json:"skippedBatchesTotal"`
+	RetryTotal          uint64                        `json:"retryTotal"`
 }
 
 func newMonitoringMetrics() *monitoringMetrics {
@@ -163,6 +177,20 @@ func (m *monitoringMetrics) recordSessionExpired() {
 		return
 	}
 	atomic.AddUint64(&m.sessionExpired, 1)
+}
+
+func (m *monitoringMetrics) recordSessionCleanup() {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.sessionCleanups, 1)
+}
+
+func (m *monitoringMetrics) recordSessionEvicted() {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.sessionEvicted, 1)
 }
 
 func (m *monitoringMetrics) recordAPIResponse(api monitoredAPI, status int) {
@@ -231,7 +259,24 @@ func (m *monitoringMetrics) recordTableStatus(status string) {
 		atomic.AddUint64(&m.tableStatusRunning, 1)
 	case "not_started":
 		atomic.AddUint64(&m.tableStatusNotStarted, 1)
+	case "partial_success":
+		atomic.AddUint64(&m.tableStatusPartialSuccess, 1)
 	}
+}
+
+func (m *monitoringMetrics) recordMigrationPartialSuccess(skippedBatches int) {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.migrationPartialSuccessTotal, 1)
+	atomic.AddUint64(&m.migrationSkippedBatchesTotal, uint64(skippedBatches))
+}
+
+func (m *monitoringMetrics) recordMigrationRetry() {
+	if m == nil {
+		return
+	}
+	atomic.AddUint64(&m.migrationRetryTotal, 1)
 }
 
 func (m *monitoringMetrics) recordMigrationStart(group string, isRetry bool) {
@@ -329,6 +374,7 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 	tableHistorySnap.StatusTotal.Failed = statusFailed
 	tableHistorySnap.StatusTotal.Running = statusRunning
 	tableHistorySnap.StatusTotal.NotStarted = statusNotStarted
+	tableHistorySnap.StatusTotal.PartialSuccess = atomic.LoadUint64(&m.tableStatusPartialSuccess)
 
 	precheckRunTotal := atomic.LoadUint64(&m.precheckRunTotal)
 	precheckTablesTotal := atomic.LoadUint64(&m.precheckTablesTotal)
@@ -347,6 +393,8 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 			Checks:            sessionChecks,
 			Expired:           sessionExpired,
 			ExpirationRatePct: percentage(sessionExpired, sessionChecks),
+			Cleanups:          atomic.LoadUint64(&m.sessionCleanups),
+			Evicted:           atomic.LoadUint64(&m.sessionEvicted),
 		},
 		Credentials: apiErrorMetricsSnapshot{
 			Requests:     credentialRequests,
@@ -383,6 +431,9 @@ func (m *monitoringMetrics) snapshot() monitoringSnapshot {
 				RetrySuccesses:      sequencesRetrySuccesses,
 				RetrySuccessRatePct: percentage(sequencesRetrySuccesses, sequencesRetryAttempts),
 			},
+			PartialSuccessTotal: atomic.LoadUint64(&m.migrationPartialSuccessTotal),
+			SkippedBatchesTotal: atomic.LoadUint64(&m.migrationSkippedBatchesTotal),
+			RetryTotal:          atomic.LoadUint64(&m.migrationRetryTotal),
 		},
 		TableHistory: tableHistorySnap,
 		Precheck: precheckMetricsSnapshot{

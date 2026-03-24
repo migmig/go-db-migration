@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const testMasterKey = "0123456789abcdef0123456789abcdef"

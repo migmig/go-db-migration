@@ -16,6 +16,7 @@ import (
 	"dbmigrator/internal/security"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func init() {
@@ -28,11 +29,11 @@ func setupTestRouter() *gin.Engine {
 	r := gin.New()
 	registerFrontendRoutes(r)
 	api := r.Group("/api")
-	api.POST("/tables", getTables)
+	api.POST("/tables", getTables(nil))
 	api.POST("/migrate", startMigration)
 	api.POST("/migrate/retry", retryMigration)
-	api.POST("/test-target", testTargetConnection)
-	api.POST("/target-tables", targetTablesHandler)
+	api.POST("/test-target", testTargetConnection(nil))
+	api.POST("/target-tables", targetTablesHandler(nil))
 	api.GET("/download/:id", downloadZip)
 	return r
 }

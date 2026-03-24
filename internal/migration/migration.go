@@ -500,11 +500,17 @@ func MigrateTable(dbConn *sql.DB, targetDB *sql.DB, pgPool db.PGPool, dia dialec
 			tracker.Done(tableName)
 		}
 	}
-	if _, ok := err.(*PartialBatchError); ok {
+	if partialErr, ok := err.(*PartialBatchError); ok {
 		mState.MarkCompleted(tableName)
 		if tracker != nil && tracker.EventBus() != nil {
-			tracker.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: tableName})
+			tracker.EventBus().Publish(bus.Event{
+				Type:                 bus.EventPartialSuccess,
+				Table:                tableName,
+				SkippedBatches:       partialErr.SkippedBatches,
+				EstimatedSkippedRows: partialErr.EstimatedSkippedRows,
+			})
 		} else if tracker != nil {
+			// Fallback if not using EventBus natively, though deprecated
 			tracker.Done(tableName)
 		}
 	}
@@ -1229,6 +1235,10 @@ func migrateTablePgBatchCopy(
 	}
 	colTypes, _ := db.FetchColumnTypes(context.Background(), pgPool, pgSchema, tableName)
 
+	skippedBatches := 0
+	estimatedSkippedRows := 0
+	var lastBatchErr error
+
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		var n int64
 		retryErr := WithRetry(context.Background(), retryConfigFromRuntime(cfg), tableName, func(evt RetryEvent) {
@@ -1312,6 +1322,19 @@ func migrateTablePgBatchCopy(
 			return nil
 		})
 		if retryErr != nil {
+			if cfg.OnError == "skip_batch" {
+				skippedBatches++
+				estimatedSkippedRows += batchSize
+				lastBatchErr = retryErr
+				offset += batchSize
+				slog.Warn("migration.batch.skipped",
+					"table", tableName,
+					"batch_num", batchNum,
+					"batch_size", batchSize,
+					"error", retryErr,
+				)
+				continue
+			}
 			return offset, retryErr
 		}
 
@@ -1325,6 +1348,15 @@ func migrateTablePgBatchCopy(
 
 		if int(n) < batchSize {
 			break
+		}
+	}
+
+	if skippedBatches > 0 {
+		return offset, &PartialBatchError{
+			Table:                tableName,
+			SkippedBatches:       skippedBatches,
+			EstimatedSkippedRows: estimatedSkippedRows,
+			Cause:                lastBatchErr,
 		}
 	}
 
@@ -1397,6 +1429,10 @@ func migrateTablePgUpsert(
 	if batchSize <= 0 {
 		batchSize = 10000
 	}
+
+	skippedBatches := 0
+	estimatedSkippedRows := 0
+	var lastBatchErr error
 
 	for batchNum := (offset / batchSize) + 1; ; batchNum++ {
 		var n int64
@@ -1480,6 +1516,19 @@ func migrateTablePgUpsert(
 			return nil
 		})
 		if retryErr != nil {
+			if cfg.OnError == "skip_batch" {
+				skippedBatches++
+				estimatedSkippedRows += batchSize
+				lastBatchErr = retryErr
+				offset += batchSize
+				slog.Warn("migration.batch.skipped",
+					"table", tableName,
+					"batch_num", batchNum,
+					"batch_size", batchSize,
+					"error", retryErr,
+				)
+				continue
+			}
 			return offset, retryErr
 		}
 
@@ -1493,6 +1542,15 @@ func migrateTablePgUpsert(
 
 		if int(n) < batchSize {
 			break
+		}
+	}
+
+	if skippedBatches > 0 {
+		return offset, &PartialBatchError{
+			Table:                tableName,
+			SkippedBatches:       skippedBatches,
+			EstimatedSkippedRows: estimatedSkippedRows,
+			Cause:                lastBatchErr,
 		}
 	}
 

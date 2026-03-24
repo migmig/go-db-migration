@@ -163,11 +163,17 @@ func (m *authSessionManager) purgeExpired() {
 	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	cleaned := 0
 	for token, s := range m.sessions {
 		if now.After(s.ExpiresAt) || now.Sub(s.LastSeenAt) > m.idleTTL {
 			delete(m.sessions, token)
 			m.metrics.recordSessionExpired()
+			m.metrics.recordSessionCleanup()
+			cleaned++
 		}
+	}
+	if cleaned > 0 {
+		slog.Info("session cleanup", "cleaned_count", cleaned)
 	}
 }
 
@@ -185,7 +191,13 @@ func (m *authSessionManager) evictOldest() {
 		}
 	}
 	if found {
+		prefix := oldestToken
+		if len(prefix) > 8 {
+			prefix = prefix[:8]
+		}
 		delete(m.sessions, oldestToken)
+		m.metrics.recordSessionEvicted()
+		slog.Warn("session evicted due to capacity", "evicted_token_prefix", prefix)
 	}
 }
 
@@ -198,6 +210,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	var userStore *db.UserStore
 	var authSessions *authSessionManager
 	var metrics *monitoringMetrics
+	var googleClientID string
 
 	if authEnabled {
 		masterKey := strings.TrimSpace(os.Getenv("DBM_MASTER_KEY"))
@@ -215,6 +228,11 @@ func RunServerWithAuth(port string, authEnabled bool) {
 		maxSessions, cleanupInterval := loadAuthSessionEnv()
 		authSessions = newAuthSessionManager(30*time.Minute, 24*time.Hour, maxSessions, cleanupInterval, metrics)
 		defer authSessions.close()
+
+		googleClientID, err = config.DecryptEnvValue(os.Getenv("GOOGLE_CLIENT_ID"), masterKey)
+		if err != nil {
+			log.Fatalf("Failed to decrypt GOOGLE_CLIENT_ID: %v", err)
+		}
 	}
 
 	tmpl := template.Must(template.ParseFS(templateFS, "templates/*"))
@@ -261,8 +279,9 @@ func RunServerWithAuth(port string, authEnabled bool) {
 	{
 		api.GET("/meta", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
-				"authEnabled": authEnabled,
-				"uiVersion":   uiVersion,
+				"authEnabled":    authEnabled,
+				"uiVersion":      uiVersion,
+				"googleClientId": googleClientID,
 				"features": gin.H{
 					"objectGroupMode":  objectGroupModeEnabled(),
 					"tableHistory":     isTableHistoryEnabled,
@@ -273,7 +292,7 @@ func RunServerWithAuth(port string, authEnabled bool) {
 
 		if authEnabled {
 			api.POST("/auth/login", loginHandler(userStore, authSessions))
-			api.POST("/auth/google", googleLoginHandler(userStore, authSessions))
+			api.POST("/auth/google", googleLoginHandler(userStore, authSessions, googleClientID))
 			api.POST("/auth/logout", logoutHandler(authSessions))
 			api.GET("/auth/me", meHandler(authSessions))
 		}
@@ -514,7 +533,7 @@ func loginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.Han
 	}
 }
 
-func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager) gin.HandlerFunc {
+func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager, clientID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessions.metrics.recordLoginAttempt()
 
@@ -527,9 +546,6 @@ func googleLoginHandler(userStore *db.UserStore, sessions *authSessionManager) g
 			return
 		}
 
-		// In a real app, ClientID should be in config.
-		// For this implementation, we'll try to get it from environment or use a placeholder
-		clientID := os.Getenv("GOOGLE_CLIENT_ID")
 		payload, err := idtoken.Validate(context.Background(), req.Credential, clientID)
 		if err != nil {
 			// If clientID is not set, idtoken.Validate might fail.
@@ -1323,7 +1339,12 @@ func recordTableHistory(histStore *TableHistoryStore, jobID string, report *migr
 	for _, tr := range report.Tables {
 		status := "success"
 		var errMsg string
-		if tr.Status != "ok" {
+		if tr.Status == "partial_success" || tr.Status == migration.StatusPartialSuccess {
+			status = "partial_success"
+			if len(tr.Errors) > 0 {
+				errMsg = tr.Errors[0]
+			}
+		} else if tr.Status != "ok" {
 			status = "failed"
 			if len(tr.Errors) > 0 {
 				errMsg = tr.Errors[0]
@@ -1332,14 +1353,16 @@ func recordTableHistory(histStore *TableHistoryStore, jobID string, report *migr
 		durationMs := tr.DurationNs / int64(time.Millisecond)
 		finishedAt := report.StartedAt.Add(time.Duration(tr.DurationNs))
 		h := TableMigrationHistory{
-			RunID:         jobID + "_" + tr.Name,
-			TableName:     tr.Name,
-			Status:        status,
-			StartedAt:     report.StartedAt,
-			FinishedAt:    finishedAt,
-			DurationMs:    durationMs,
-			RowsProcessed: int64(tr.RowCount),
-			ErrorMessage:  errMsg,
+			RunID:                jobID + "_" + tr.Name,
+			TableName:            tr.Name,
+			Status:               status,
+			StartedAt:            report.StartedAt,
+			FinishedAt:           finishedAt,
+			DurationMs:           durationMs,
+			RowsProcessed:        int64(tr.RowCount),
+			ErrorMessage:         errMsg,
+			SkippedBatches:       tr.SkippedBatches,
+			EstimatedSkippedRows: tr.EstimatedSkippedRows,
 		}
 		histStore.RecordTableRun(h)
 	}
@@ -1563,8 +1586,15 @@ func requirePostgres(c *gin.Context, targetDB string) bool {
 
 // isPermissionError는 PostgreSQL permission denied 오류 여부를 판별한다.
 func isPermissionError(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "permission denied") || strings.Contains(msg, "42501")
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "42501") ||
+		strings.Contains(msg, "insufficient privileges") ||
+		strings.Contains(msg, "ora-01031") ||
+		strings.Contains(msg, "access denied")
 }
 
 type targetTablesRequest struct {

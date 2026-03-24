@@ -22,22 +22,30 @@ import (
 var userCommandExit = os.Exit
 
 func main() {
+	os.Exit(runMain())
+}
+
+func runMain() int {
 	if handled := handleUserCommand(os.Args[1:]); handled {
-		return
+		return 0
 	}
 
 	cfg, err := config.ParseFlags()
 	if err != nil {
-		os.Exit(1)
+		return 1
 	}
 
 	if cfg.CompletionShell != "" {
-		return
+		return 0
 	}
 
 	if cfg.WebMode {
-		web.RunServerWithAuth("8080", cfg.AuthEnabled)
-		return
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = "8080"
+		}
+		web.RunServerWithAuth(port, cfg.AuthEnabled)
+		return 0
 	}
 
 	logger.Setup(cfg.LogJSON)
@@ -46,19 +54,19 @@ func main() {
 
 	if cfg.TargetDB != "" && cfg.TargetDB != "postgres" {
 		slog.Error("v22 이후 타겟 DB는 PostgreSQL만 지원합니다", "targetDb", cfg.TargetDB)
-		os.Exit(1)
+		return 1
 	}
 
 	dia, err := dialect.GetDialect("postgres")
 	if err != nil {
 		slog.Error("failed to get dialect", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	oracleDB, err := db.ConnectOracle(cfg.OracleURL, cfg.User, cfg.Password)
 	if err != nil {
 		slog.Error("failed to connect to oracle", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	defer oracleDB.Close()
 
@@ -69,7 +77,7 @@ func main() {
 		pgPool, err := db.ConnectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
 		if err != nil {
 			slog.Error("failed to connect to postgres", "error", err)
-			os.Exit(1)
+			return 1
 		}
 		if pgPool != nil {
 			pool = pgPool
@@ -109,17 +117,17 @@ func main() {
 		}
 		if cfg.DryRun {
 			slog.Info("dry-run mode: skipping migration after precheck")
-			return
+			return 0
 		}
 		// strict 정책에서 count_check_failed가 있으면 중단
 		plan, planErr := migration.ApplyPrecheckPolicy(precheckResults, migration.PrecheckPolicy(cfg.PrecheckPolicy))
 		if planErr != nil {
 			slog.Error("precheck policy error", "error", planErr)
-			os.Exit(1)
+			return 1
 		}
 		if plan.Blocked {
 			slog.Error("precheck blocked migration", "reason", plan.BlockReason)
-			os.Exit(1)
+			return 1
 		}
 		// skip_equal_rows 정책이면 transfer_tables만 마이그레이션
 		if migration.PrecheckPolicy(cfg.PrecheckPolicy) == migration.PolicySkipEqualRows && len(plan.TransferTables) > 0 {
@@ -131,10 +139,11 @@ func main() {
 	report, err := migration.Run(oracleDB, targetDB, pool, dia, cfg, nil)
 	if err != nil {
 		slog.Error("migration failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	_ = report // PrintSummary is called inside Run()
 	slog.Info("migration completed successfully")
+	return 0
 }
 
 func handleUserCommand(args []string) bool {
@@ -146,6 +155,7 @@ func handleUserCommand(args []string) bool {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open user store: %v\n", err)
 		userCommandExit(1)
+		return true
 	}
 	defer store.Close()
 

@@ -1,7 +1,7 @@
 {
   "job_id": "test",
   "tables": {
-    "T1": {
+    "T2": {
       "offset": 1,
       "completed": true
     }
