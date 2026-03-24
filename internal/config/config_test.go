@@ -95,6 +95,7 @@ func TestParseFlags_Defaults(t *testing.T) {
 	resetFlags()
 	old := os.Args
 	defer func() { os.Args = old }()
+	t.Setenv("DBM_MASTER_KEY", "")
 	os.Args = []string{"cmd", "-url=host/svc", "-user=u", "-password=p", "-tables=T"}
 
 	cfg, err := ParseFlags()

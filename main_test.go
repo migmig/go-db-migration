@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"database/sql"
 	"flag"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"dbmigrator/internal/security"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -199,22 +201,179 @@ func TestRunMain_Completion(t *testing.T) {
 	resetFlags()
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	
+
 	os.Args = []string{"cmd", "-completion", "bash"}
-	
+
 	exitCode := runMain()
 	if exitCode != 0 {
 		t.Errorf("expected 0, got %d", exitCode)
 	}
 }
 
+func TestRunMain_UserCommand(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	t.Setenv("DBM_AUTH_DB_PATH", filepath.Join(t.TempDir(), "auth.db"))
+	os.Args = []string{"cmd", "users", "list"}
+
+	exitCode := runMain()
+	if exitCode != 0 {
+		t.Errorf("expected 0, got %d", exitCode)
+	}
+}
+
+func TestRunMain_WebMode(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	oldRunServerWithAuth := runServerWithAuth
+	defer func() { runServerWithAuth = oldRunServerWithAuth }()
+
+	called := false
+	var gotPort string
+	var gotAuth bool
+	runServerWithAuth = func(port string, authEnabled bool) {
+		called = true
+		gotPort = port
+		gotAuth = authEnabled
+	}
+
+	t.Setenv("PORT", "9090")
+	os.Args = []string{"cmd", "-web"}
+
+	exitCode := runMain()
+	if exitCode != 0 {
+		t.Errorf("expected 0, got %d", exitCode)
+	}
+	if !called {
+		t.Fatal("expected web server hook to be called")
+	}
+	if gotPort != "9090" {
+		t.Errorf("expected port 9090, got %s", gotPort)
+	}
+	if gotAuth {
+		t.Error("expected auth to default to false")
+	}
+}
+
+func TestRunMain_SuccessPathWithStubs(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	oldParseFlags := parseFlags
+	oldConnectOracle := connectOracle
+	oldConnectPostgres := connectPostgres
+	oldGetDialect := getDialect
+	oldRunMigration := runMigration
+	defer func() {
+		parseFlags = oldParseFlags
+		connectOracle = oldConnectOracle
+		connectPostgres = oldConnectPostgres
+		getDialect = oldGetDialect
+		runMigration = oldRunMigration
+	}()
+
+	oracleDB, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = oracleDB.Close() })
+
+	parseFlags = func() (*config.Config, error) {
+		return &config.Config{
+			OracleURL: "oracle://example",
+			User:      "u",
+			Password:  "p",
+			Tables:    []string{"T1"},
+		}, nil
+	}
+	connectOracle = func(string, string, string) (*sql.DB, error) {
+		return oracleDB, nil
+	}
+	connectPostgres = func(string, int, int, int) (*pgxpool.Pool, error) {
+		return nil, nil
+	}
+	getDialect = func(string) (dialect.Dialect, error) {
+		return &dialect.PostgresDialect{}, nil
+	}
+
+	called := false
+	runMigration = func(_ *sql.DB, _ *sql.DB, _ db.PGPool, _ dialect.Dialect, _ *config.Config, _ migration.ProgressTracker) (*migration.MigrationReport, error) {
+		called = true
+		return &migration.MigrationReport{}, nil
+	}
+
+	os.Args = []string{"cmd"}
+
+	exitCode := runMain()
+	if exitCode != 0 {
+		t.Fatalf("expected 0, got %d", exitCode)
+	}
+	if !called {
+		t.Fatal("expected migration runner to be called")
+	}
+}
+
+func TestRunMain_PrecheckDryRun(t *testing.T) {
+	resetFlags()
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	oldParseFlags := parseFlags
+	oldConnectOracle := connectOracle
+	oldGetDialect := getDialect
+	defer func() {
+		parseFlags = oldParseFlags
+		connectOracle = oldConnectOracle
+		getDialect = oldGetDialect
+	}()
+
+	oracleDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = oracleDB.Close() })
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM T1").WillReturnRows(sqlmock.NewRows([]string{"COUNT"}).AddRow(10))
+
+	parseFlags = func() (*config.Config, error) {
+		return &config.Config{
+			OracleURL:        "oracle://example",
+			User:             "u",
+			Password:         "p",
+			Tables:           []string{"T1"},
+			PrecheckRowCount: true,
+			DryRun:           true,
+		}, nil
+	}
+	connectOracle = func(string, string, string) (*sql.DB, error) {
+		return oracleDB, nil
+	}
+	getDialect = func(string) (dialect.Dialect, error) {
+		return &dialect.PostgresDialect{}, nil
+	}
+
+	os.Args = []string{"cmd"}
+
+	exitCode := runMain()
+	if exitCode != 0 {
+		t.Fatalf("expected 0, got %d", exitCode)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestHandleUserCommand_StoreError(t *testing.T) {
 	// Provide a path that is a directory to cause error on OpenUserStore (SQLite)
 	t.Setenv("DBM_AUTH_DB_PATH", t.TempDir())
-	
+
 	oldExit := userCommandExit
 	defer func() { userCommandExit = oldExit }()
-	
+
 	var exitCode int
 	userCommandExit = func(code int) {
 		exitCode = code
@@ -231,10 +390,10 @@ func TestHandleUserCommand_StoreError(t *testing.T) {
 
 func TestHandleUserCommand_Users(t *testing.T) {
 	t.Setenv("DBM_AUTH_DB_PATH", filepath.Join(t.TempDir(), "auth.db"))
-	
+
 	oldExit := userCommandExit
 	defer func() { userCommandExit = oldExit }()
-	
+
 	var exitCode int
 	userCommandExit = func(code int) {
 		exitCode = code
@@ -253,9 +412,9 @@ func TestRunMain_OracleError(t *testing.T) {
 	resetFlags()
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	
+
 	os.Args = []string{"cmd", "-url", "invalid", "-user", "u", "-password", "p", "-tables", "T1"}
-	
+
 	exitCode := runMain()
 	if exitCode != 1 {
 		t.Errorf("expected 1, got %d", exitCode)
@@ -266,9 +425,9 @@ func TestRunMain_TargetDBError(t *testing.T) {
 	resetFlags()
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	
+
 	os.Args = []string{"cmd", "-target-db", "mysql"}
-	
+
 	exitCode := runMain()
 	if exitCode != 1 {
 		t.Errorf("expected 1, got %d", exitCode)

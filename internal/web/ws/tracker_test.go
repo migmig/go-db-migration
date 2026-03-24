@@ -3,8 +3,11 @@ package ws
 import (
 	"dbmigrator/internal/bus"
 	"errors"
-	"net/http/httptest"
-	"strings"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -184,22 +187,43 @@ func TestError_RemovesState(t *testing.T) {
 // ── Full-stack WebSocket integration ─────────────────────────────────────────
 
 // dialTestServer creates a Gin test server with HandleConnection registered and
-// returns a connected WebSocket client plus a cleanup function.
-func dialTestServer(t *testing.T, tr *WebSocketTracker) (*websocket.Conn, func()) {
+// returns a message stream, WebSocket connection, and cleanup function.
+func dialTestServer(t *testing.T, tr *WebSocketTracker) (<-chan ProgressMsg, *websocket.Conn, func()) {
 	t.Helper()
 
 	r := gin.New()
 	r.GET("/ws", tr.HandleConnection)
-	srv := httptest.NewServer(r)
+	serverConn, clientConn := net.Pipe()
+	ln := newSingleConnListener(serverConn)
+	srv := &http.Server{Handler: r}
+	go func() {
+		_ = srv.Serve(ln)
+	}()
 
-	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	u, err := url.Parse("ws://pipe/ws")
 	if err != nil {
-		srv.Close()
+		_ = srv.Close()
+		t.Fatalf("failed to parse websocket URL: %v", err)
+	}
+
+	conn, _, err := websocket.NewClient(clientConn, u, nil, 1024, 1024)
+	if err != nil {
+		_ = srv.Close()
 		t.Fatalf("failed to dial WebSocket: %v", err)
 	}
 
-	// Wait until the server goroutine has registered the client
+	msgs := make(chan ProgressMsg, 16)
+	go func() {
+		defer close(msgs)
+		for {
+			var msg ProgressMsg
+			if err := conn.ReadJSON(&msg); err != nil {
+				return
+			}
+			msgs <- msg
+		}
+	}()
+
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		tr.mu.Lock()
@@ -211,24 +235,80 @@ func dialTestServer(t *testing.T, tr *WebSocketTracker) (*websocket.Conn, func()
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	return conn, func() {
-		conn.Close()
-		srv.Close()
+	return msgs, conn, func() {
+		_ = conn.Close()
+		_ = srv.Close()
 	}
 }
 
+func readTestMessage(t *testing.T, msgs <-chan ProgressMsg) ProgressMsg {
+	t.Helper()
+
+	select {
+	case msg, ok := <-msgs:
+		if !ok {
+			t.Fatal("message stream closed unexpectedly")
+		}
+		return msg
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for websocket message")
+		return ProgressMsg{}
+	}
+}
+
+type singleConnListener struct {
+	conn   net.Conn
+	mu     sync.Mutex
+	closed bool
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	return &singleConnListener{conn: conn}
+}
+
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil, net.ErrClosed
+	}
+	if l.conn == nil {
+		return nil, io.EOF
+	}
+	conn := l.conn
+	l.conn = nil
+	return conn, nil
+}
+
+func (l *singleConnListener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closed = true
+	if l.conn != nil {
+		_ = l.conn.Close()
+		l.conn = nil
+	}
+	return nil
+}
+
+func (l *singleConnListener) Addr() net.Addr {
+	return dummyAddr("pipe")
+}
+
+type dummyAddr string
+
+func (a dummyAddr) Network() string { return string(a) }
+
+func (a dummyAddr) String() string { return string(a) }
+
 func TestHandleConnection_ReceivesInitMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.Init("ORDERS", 500)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 
 	if msg.Type != MsgInit {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgInit)
@@ -243,25 +323,17 @@ func TestHandleConnection_ReceivesInitMessage(t *testing.T) {
 
 func TestHandleConnection_ReceivesDoneMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.Init("T", 10)
 
 	// Drain the init message first
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	var init ProgressMsg
-	if err := conn.ReadJSON(&init); err != nil {
-		t.Fatalf("failed to read init message: %v", err)
-	}
+	_ = readTestMessage(t, msgs)
 
 	tr.Done("T")
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read done message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgDone {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDone)
 	}
@@ -269,22 +341,16 @@ func TestHandleConnection_ReceivesDoneMessage(t *testing.T) {
 
 func TestHandleConnection_ReceivesErrorMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.Init("T", 10)
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	var init ProgressMsg
-	_ = conn.ReadJSON(&init)
+	_ = readTestMessage(t, msgs)
 
 	tr.Error("T", errors.New("disk full"))
 
-	conn.SetReadDeadline(time.Now().Add(time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read error message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgError {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgError)
 	}
@@ -295,16 +361,12 @@ func TestHandleConnection_ReceivesErrorMessage(t *testing.T) {
 
 func TestHandleConnection_ReceivesAllDoneMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.AllDone("migration_20240101.zip", nil)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read all_done message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgAllDone {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgAllDone)
 	}
@@ -315,16 +377,12 @@ func TestHandleConnection_ReceivesAllDoneMessage(t *testing.T) {
 
 func TestHandleConnection_ReceivesDryRunResultMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.DryRunResult("ORDERS", 1234, true)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read dry_run_result message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgDryRunResult {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDryRunResult)
 	}
@@ -341,16 +399,12 @@ func TestHandleConnection_ReceivesDryRunResultMessage(t *testing.T) {
 
 func TestHandleConnection_DryRunResult_ConnectionFailed(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.DryRunResult("BAD_TABLE", 0, false)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgDryRunResult {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDryRunResult)
 	}
@@ -361,16 +415,12 @@ func TestHandleConnection_DryRunResult_ConnectionFailed(t *testing.T) {
 
 func TestHandleConnection_ReceivesDDLProgressMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.DDLProgress("sequence", "USERS_SEQ", "ok", nil)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read ddl_progress message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgDDLProgress {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDDLProgress)
 	}
@@ -390,16 +440,12 @@ func TestHandleConnection_ReceivesDDLProgressMessage(t *testing.T) {
 
 func TestDDLProgress_ErrorIncludesMessage(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.DDLProgress("index", "IDX_USERS_EMAIL", "error", errors.New("constraint violation"))
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read ddl_progress message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgDDLProgress {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgDDLProgress)
 	}
@@ -416,16 +462,12 @@ func TestDDLProgress_ErrorIncludesMessage(t *testing.T) {
 
 func TestWarning(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.Warning("This is a warning")
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read warning message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgWarning {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgWarning)
 	}
@@ -436,7 +478,7 @@ func TestWarning(t *testing.T) {
 
 func TestEventBusRetryBroadcast(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, _, cleanup := dialTestServer(t, tr)
 	defer cleanup()
 
 	tr.EventBus().Publish(bus.Event{
@@ -448,11 +490,7 @@ func TestEventBusRetryBroadcast(t *testing.T) {
 		Message:     "timeout",
 	})
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	var msg ProgressMsg
-	if err := conn.ReadJSON(&msg); err != nil {
-		t.Fatalf("failed to read retry message: %v", err)
-	}
+	msg := readTestMessage(t, msgs)
 	if msg.Type != MsgRetry {
 		t.Errorf("msg.Type = %v, want %v", msg.Type, MsgRetry)
 	}
@@ -467,9 +505,107 @@ func TestEventBusRetryBroadcast(t *testing.T) {
 	}
 }
 
+func TestEventBusSubscriptions(t *testing.T) {
+	tr := NewWebSocketTracker()
+	msgs, _, cleanup := dialTestServer(t, tr)
+	defer cleanup()
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventInit, Table: "USERS", Total: 10})
+	msg := readTestMessage(t, msgs)
+	if msg.Type != MsgInit || msg.Table != "USERS" || msg.Total != 10 {
+		t.Fatalf("unexpected init message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventUpdate, Table: "USERS", Count: 3})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgUpdate || msg.Table != "USERS" || msg.Count != 3 {
+		t.Fatalf("unexpected update message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventDone, Table: "USERS"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgDone || msg.Table != "USERS" {
+		t.Fatalf("unexpected done message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventError, Table: "USERS", Error: errors.New("boom")})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgError || msg.Table != "USERS" || msg.ErrorMsg != "boom" {
+		t.Fatalf("unexpected error message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventAllDone, ZipFileID: "x.zip"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgAllDone || msg.ZipFileID != "x.zip" {
+		t.Fatalf("unexpected all_done message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventDryRunResult, Table: "ORDERS", Total: 9, ConnectionOk: true})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgDryRunResult || msg.Table != "ORDERS" || msg.Total != 9 || !msg.ConnectionOk {
+		t.Fatalf("unexpected dry_run_result message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventDDLProgress, Object: "sequence", ObjectName: "SEQ_1", Status: "ok"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgDDLProgress || msg.Object != "sequence" || msg.ObjectName != "SEQ_1" || msg.Status != "ok" {
+		t.Fatalf("unexpected ddl_progress message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventWarning, Message: "careful"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgWarning || msg.Message != "careful" {
+		t.Fatalf("unexpected warning message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventValidationStart, Table: "USERS"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgValidationStart || msg.Table != "USERS" {
+		t.Fatalf("unexpected validation_start message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventValidationResult, Table: "USERS", Total: 4, Count: 3, Status: "ok", Message: "done"})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgValidationResult || msg.Table != "USERS" || msg.Total != 4 || msg.Count != 3 || msg.Status != "ok" || msg.Message != "done" {
+		t.Fatalf("unexpected validation_result message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventDiscoverySummary, ObjectGroup: "all", Tables: []string{"A"}, Sequences: []string{"S"}})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgDiscoverySummary || msg.ObjectGroup != "all" || len(msg.Tables) != 1 || msg.Tables[0] != "A" || len(msg.Sequences) != 1 || msg.Sequences[0] != "S" {
+		t.Fatalf("unexpected discovery_summary message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventPartialSuccess, Table: "USERS", SkippedBatches: 2, EstimatedSkippedRows: 14})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgPartialSuccess || msg.Table != "USERS" || msg.SkippedBatches != 2 || msg.EstimatedSkippedRows != 14 {
+		t.Fatalf("unexpected partial_success message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{
+		Type:        bus.EventRetry,
+		Table:       "USERS",
+		Attempt:     2,
+		MaxAttempts: 4,
+		WaitSeconds: 3,
+		Message:     "retrying",
+	})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgRetry || msg.Table != "USERS" || msg.Attempt != 2 || msg.MaxAttempts != 4 || msg.WaitSeconds != 3 || msg.Message != "retrying" {
+		t.Fatalf("unexpected retry message: %+v", msg)
+	}
+
+	tr.EventBus().Publish(bus.Event{Type: bus.EventMetrics, Message: `{"count":1}`})
+	msg = readTestMessage(t, msgs)
+	if msg.Type != MsgType(bus.EventMetrics) || msg.Message != `{"count":1}` {
+		t.Fatalf("unexpected metrics message: %+v", msg)
+	}
+}
+
 func TestBroadcast_RemovesDeadClient(t *testing.T) {
 	tr := NewWebSocketTracker()
-	conn, cleanup := dialTestServer(t, tr)
+	msgs, conn, cleanup := dialTestServer(t, tr)
+	_ = msgs
 	// Close the connection before the broadcast so the write will fail
 	conn.Close()
 	cleanup()

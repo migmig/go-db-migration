@@ -20,6 +20,12 @@ import (
 )
 
 var userCommandExit = os.Exit
+var runServerWithAuth = web.RunServerWithAuth
+var parseFlags = config.ParseFlags
+var connectOracle = db.ConnectOracle
+var connectPostgres = db.ConnectPostgres
+var getDialect = dialect.GetDialect
+var runMigration = migration.Run
 
 func main() {
 	os.Exit(runMain())
@@ -30,7 +36,7 @@ func runMain() int {
 		return 0
 	}
 
-	cfg, err := config.ParseFlags()
+	cfg, err := parseFlags()
 	if err != nil {
 		return 1
 	}
@@ -44,7 +50,7 @@ func runMain() int {
 		if port == "" {
 			port = "8080"
 		}
-		web.RunServerWithAuth(port, cfg.AuthEnabled)
+		runServerWithAuth(port, cfg.AuthEnabled)
 		return 0
 	}
 
@@ -57,13 +63,13 @@ func runMain() int {
 		return 1
 	}
 
-	dia, err := dialect.GetDialect("postgres")
+	dia, err := getDialect("postgres")
 	if err != nil {
 		slog.Error("failed to get dialect", "error", err)
 		return 1
 	}
 
-	oracleDB, err := db.ConnectOracle(cfg.OracleURL, cfg.User, cfg.Password)
+	oracleDB, err := connectOracle(cfg.OracleURL, cfg.User, cfg.Password)
 	if err != nil {
 		slog.Error("failed to connect to oracle", "error", err)
 		return 1
@@ -74,7 +80,7 @@ func runMain() int {
 	var targetDB *sql.DB
 
 	if cfg.TargetURL != "" {
-		pgPool, err := db.ConnectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
+		pgPool, err := connectPostgres(cfg.TargetURL, cfg.DBMaxOpen, cfg.DBMaxIdle, cfg.DBMaxLife)
 		if err != nil {
 			slog.Error("failed to connect to postgres", "error", err)
 			return 1
@@ -136,7 +142,7 @@ func runMain() int {
 		}
 	}
 
-	report, err := migration.Run(oracleDB, targetDB, pool, dia, cfg, nil)
+	report, err := runMigration(oracleDB, targetDB, pool, dia, cfg, nil)
 	if err != nil {
 		slog.Error("migration failed", "error", err)
 		return 1
