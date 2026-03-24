@@ -74,9 +74,24 @@ Oracle에서 PostgreSQL로 데이터를 마이그레이션하는 Go 기반 CLI /
 
 ## 설치
 
+### 백엔드(Go)
+
 ```bash
 go build -o dbmigrator main.go
 ```
+
+### 프론트엔드(Node/Bun)
+
+이 프로젝트의 프론트엔드 패키지 매니저 기본값은 **bun** 입니다.
+
+```bash
+cd frontend
+bun install
+bun run build
+```
+
+> 참고: 이 실행 환경은 `NODE_ENV=production`일 수 있어서 `npm install`만 실행하면 devDependencies가 빠질 수 있습니다.
+> npm을 꼭 써야 한다면 `NODE_ENV= npm install --include=dev` 형태를 권장합니다.
 
 ### 크로스 컴파일 예시
 
